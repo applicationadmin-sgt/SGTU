@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Direct Always Active Window Detection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .test-card { background: white; margin: 15px 0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .result { margin: 10px 0; padding: 15px; border-radius: 5px; border-left: 4px solid; }
+        .critical { background-color: #f5c6cb; color: #721c24; border-color: #dc3545; font-weight: bold; }
+        .high { background-color: #f8d7da; color: #721c24; border-color: #dc3545; }
+        .medium { background-color: #fff3cd; color: #856404; border-color: #ffc107; }
+        .low { background-color: #d1ecf1; color: #0c5460; border-color: #17a2b8; }
+        .pass { background-color: #d4edda; color: #155724; border-color: #28a745; }
+        button { margin: 5px; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-warning { background: #ffc107; color: black; }
+        .btn-success { background: #28a745; color: white; }
+        .evidence { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px; margin: 10px 0; }
+        .evidence-item { margin: 5px 0; padding: 5px; background: white; border-radius: 3px; border-left: 3px solid #dc3545; }
+        .details { background: #f8f9fa; border-radius: 4px; padding: 10px; margin: 10px 0; font-family: monospace; font-size: 12px; }
+        h1 { color: #333; text-align: center; }
+        h2 { color: #555; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .confidence-badge { display: inline-block; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 10px; }
+        .confidence-very-high { background: #dc3545; color: white; }
+        .confidence-high { background: #fd7e14; color: white; }
+        .confidence-medium { background: #ffc107; color: black; }
+        .confidence-low { background: #6c757d; color: white; }
+        .status-detected { color: #dc3545; font-weight: bold; }
+        .status-clean { color: #28a745; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Direct Always Active Window Detection Test</h1>
+        
+        <div class="test-card">
+            <h2>🚨 Critical Extension Detection</h2>
+            <p>This test specifically targets the Always Active Window extension using direct behavioral analysis.</p>
+            <button class="btn-primary" onclick="runDirectTest()">Run Direct Detection Test</button>
+            <button class="btn-warning" onclick="runContinuousTest()">Start Continuous Monitoring</button>
+            <button class="btn-danger" onclick="simulateExtension()">Simulate Always Active Window</button>
+            <button class="btn-success" onclick="testTabSwitching()">Manual Tab Switch Test</button>
+        </div>
+
+        <div id="results"></div>
+        
+        <div class="test-card" id="manual-test">
+            <h2>🔄 Manual Tab Switching Test</h2>
+            <p><strong>Instructions:</strong> Click "Start Manual Test" then switch to another tab and come back. The test will show if your tab switching was detected.</p>
+            <div id="manual-results" style="background: #f8f9fa; padding: 15px; border-radius: 5px; min-height: 100px;">
+                Click "Manual Tab Switch Test" to begin...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let continuousMonitoring = false;
+        let manualTestActive = false;
+
+        // Direct Always Active Window Detection Function
+        const directAlwaysActiveWindowTest = () => {
+            const results = {
+                detected: false,
+                evidence: [],
+                confidence: 'low',
+                details: []
+            };
+
+            try {
+                // Test 1: Check if document.hidden stays false when it should be true
+                const originalHidden = document.hidden;
+                results.details.push(`Initial document.hidden: ${originalHidden}`);
+
+                // Test 2: Check if visibilitychange events are being suppressed
+                let visibilityEventFired = false;
+                const testHandler = () => { visibilityEventFired = true; };
+                
+                document.addEventListener('visibilitychange', testHandler, { once: true });
+                
+                // Manually trigger visibilitychange
+                const event = new Event('visibilitychange', { bubbles: true, cancelable: true });
+                document.dispatchEvent(event);
+                
+                // Remove handler immediately
+                document.removeEventListener('visibilitychange', testHandler);
+                
+                if (!visibilityEventFired) {
+                    results.detected = true;
+                    results.evidence.push('Visibility change events are being blocked');
+                    results.confidence = 'high';
+                }
+                results.details.push(`Visibility event fired: ${visibilityEventFired}`);
+
+                // Test 3: Check for specific Always Active Window patterns
+                const checkExtensionPatterns = () => {
+                    // Check for injected scripts
+                    const scripts = Array.from(document.scripts);
+                    for (let script of scripts) {
+                        if (script.src && (
+                            script.src.includes('always') || 
+                            script.src.includes('active') ||
+                            script.src.includes('window-extension')
+                        )) {
+                            results.detected = true;
+                            results.evidence.push(`Suspicious script found: ${script.src}`);
+                            results.confidence = 'high';
+                        }
+                    }
+
+                    // Check for extension content scripts
+                    const extensionElements = document.querySelectorAll('[data-always-active], [id*="always-active"], [class*="always-active"]');
+                    if (extensionElements.length > 0) {
+                        results.detected = true;
+                        results.evidence.push(`Extension DOM elements found: ${extensionElements.length}`);
+                        results.confidence = 'high';
+                    }
+
+                    // Check for modified window properties
+                    const suspiciousProps = ['alwaysActive', 'keepAlive', 'stayAwake', 'noSleep'];
+                    suspiciousProps.forEach(prop => {
+                        if (window[prop] !== undefined) {
+                            results.detected = true;
+                            results.evidence.push(`Suspicious window property found: ${prop}`);
+                            results.confidence = 'high';
+                        }
+                    });
+                };
+
+                checkExtensionPatterns();
+
+                // Test 4: Behavior-based detection - Check if focus events are artificially maintained
+                let focusEventCount = 0;
+                const focusCounter = () => focusEventCount++;
+                
+                window.addEventListener('focus', focusCounter);
+                
+                // Trigger multiple blur/focus events rapidly
+                for (let i = 0; i < 3; i++) {
+                    window.dispatchEvent(new Event('blur'));
+                    window.dispatchEvent(new Event('focus'));
+                }
+                
+                window.removeEventListener('focus', focusCounter);
+                
+                if (focusEventCount > 3) {
+                    results.detected = true;
+                    results.evidence.push(`Abnormal focus event count: ${focusEventCount} (expected: 3 or less)`);
+                    results.confidence = 'medium';
+                }
+                results.details.push(`Focus event count: ${focusEventCount}`);
+
+                // Test 5: Check if Page Visibility API is being overridden
+                const visibilityDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+                if (visibilityDescriptor && visibilityDescriptor.get) {
+                    const getterSource = visibilityDescriptor.get.toString();
+                    if (!getterSource.includes('[native code]')) {
+                        results.detected = true;
+                        results.evidence.push('Page Visibility API has been overridden');
+                        results.confidence = 'high';
+                        results.details.push(`Hidden getter: ${getterSource.substring(0, 100)}...`);
+                    }
+                }
+
+                // Test 6: Check performance timing for extension interference
+                if (window.performance && window.performance.getEntries) {
+                    const entries = window.performance.getEntries();
+                    const extensionEntries = entries.filter(entry => 
+                        entry.name && entry.name.includes('chrome-extension://')
+                    );
+                    if (extensionEntries.length > 0) {
+                        results.detected = true;
+                        results.evidence.push(`Extension performance entries found: ${extensionEntries.length}`);
+                        results.confidence = 'medium';
+                    }
+                }
+
+                // Test 7: Direct behavioral test - simulate tab switch
+                const testTabSwitchSimulation = () => {
+                    const before = Date.now();
+                    
+                    // Simulate what happens when user switches tabs
+                    Object.defineProperty(document, 'hidden', { 
+                        value: true, 
+                        configurable: true,
+                        writable: true 
+                    });
+                    
+                    const after = Date.now();
+                    const timeTaken = after - before;
+                    
+                    // Check if the property actually changed
+                    const actuallyHidden = document.hidden === true;
+                    
+                    // Restore original state
+                    Object.defineProperty(document, 'hidden', { 
+                        value: originalHidden, 
+                        configurable: true,
+                        writable: true 
+                    });
+                    
+                    if (!actuallyHidden) {
+                        results.detected = true;
+                        results.evidence.push('Cannot modify document.hidden property - likely blocked by extension');
+                        results.confidence = 'high';
+                    }
+                    
+                    results.details.push(`Property modification test: ${actuallyHidden ? 'success' : 'blocked'}`);
+                    results.details.push(`Time to modify property: ${timeTaken}ms`);
+                };
+
+                testTabSwitchSimulation();
+
+                // Final confidence assessment
+                if (results.evidence.length >= 3) {
+                    results.confidence = 'very-high';
+                } else if (results.evidence.length >= 2) {
+                    results.confidence = 'high';
+                } else if (results.evidence.length >= 1) {
+                    results.confidence = 'medium';
+                }
+
+                results.details.push(`Final detection result: ${results.detected ? 'EXTENSION DETECTED' : 'No extension detected'}`);
+                results.details.push(`Confidence level: ${results.confidence}`);
+                results.details.push(`Evidence count: ${results.evidence.length}`);
+
+            } catch (error) {
+                results.detected = true; // Assume detection if tests fail
+                results.evidence.push(`Detection test failed: ${error.message}`);
+                results.confidence = 'medium';
+                results.details.push(`Error during detection: ${error.message}`);
+            }
+
+            return results;
+        };
+
+        function displayResult(title, content, className = 'result') {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'test-card';
+            resultDiv.innerHTML = `
+                <h2>${title}</h2>
+                <div class="${className}">${content}</div>
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        function runDirectTest() {
+            clearResults();
+            
+            const directResults = directAlwaysActiveWindowTest();
+            
+            let statusClass, statusText, confidenceClass;
+            if (directResults.detected) {
+                statusClass = directResults.confidence === 'very-high' || directResults.confidence === 'high' ? 'critical' : 
+                             directResults.confidence === 'medium' ? 'high' : 'medium';
+                statusText = 'ALWAYS ACTIVE WINDOW EXTENSION DETECTED!';
+                confidenceClass = `confidence-${directResults.confidence}`;
+            } else {
+                statusClass = 'pass';
+                statusText = 'No Always Active Window extension detected';
+                confidenceClass = 'confidence-low';
+            }
+
+            let content = `
+                <div class="result ${statusClass}">
+                    <h3><span class="status-${directResults.detected ? 'detected' : 'clean'}">${statusText}</span>
+                    <span class="confidence-badge ${confidenceClass}">Confidence: ${directResults.confidence.toUpperCase()}</span></h3>
+                </div>
+            `;
+
+            if (directResults.evidence.length > 0) {
+                content += `
+                    <h4>🚨 Detection Evidence:</h4>
+                    <div class="evidence">
+                        ${directResults.evidence.map(evidence => `<div class="evidence-item">• ${evidence}</div>`).join('')}
+                    </div>
+                `;
+            }
+
+            content += `
+                <h4>📊 Technical Details:</h4>
+                <div class="details">
+                    ${directResults.details.join('<br>')}
+                </div>
+            `;
+
+            if (directResults.detected && (directResults.confidence === 'high' || directResults.confidence === 'very-high')) {
+                content += `
+                    <div class="result critical">
+                        <h4>🚫 QUIZ ACCESS WOULD BE BLOCKED</h4>
+                        <p>Based on this detection, the quiz system would prevent access until the extension is disabled.</p>
+                        <p><strong>To fix:</strong> Go to chrome://extensions/ and disable "Always Active Window" extension</p>
+                    </div>
+                `;
+            }
+
+            displayResult('🎯 Direct Always Active Window Detection Results', content);
+        }
+
+        function runContinuousTest() {
+            if (continuousMonitoring) {
+                continuousMonitoring = false;
+                displayResult('⏹️ Continuous Monitoring Stopped', 'Monitoring has been stopped.', 'medium');
+                return;
+            }
+
+            continuousMonitoring = true;
+            clearResults();
+            displayResult('🔄 Continuous Monitoring Started', 'Running detection test every 5 seconds...', 'medium');
+
+            const runTest = () => {
+                if (!continuousMonitoring) return;
+
+                const results = directAlwaysActiveWindowTest();
+                const timestamp = new Date().toLocaleTimeString();
+                
+                let status = results.detected ? 
+                    `<span class="status-detected">DETECTED (${results.confidence})</span>` : 
+                    `<span class="status-clean">CLEAN</span>`;
+
+                displayResult(`[${timestamp}] Detection Result`, 
+                    `Status: ${status}<br>Evidence: ${results.evidence.length} items<br>Details: ${results.details.length} entries`, 
+                    results.detected ? 'critical' : 'pass');
+
+                setTimeout(runTest, 5000);
+            };
+
+            runTest();
+        }
+
+        function simulateExtension() {
+            // Simulate the Always Active Window extension behavior
+            window.alwaysActive = true;
+            window.keepAlive = true;
+            
+            // Create DOM elements that mimic the extension
+            const extensionDiv = document.createElement('div');
+            extensionDiv.id = 'always-active-window-extension';
+            extensionDiv.className = 'always-active-extension-element';
+            extensionDiv.style.display = 'none';
+            document.body.appendChild(extensionDiv);
+
+            // Override the visibility API
+            Object.defineProperty(document, 'hidden', {
+                get: () => false, // Always return false
+                configurable: true
+            });
+
+            displayResult('⚠️ Extension Simulation Active', 
+                'Always Active Window extension behavior has been simulated. Run the direct test to see detection.', 
+                'medium');
+        }
+
+        function testTabSwitching() {
+            const manualResults = document.getElementById('manual-results');
+            manualResults.innerHTML = '<strong>Manual Test Started</strong><br>Now switch to another tab and come back...<br>';
+            
+            let switchCount = 0;
+            let testStartTime = Date.now();
+            
+            const logEvent = (eventType, details) => {
+                const timestamp = new Date().toLocaleTimeString();
+                const elapsed = Date.now() - testStartTime;
+                manualResults.innerHTML += `[${timestamp}] ${eventType}: ${details} (${elapsed}ms)<br>`;
+                manualResults.scrollTop = manualResults.scrollHeight;
+            };
+
+            const visibilityHandler = () => {
+                switchCount++;
+                logEvent('Tab Switch', `Hidden: ${document.hidden}, State: ${document.visibilityState}, Count: ${switchCount}`);
+                
+                if (document.hidden) {
+                    logEvent('Tab Hidden', 'You switched away from this tab');
+                } else {
+                    logEvent('Tab Visible', 'You returned to this tab');
+                }
+            };
+
+            const focusHandler = () => {
+                logEvent('Focus', 'Window gained focus');
+            };
+
+            const blurHandler = () => {
+                logEvent('Blur', 'Window lost focus');
+            };
+
+            document.addEventListener('visibilitychange', visibilityHandler);
+            window.addEventListener('focus', focusHandler);
+            window.addEventListener('blur', blurHandler);
+
+            // Auto-stop after 30 seconds
+            setTimeout(() => {
+                document.removeEventListener('visibilitychange', visibilityHandler);
+                window.removeEventListener('focus', focusHandler);
+                window.removeEventListener('blur', blurHandler);
+                
+                logEvent('Test Complete', `Total switches detected: ${switchCount}`);
+                
+                if (switchCount === 0) {
+                    manualResults.innerHTML += '<br><div class="result critical">🚨 NO TAB SWITCHES DETECTED - Always Active Window may be active!</div>';
+                } else {
+                    manualResults.innerHTML += '<br><div class="result pass">✅ Tab switching detection working properly</div>';
+                }
+            }, 30000);
+
+            logEvent('Test Setup', 'Event listeners added, test will run for 30 seconds');
+        }
+
+        // Auto-run direct test on page load
+        window.onload = () => {
+            runDirectTest();
+        };
+    </script>
+</body>
+</html>

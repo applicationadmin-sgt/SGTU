@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Always Active Window Detection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .test-card { background: white; margin: 15px 0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .test-result { margin: 10px 0; padding: 15px; border-radius: 5px; border-left: 4px solid; }
+        .pass { background-color: #d4edda; color: #155724; border-color: #28a745; }
+        .fail { background-color: #f8d7da; color: #721c24; border-color: #dc3545; }
+        .warning { background-color: #fff3cd; color: #856404; border-color: #ffc107; }
+        .critical { background-color: #f5c6cb; color: #721c24; font-weight: bold; border-color: #dc3545; }
+        button { margin: 5px; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-warning { background: #ffc107; color: black; }
+        .btn-success { background: #28a745; color: white; }
+        .details { margin: 10px 0; padding: 15px; background: #f8f9fa; border-radius: 5px; font-family: monospace; font-size: 12px; }
+        .status { display: inline-block; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+        .status.working { background: #d4edda; color: #155724; }
+        .status.blocked { background: #f8d7da; color: #721c24; }
+        h1 { color: #333; text-align: center; }
+        h2 { color: #555; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .extension-warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Enhanced Always Active Window Detection Test</h1>
+        
+        <div class="extension-warning">
+            <h3>⚠️ Test Instructions:</h3>
+            <p>1. If you have "Always Active Window" extension installed, this test should detect it</p>
+            <p>2. Try the "Simulate Extension" button to see how the detection works</p>
+            <p>3. The real-time test specifically checks for tab switching interference</p>
+        </div>
+
+        <div class="test-card">
+            <h2>🚀 Quick Tests</h2>
+            <button class="btn-primary" onclick="runQuickTest()">Run Quick Detection Test</button>
+            <button class="btn-warning" onclick="runRealTimeTest()">Run Real-Time Tab Switch Test</button>
+            <button class="btn-danger" onclick="simulateAlwaysActive()">Simulate Always Active Window</button>
+            <button class="btn-success" onclick="runFullSecurityReport()">Run Full Security Report</button>
+        </div>
+
+        <div id="results"></div>
+        
+        <div class="test-card">
+            <h2>📊 Live Tab Switching Monitor</h2>
+            <p>Switch tabs or minimize/restore window to test real-time detection:</p>
+            <div id="live-monitor" style="background: #f8f9fa; padding: 15px; border-radius: 5px; min-height: 100px;"></div>
+            <button class="btn-primary" onclick="startLiveMonitor()">Start Live Monitor</button>
+            <button class="btn-danger" onclick="stopLiveMonitor()">Stop Monitor</button>
+        </div>
+    </div>
+
+    <script>
+        let liveMonitorActive = false;
+        let liveMonitorCleanup = null;
+
+        // Enhanced Always Active Window Detection Functions
+        const detectChromeExtensions = () => {
+            const detectedExtensions = [];
+            const warnings = [];
+            const blockedExtensions = [];
+            
+            try {
+                const problematicExtensions = [
+                    {
+                        name: 'Always Active Window',
+                        indicators: [
+                            () => window.alwaysActiveWindow !== undefined,
+                            () => document.querySelector('[data-extension="always-active-window"]'),
+                            () => window.navigator.userAgent.includes('AlwaysActiveWindow'),
+                            () => {
+                                // Test if window focus events are being artificially triggered
+                                let focusCount = 0;
+                                const testHandler = () => focusCount++;
+                                window.addEventListener('focus', testHandler);
+                                window.dispatchEvent(new Event('blur'));
+                                window.dispatchEvent(new Event('focus'));
+                                window.removeEventListener('focus', testHandler);
+                                return focusCount > 1; // Abnormal focus event behavior
+                            },
+                            () => {
+                                // Check for Always Active Window specific DOM elements
+                                const elements = document.querySelectorAll('*');
+                                for (let el of elements) {
+                                    if (el.id && el.id.toLowerCase().includes('always') && el.id.toLowerCase().includes('active')) {
+                                        return true;
+                                    }
+                                    if (el.className && el.className.toLowerCase().includes('always-active')) {
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            },
+                            () => {
+                                // Check for modified setTimeout/setInterval behavior
+                                const originalSetTimeout = window.setTimeout.toString();
+                                const originalSetInterval = window.setInterval.toString();
+                                return !originalSetTimeout.includes('[native code]') || 
+                                       !originalSetInterval.toString().includes('[native code]') ||
+                                       originalSetTimeout.includes('active') ||
+                                       originalSetInterval.includes('active');
+                            },
+                            () => {
+                                // Test if page visibility API is being overridden
+                                try {
+                                    const descriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+                                    return descriptor && descriptor.get && !descriptor.get.toString().includes('[native code]');
+                                } catch (e) {
+                                    return false;
+                                }
+                            },
+                            () => {
+                                // Immediate test: Check if visibility change events work
+                                let testWorked = false;
+                                const testHandler = () => { testWorked = true; };
+                                
+                                document.addEventListener('visibilitychange', testHandler);
+                                document.dispatchEvent(new Event('visibilitychange'));
+                                document.removeEventListener('visibilitychange', testHandler);
+                                
+                                // If event didn't trigger, something is blocking visibility events
+                                return !testWorked;
+                            }
+                        ],
+                        severity: 'CRITICAL',
+                        reason: 'Prevents proper tab switching and window focus detection during quiz'
+                    }
+                ];
+
+                // Check for each problematic extension
+                problematicExtensions.forEach(ext => {
+                    const detectedIndicators = [];
+                    ext.indicators.forEach((indicator, index) => {
+                        try {
+                            if (indicator()) {
+                                detectedIndicators.push(`Indicator ${index + 1}`);
+                            }
+                        } catch (e) {
+                            // Ignore individual test errors
+                        }
+                    });
+                    
+                    if (detectedIndicators.length > 0) {
+                        detectedExtensions.push(`${ext.name} (${ext.severity} RISK) - Detected by: ${detectedIndicators.join(', ')}`);
+                        blockedExtensions.push({
+                            name: ext.name,
+                            severity: ext.severity,
+                            reason: ext.reason,
+                            detectedBy: detectedIndicators
+                        });
+                        warnings.push(`${ext.name} detected - this extension MUST be disabled to take the quiz`);
+                    }
+                });
+
+                return {
+                    extensionsDetected: detectedExtensions.length > 0,
+                    count: detectedExtensions.length,
+                    details: detectedExtensions,
+                    warnings: warnings,
+                    blockedExtensions: blockedExtensions,
+                    canProceedToQuiz: blockedExtensions.length === 0,
+                    riskLevel: blockedExtensions.length > 0 ? 'critical' : 'none'
+                };
+
+            } catch (error) {
+                return {
+                    extensionsDetected: false,
+                    count: 0,
+                    details: [`Detection error: ${error.message}`],
+                    warnings: ['Security check failed'],
+                    blockedExtensions: [],
+                    canProceedToQuiz: false,
+                    riskLevel: 'unknown'
+                };
+            }
+        };
+
+        const performRealTimeTabSwitchTest = () => {
+            return new Promise((resolve) => {
+                const results = {
+                    visibilityApiWorking: false,
+                    focusEventsWorking: false,
+                    hiddenPropertyAccessible: false,
+                    visibilityStateAccessible: false,
+                    extensionInterference: false,
+                    overallWorking: false,
+                    details: []
+                };
+
+                // Test 1: Check if visibility API properties exist and are accessible
+                try {
+                    results.hiddenPropertyAccessible = typeof document.hidden === 'boolean';
+                    results.visibilityStateAccessible = typeof document.visibilityState === 'string';
+                    results.details.push(`Hidden property: ${results.hiddenPropertyAccessible ? 'accessible' : 'blocked'}`);
+                    results.details.push(`VisibilityState property: ${results.visibilityStateAccessible ? 'accessible' : 'blocked'}`);
+                } catch (e) {
+                    results.details.push(`Visibility API access error: ${e.message}`);
+                }
+
+                // Test 2: Test visibility change events
+                let visibilityEventCount = 0;
+                const visibilityHandler = () => {
+                    visibilityEventCount++;
+                    results.details.push(`Visibility change event triggered (count: ${visibilityEventCount})`);
+                };
+
+                document.addEventListener('visibilitychange', visibilityHandler);
+
+                // Test 3: Test focus/blur events
+                let focusEventCount = 0;
+                let blurEventCount = 0;
+                
+                const focusHandler = () => {
+                    focusEventCount++;
+                    results.details.push(`Focus event triggered (count: ${focusEventCount})`);
+                };
+                
+                const blurHandler = () => {
+                    blurEventCount++;
+                    results.details.push(`Blur event triggered (count: ${blurEventCount})`);
+                };
+
+                window.addEventListener('focus', focusHandler);
+                window.addEventListener('blur', blurHandler);
+
+                // Perform tests
+                setTimeout(() => {
+                    // Test visibility change
+                    document.dispatchEvent(new Event('visibilitychange'));
+                    
+                    // Test focus/blur
+                    window.dispatchEvent(new Event('blur'));
+                    window.dispatchEvent(new Event('focus'));
+                    
+                    setTimeout(() => {
+                        // Test manipulation detection
+                        const originalHidden = document.hidden;
+                        const originalVisibilityState = document.visibilityState;
+                        
+                        try {
+                            // Try to modify visibility state (Always Active Window might prevent this)
+                            Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+                            Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+                            
+                            document.dispatchEvent(new Event('visibilitychange'));
+                            
+                            setTimeout(() => {
+                                // Check if properties were actually changed
+                                const hiddenChanged = document.hidden === true;
+                                const visibilityChanged = document.visibilityState === 'hidden';
+                                
+                                results.details.push(`Hidden state change test: ${hiddenChanged ? 'worked' : 'blocked'}`);
+                                results.details.push(`Visibility state change test: ${visibilityChanged ? 'worked' : 'blocked'}`);
+                                
+                                // Restore original values
+                                try {
+                                    Object.defineProperty(document, 'hidden', { value: originalHidden, configurable: true });
+                                    Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true });
+                                } catch (e) {
+                                    results.details.push(`Failed to restore original values: ${e.message}`);
+                                }
+                                
+                                // Cleanup event listeners
+                                document.removeEventListener('visibilitychange', visibilityHandler);
+                                window.removeEventListener('focus', focusHandler);
+                                window.removeEventListener('blur', blurHandler);
+                                
+                                // Analyze results
+                                results.visibilityApiWorking = visibilityEventCount > 0;
+                                results.focusEventsWorking = focusEventCount > 0 && blurEventCount > 0;
+                                
+                                // Check for extension interference
+                                results.extensionInterference = 
+                                    !results.visibilityApiWorking || 
+                                    !results.focusEventsWorking ||
+                                    !hiddenChanged ||
+                                    !visibilityChanged;
+                                
+                                results.overallWorking = 
+                                    results.visibilityApiWorking && 
+                                    results.focusEventsWorking && 
+                                    !results.extensionInterference;
+                                
+                                results.details.push(`Final assessment: ${results.overallWorking ? 'Tab switching detection working' : 'Tab switching detection compromised'}`);
+                                
+                                if (results.extensionInterference) {
+                                    results.details.push('CRITICAL: Extension interference detected - Always Active Window or similar extension may be active');
+                                }
+                                
+                                resolve(results);
+                            }, 200);
+                        } catch (e) {
+                            results.details.push(`Property modification test failed: ${e.message}`);
+                            results.extensionInterference = true;
+                            resolve(results);
+                        }
+                    }, 100);
+                }, 100);
+            });
+        };
+
+        function displayResult(title, content, className = 'test-result') {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-card`;
+            resultDiv.innerHTML = `
+                <h2>${title}</h2>
+                <div class="${className}">${content}</div>
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        async function runQuickTest() {
+            clearResults();
+            
+            const extensionResults = detectChromeExtensions();
+            
+            let content = '';
+            if (extensionResults.riskLevel === 'critical') {
+                content = `<strong>CRITICAL RISK DETECTED!</strong><br>
+                          Extensions found that would BLOCK quiz access:<br>
+                          <div class="details">${extensionResults.details.join('<br>')}</div>`;
+                displayResult('🚨 Quick Extension Detection', content, 'critical');
+            } else {
+                content = `<span class="status working">PASS</span> No problematic extensions detected<br>
+                          <div class="details">Risk Level: ${extensionResults.riskLevel}</div>`;
+                displayResult('✅ Quick Extension Detection', content, 'pass');
+            }
+        }
+
+        async function runRealTimeTest() {
+            clearResults();
+            displayResult('⏳ Real-Time Test', 'Running comprehensive tab switching test...', 'warning');
+            
+            const realTimeResults = await performRealTimeTabSwitchTest();
+            
+            let content = '';
+            if (realTimeResults.extensionInterference) {
+                content = `<strong>EXTENSION INTERFERENCE DETECTED!</strong><br>
+                          <span class="status blocked">Tab switching detection is compromised</span><br>
+                          <div class="details">${realTimeResults.details.join('<br>')}</div>`;
+                displayResult('🚨 Real-Time Tab Switch Test', content, 'critical');
+            } else {
+                content = `<span class="status working">Tab switching detection working properly</span><br>
+                          <div class="details">${realTimeResults.details.join('<br>')}</div>`;
+                displayResult('✅ Real-Time Tab Switch Test', content, 'pass');
+            }
+        }
+
+        function simulateAlwaysActive() {
+            // Simulate the Always Active Window extension
+            window.alwaysActiveWindow = true;
+            
+            // Add DOM element that the extension might create
+            const extensionDiv = document.createElement('div');
+            extensionDiv.id = 'always-active-window-extension';
+            extensionDiv.style.display = 'none';
+            document.body.appendChild(extensionDiv);
+            
+            displayResult('⚠️ Simulation Active', 'Always Active Window extension simulated. Run tests to see detection.', 'warning');
+        }
+
+        async function runFullSecurityReport() {
+            clearResults();
+            displayResult('⏳ Full Security Report', 'Running comprehensive security assessment...', 'warning');
+            
+            const extensionCheck = detectChromeExtensions();
+            const realTimeTest = await performRealTimeTabSwitchTest();
+            
+            // Simulate the full security report logic
+            let overallRisk = 'low';
+            let canProceed = true;
+            let blockingReason = null;
+            
+            if (realTimeTest.extensionInterference) {
+                extensionCheck.blockedExtensions.push({
+                    name: 'Tab Switching Interference Extension',
+                    severity: 'CRITICAL',
+                    reason: 'Real-time test detected extension interference with tab switching detection'
+                });
+                extensionCheck.riskLevel = 'critical';
+                extensionCheck.canProceedToQuiz = false;
+            }
+            
+            if (extensionCheck.riskLevel === 'critical') {
+                overallRisk = 'critical';
+                canProceed = false;
+                blockingReason = 'Critical extensions detected that prevent quiz security';
+            }
+            
+            let content = `
+                <h3>📊 Security Assessment Results</h3>
+                <p><strong>Overall Risk Level:</strong> <span class="status ${canProceed ? 'working' : 'blocked'}">${overallRisk.toUpperCase()}</span></p>
+                <p><strong>Can Proceed to Quiz:</strong> <span class="status ${canProceed ? 'working' : 'blocked'}">${canProceed ? 'YES' : 'NO'}</span></p>
+                ${blockingReason ? `<p><strong>Blocking Reason:</strong> ${blockingReason}</p>` : ''}
+                
+                <h4>Extension Detection Results:</h4>
+                <div class="details">
+                    Extensions Detected: ${extensionCheck.extensionsDetected ? 'YES' : 'NO'}<br>
+                    Count: ${extensionCheck.count}<br>
+                    Risk Level: ${extensionCheck.riskLevel}<br>
+                    Can Proceed: ${extensionCheck.canProceedToQuiz ? 'YES' : 'NO'}
+                </div>
+                
+                <h4>Real-Time Test Results:</h4>
+                <div class="details">
+                    Tab Switching Working: ${realTimeTest.overallWorking ? 'YES' : 'NO'}<br>
+                    Extension Interference: ${realTimeTest.extensionInterference ? 'YES' : 'NO'}<br>
+                    Visibility API Working: ${realTimeTest.visibilityApiWorking ? 'YES' : 'NO'}<br>
+                    Focus Events Working: ${realTimeTest.focusEventsWorking ? 'YES' : 'NO'}
+                </div>
+                
+                ${extensionCheck.blockedExtensions.length > 0 ? `
+                    <h4>🚨 Blocked Extensions:</h4>
+                    <div class="details">
+                        ${extensionCheck.blockedExtensions.map(ext => 
+                            `<strong>${ext.name}</strong> (${ext.severity}): ${ext.reason}`
+                        ).join('<br>')}
+                    </div>
+                ` : ''}
+            `;
+            
+            displayResult('📋 Complete Security Report', content, canProceed ? 'pass' : 'critical');
+        }
+
+        function startLiveMonitor() {
+            if (liveMonitorActive) return;
+            
+            liveMonitorActive = true;
+            const monitorDiv = document.getElementById('live-monitor');
+            monitorDiv.innerHTML = '<strong>Live Monitor Active - Switch tabs or minimize window to test</strong><br>';
+            
+            let eventCount = 0;
+            
+            const logEvent = (eventType, details) => {
+                eventCount++;
+                const timestamp = new Date().toLocaleTimeString();
+                monitorDiv.innerHTML += `[${timestamp}] ${eventType}: ${details}<br>`;
+                monitorDiv.scrollTop = monitorDiv.scrollHeight;
+            };
+            
+            const visibilityHandler = () => {
+                logEvent('Visibility Change', `Hidden: ${document.hidden}, State: ${document.visibilityState}`);
+            };
+            
+            const focusHandler = () => {
+                logEvent('Focus', 'Window gained focus');
+            };
+            
+            const blurHandler = () => {
+                logEvent('Blur', 'Window lost focus');
+            };
+            
+            document.addEventListener('visibilitychange', visibilityHandler);
+            window.addEventListener('focus', focusHandler);
+            window.addEventListener('blur', blurHandler);
+            
+            liveMonitorCleanup = () => {
+                document.removeEventListener('visibilitychange', visibilityHandler);
+                window.removeEventListener('focus', focusHandler);
+                window.removeEventListener('blur', blurHandler);
+                logEvent('Monitor', `Stopped after ${eventCount} events`);
+                liveMonitorActive = false;
+            };
+        }
+
+        function stopLiveMonitor() {
+            if (liveMonitorCleanup) {
+                liveMonitorCleanup();
+                liveMonitorCleanup = null;
+            }
+        }
+
+        // Auto-run quick test on page load
+        window.onload = () => {
+            runQuickTest();
+        };
+
+        // Cleanup on page unload
+        window.onbeforeunload = () => {
+            stopLiveMonitor();
+        };
+    </script>
+</body>
+</html>

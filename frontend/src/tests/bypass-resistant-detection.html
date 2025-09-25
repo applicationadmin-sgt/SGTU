@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bypass-Resistant Tab Detection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .test-card { background: white; margin: 15px 0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .result { margin: 10px 0; padding: 15px; border-radius: 5px; border-left: 4px solid; }
+        .critical { background-color: #f5c6cb; color: #721c24; border-color: #dc3545; font-weight: bold; }
+        .high { background-color: #f8d7da; color: #721c24; border-color: #dc3545; }
+        .medium { background-color: #fff3cd; color: #856404; border-color: #ffc107; }
+        .low { background-color: #d1ecf1; color: #0c5460; border-color: #17a2b8; }
+        .pass { background-color: #d4edda; color: #155724; border-color: #28a745; }
+        button { margin: 5px; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-warning { background: #ffc107; color: black; }
+        .btn-success { background: #28a745; color: white; }
+        .detection-log { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 15px; margin: 10px 0; max-height: 300px; overflow-y: auto; }
+        .detection-item { margin: 5px 0; padding: 8px; background: white; border-radius: 3px; border-left: 3px solid #007bff; font-family: monospace; font-size: 12px; }
+        .detection-high { border-left-color: #dc3545; background: #fff5f5; }
+        .detection-medium { border-left-color: #ffc107; background: #fffbf0; }
+        .detection-low { border-left-color: #6c757d; background: #f8f9fa; }
+        h1 { color: #333; text-align: center; }
+        h2 { color: #555; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .tab-count { display: inline-block; padding: 8px 16px; background: #007bff; color: white; border-radius: 20px; font-weight: bold; margin: 10px; }
+        .tab-count.warning { background: #ffc107; color: black; }
+        .tab-count.danger { background: #dc3545; color: white; }
+        .instructions { background: #e3f2fd; border: 1px solid #90caf9; border-radius: 4px; padding: 15px; margin: 15px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ Bypass-Resistant Tab Detection Test</h1>
+        
+        <div class="instructions">
+            <h3>📋 Test Instructions:</h3>
+            <p>1. Click "Start Detection" to begin monitoring</p>
+            <p>2. Try switching tabs, minimizing the window, or using Alt+Tab</p>
+            <p>3. The system should detect tab switches even with "Always Active Window" extension active</p>
+            <p>4. Check the detection log for detailed information about each detection method</p>
+        </div>
+
+        <div class="test-card">
+            <h2>🎯 Detection Controls</h2>
+            <button class="btn-primary" onclick="startDetection()">Start Detection</button>
+            <button class="btn-danger" onclick="stopDetection()">Stop Detection</button>
+            <button class="btn-warning" onclick="simulateAlwaysActive()">Simulate Always Active Window</button>
+            <button class="btn-success" onclick="clearLog()">Clear Log</button>
+            
+            <div style="margin-top: 15px;">
+                <span class="tab-count" id="tab-count">Tab Switches: 0</span>
+                <span id="detection-status" style="margin-left: 15px; font-weight: bold;">Not Monitoring</span>
+            </div>
+        </div>
+
+        <div class="test-card">
+            <h2>📊 Detection Log</h2>
+            <div id="detection-log" class="detection-log">
+                Click "Start Detection" to begin monitoring...
+            </div>
+        </div>
+        
+        <div class="test-card">
+            <h2>🔬 Detection Methods Active</h2>
+            <div id="methods-status">
+                <div>🖱️ Mouse Movement Tracking: <span id="mouse-status">Inactive</span></div>
+                <div>⌨️ Keyboard Activity Tracking: <span id="keyboard-status">Inactive</span></div>
+                <div>🎬 Animation Frame Monitoring: <span id="animation-status">Inactive</span></div>
+                <div>📋 Document State Polling: <span id="document-status">Inactive</span></div>
+                <div>🌐 Network Timing Analysis: <span id="network-status">Inactive</span></div>
+                <div>👀 Intersection Observer: <span id="intersection-status">Inactive</span></div>
+                <div>⏱️ Performance Monitoring: <span id="performance-status">Inactive</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let detectionActive = false;
+        let tabSwitchCount = 0;
+        let detectionCleanup = null;
+
+        // Bypass-resistant tab switching detection
+        const startBypassResistantTabDetection = (onTabSwitch) => {
+            const detectionMethods = [];
+            let isActive = true;
+            let lastActiveTime = Date.now();
+            let activityCheckInterval;
+            let mouseMovementTimeout;
+            let keyboardActivityTimeout;
+            
+            updateMethodStatus('mouse-status', 'Active');
+            updateMethodStatus('keyboard-status', 'Active');
+            updateMethodStatus('animation-status', 'Active');
+            updateMethodStatus('document-status', 'Active');
+            updateMethodStatus('network-status', 'Active');
+            updateMethodStatus('intersection-status', 'Active');
+            updateMethodStatus('performance-status', 'Active');
+            
+            // Method 1: Mouse movement tracking
+            let mouseMovementDetected = false;
+            const mouseHandler = () => {
+                mouseMovementDetected = true;
+                lastActiveTime = Date.now();
+                clearTimeout(mouseMovementTimeout);
+                mouseMovementTimeout = setTimeout(() => {
+                    mouseMovementDetected = false;
+                }, 2000);
+            };
+            
+            // Method 2: Keyboard activity tracking
+            let keyboardActivityDetected = false;
+            const keyboardHandler = () => {
+                keyboardActivityDetected = true;
+                lastActiveTime = Date.now();
+                clearTimeout(keyboardActivityTimeout);
+                keyboardActivityTimeout = setTimeout(() => {
+                    keyboardActivityDetected = false;
+                }, 2000);
+            };
+            
+            // Method 3: Page focus tracking using requestAnimationFrame
+            let animationFrameActive = true;
+            let lastFrameTime = Date.now();
+            
+            const frameTracker = () => {
+                if (!isActive) return;
+                
+                const now = Date.now();
+                const timeSinceLastFrame = now - lastFrameTime;
+                
+                // If animation frame interval is too long, tab might be hidden
+                if (timeSinceLastFrame > 100) { // Normal frame interval should be ~16ms
+                    logDetection('🎬 Animation frame gap detected: ' + timeSinceLastFrame + 'ms');
+                    if (timeSinceLastFrame > 2000) {
+                        onTabSwitch({
+                            method: 'animation-frame',
+                            evidence: `Frame gap: ${timeSinceLastFrame}ms`,
+                            confidence: 'medium'
+                        });
+                    }
+                }
+                
+                lastFrameTime = now;
+                requestAnimationFrame(frameTracker);
+            };
+            
+            // Method 4: Performance timing analysis
+            let performanceCheckInterval;
+            const performanceCheck = () => {
+                if (!isActive) return;
+                
+                const now = performance.now();
+                const timeSinceActivity = Date.now() - lastActiveTime;
+                
+                // If no user activity for a while, likely tab switch
+                if (timeSinceActivity > 3000 && !mouseMovementDetected && !keyboardActivityDetected) {
+                    logDetection('🕒 Prolonged inactivity detected: ' + timeSinceActivity + 'ms');
+                    onTabSwitch({
+                        method: 'inactivity',
+                        evidence: `No activity for ${timeSinceActivity}ms`,
+                        confidence: 'low'
+                    });
+                }
+            };
+            
+            // Method 5: Document state polling (bypasses event blocking)
+            let documentStateInterval;
+            let lastDocumentState = {
+                hasFocus: document.hasFocus(),
+                hidden: document.hidden,
+                visibilityState: document.visibilityState
+            };
+            
+            const documentStatePoller = () => {
+                if (!isActive) return;
+                
+                const currentState = {
+                    hasFocus: document.hasFocus(),
+                    hidden: document.hidden,
+                    visibilityState: document.visibilityState
+                };
+                
+                // Check for state changes that indicate tab switching
+                if (currentState.hasFocus !== lastDocumentState.hasFocus) {
+                    logDetection('📋 Document focus change detected: ' + currentState.hasFocus);
+                    if (!currentState.hasFocus) {
+                        onTabSwitch({
+                            method: 'document-focus',
+                            evidence: 'Document lost focus',
+                            confidence: 'high'
+                        });
+                    }
+                }
+                
+                if (currentState.hidden !== lastDocumentState.hidden) {
+                    logDetection('👁️ Document hidden state change: ' + currentState.hidden);
+                    if (currentState.hidden) {
+                        onTabSwitch({
+                            method: 'document-hidden',
+                            evidence: 'Document became hidden',
+                            confidence: 'high'
+                        });
+                    }
+                }
+                
+                lastDocumentState = currentState;
+            };
+            
+            // Method 6: Network request timing (tabs often pause network activity)
+            let networkTestInterval;
+            const networkActivityTest = () => {
+                if (!isActive) return;
+                
+                const startTime = performance.now();
+                
+                // Make a small request to test network timing
+                fetch('data:text/plain,test', { method: 'HEAD' })
+                    .then(() => {
+                        const endTime = performance.now();
+                        const duration = endTime - startTime;
+                        
+                        // If request takes unusually long, tab might be throttled
+                        if (duration > 50) {
+                            logDetection('🌐 Network request delay detected: ' + duration + 'ms');
+                            onTabSwitch({
+                                method: 'network-timing',
+                                evidence: `Request delay: ${duration}ms`,
+                                confidence: 'low'
+                            });
+                        }
+                    })
+                    .catch(() => {
+                        // Ignore network errors
+                    });
+            };
+            
+            // Method 7: Intersection Observer (detects when page elements become invisible)
+            let intersectionObserver;
+            const setupIntersectionObserver = () => {
+                // Create a hidden element to observe
+                const observedElement = document.createElement('div');
+                observedElement.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+                document.body.appendChild(observedElement);
+                
+                intersectionObserver = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (!entry.isIntersecting && isActive) {
+                            logDetection('👀 Intersection observer: element not visible');
+                            onTabSwitch({
+                                method: 'intersection-observer',
+                                evidence: 'Page elements not intersecting viewport',
+                                confidence: 'medium'
+                            });
+                        }
+                    });
+                });
+                
+                intersectionObserver.observe(observedElement);
+                
+                return () => {
+                    intersectionObserver.disconnect();
+                    document.body.removeChild(observedElement);
+                };
+            };
+            
+            // Start all detection methods
+            document.addEventListener('mousemove', mouseHandler);
+            document.addEventListener('keydown', keyboardHandler);
+            document.addEventListener('keyup', keyboardHandler);
+            
+            frameTracker();
+            
+            performanceCheckInterval = setInterval(performanceCheck, 1000);
+            documentStateInterval = setInterval(documentStatePoller, 500);
+            networkTestInterval = setInterval(networkActivityTest, 5000);
+            
+            const intersectionCleanup = setupIntersectionObserver();
+            
+            // Cleanup function
+            return () => {
+                isActive = false;
+                
+                document.removeEventListener('mousemove', mouseHandler);
+                document.removeEventListener('keydown', keyboardHandler);
+                document.removeEventListener('keyup', keyboardHandler);
+                
+                clearInterval(performanceCheckInterval);
+                clearInterval(documentStateInterval);
+                clearInterval(networkTestInterval);
+                clearTimeout(mouseMovementTimeout);
+                clearTimeout(keyboardActivityTimeout);
+                
+                intersectionCleanup();
+                
+                updateMethodStatus('mouse-status', 'Inactive');
+                updateMethodStatus('keyboard-status', 'Inactive');
+                updateMethodStatus('animation-status', 'Inactive');
+                updateMethodStatus('document-status', 'Inactive');
+                updateMethodStatus('network-status', 'Inactive');
+                updateMethodStatus('intersection-status', 'Inactive');
+                updateMethodStatus('performance-status', 'Inactive');
+                
+                logDetection('🧹 Bypass-resistant tab detection cleanup completed');
+            };
+        };
+
+        function updateMethodStatus(elementId, status) {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.textContent = status;
+                element.style.color = status === 'Active' ? '#28a745' : '#6c757d';
+                element.style.fontWeight = status === 'Active' ? 'bold' : 'normal';
+            }
+        }
+
+        function logDetection(message, confidence = 'info') {
+            const logDiv = document.getElementById('detection-log');
+            const timestamp = new Date().toLocaleTimeString();
+            const logItem = document.createElement('div');
+            logItem.className = `detection-item detection-${confidence}`;
+            logItem.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(logItem);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function handleTabSwitch(detection) {
+            tabSwitchCount++;
+            updateTabCount();
+            
+            const confidenceColors = {
+                'high': '#dc3545',
+                'medium': '#ffc107',
+                'low': '#6c757d'
+            };
+            
+            logDetection(
+                `🚨 TAB SWITCH #${tabSwitchCount} DETECTED via ${detection.method} - ${detection.evidence}`,
+                detection.confidence
+            );
+            
+            // Simulate quiz behavior
+            if (tabSwitchCount >= 3) {
+                logDetection('🚫 MAXIMUM TAB SWITCHES REACHED! Quiz would be auto-submitted!', 'high');
+                document.getElementById('detection-status').innerHTML = 
+                    '<span style="color: #dc3545; font-weight: bold;">QUIZ WOULD BE LOCKED!</span>';
+            }
+        }
+
+        function updateTabCount() {
+            const countElement = document.getElementById('tab-count');
+            countElement.textContent = `Tab Switches: ${tabSwitchCount}`;
+            
+            if (tabSwitchCount >= 3) {
+                countElement.className = 'tab-count danger';
+            } else if (tabSwitchCount >= 2) {
+                countElement.className = 'tab-count warning';
+            } else {
+                countElement.className = 'tab-count';
+            }
+        }
+
+        function startDetection() {
+            if (detectionActive) return;
+            
+            detectionActive = true;
+            document.getElementById('detection-status').innerHTML = 
+                '<span style="color: #28a745; font-weight: bold;">Monitoring Active</span>';
+            
+            logDetection('🛡️ Starting bypass-resistant tab detection...');
+            detectionCleanup = startBypassResistantTabDetection(handleTabSwitch);
+        }
+
+        function stopDetection() {
+            if (!detectionActive) return;
+            
+            detectionActive = false;
+            document.getElementById('detection-status').innerHTML = 
+                '<span style="color: #6c757d; font-weight: bold;">Not Monitoring</span>';
+            
+            if (detectionCleanup) {
+                detectionCleanup();
+                detectionCleanup = null;
+            }
+            
+            logDetection('⏹️ Detection stopped by user');
+        }
+
+        function clearLog() {
+            document.getElementById('detection-log').innerHTML = 'Log cleared...';
+            tabSwitchCount = 0;
+            updateTabCount();
+        }
+
+        function simulateAlwaysActive() {
+            // Simulate the Always Active Window extension
+            window.alwaysActive = true;
+            
+            // Override document.hidden to always return false
+            Object.defineProperty(document, 'hidden', {
+                get: () => false,
+                configurable: true
+            });
+            
+            // Override document.hasFocus to always return true
+            const originalHasFocus = document.hasFocus;
+            document.hasFocus = () => true;
+            
+            logDetection('⚠️ Simulated Always Active Window extension - standard detection should be blocked');
+        }
+
+        // Standard event listeners for comparison
+        document.addEventListener('visibilitychange', () => {
+            logDetection(`👁️ Standard visibilitychange event: hidden=${document.hidden}`);
+        });
+
+        window.addEventListener('blur', () => {
+            logDetection('🌫️ Standard window blur event');
+        });
+
+        window.addEventListener('focus', () => {
+            logDetection('🔍 Standard window focus event');
+        });
+
+        // Auto-start detection
+        window.onload = () => {
+            logDetection('🚀 Page loaded - ready for testing');
+        };
+    </script>
+</body>
+</html>

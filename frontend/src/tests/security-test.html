@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Detection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-result { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .pass { background-color: #d4edda; color: #155724; }
+        .fail { background-color: #f8d7da; color: #721c24; }
+        .warning { background-color: #fff3cd; color: #856404; }
+        .critical { background-color: #f5c6cb; color: #721c24; font-weight: bold; }
+        button { margin: 5px; padding: 10px 15px; }
+        .extension-list { margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Quiz Security Detection Test</h1>
+    <p>This page tests the security detection system that prevents extensions like "Always Active Window" from interfering with quiz monitoring.</p>
+    
+    <div id="results"></div>
+    <button onclick="runTests()">Run Security Tests</button>
+    <button onclick="testTabSwitching()">Test Tab Switching Detection</button>
+    <button onclick="simulateAlwaysActiveWindow()">Simulate Always Active Window Extension</button>
+    
+    <script>
+        // Copy the security detection functions here for testing
+        
+        const detectChromeExtensions = () => {
+            const detectedExtensions = [];
+            const warnings = [];
+            const blockedExtensions = [];
+            
+            try {
+                // Method 1: Detect problematic extensions that interfere with focus/tab detection
+                const problematicExtensions = [
+                    {
+                        name: 'Always Active Window',
+                        indicators: [
+                            () => window.alwaysActiveWindow !== undefined,
+                            () => document.querySelector('[data-extension="always-active-window"]'),
+                            () => window.navigator.userAgent.includes('AlwaysActiveWindow'),
+                            () => {
+                                // Test if window focus events are being artificially triggered
+                                let focusCount = 0;
+                                const testHandler = () => focusCount++;
+                                window.addEventListener('focus', testHandler);
+                                window.dispatchEvent(new Event('blur'));
+                                window.dispatchEvent(new Event('focus'));
+                                window.removeEventListener('focus', testHandler);
+                                return focusCount > 1; // Abnormal focus event behavior
+                            }
+                        ],
+                        severity: 'CRITICAL',
+                        reason: 'Prevents proper tab switching and window focus detection during quiz'
+                    },
+                    {
+                        name: 'Stay Alive',
+                        indicators: [
+                            () => window.stayAlive !== undefined,
+                            () => document.querySelector('[id*="stay-alive"]'),
+                            () => window.setInterval.toString().includes('stayalive')
+                        ],
+                        severity: 'CRITICAL', 
+                        reason: 'Keeps tabs artificially active, interfering with quiz monitoring'
+                    }
+                ];
+
+                // Check for each problematic extension
+                problematicExtensions.forEach(ext => {
+                    const detected = ext.indicators.some(indicator => {
+                        try {
+                            return indicator();
+                        } catch (e) {
+                            return false;
+                        }
+                    });
+                    
+                    if (detected) {
+                        detectedExtensions.push(`${ext.name} (${ext.severity} RISK)`);
+                        blockedExtensions.push({
+                            name: ext.name,
+                            severity: ext.severity,
+                            reason: ext.reason
+                        });
+                        warnings.push(`${ext.name} detected - this extension MUST be disabled to take the quiz`);
+                    }
+                });
+
+                // Method 2: Test for focus/visibility API manipulation
+                const focusManipulationTest = () => {
+                    // Test if document.hidden and document.visibilityState are being manipulated
+                    const originalHidden = document.hidden;
+                    const originalVisibilityState = document.visibilityState;
+                    
+                    // Simulate tab switch
+                    Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+                    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+                    
+                    // Check if values are being overridden
+                    const isManipulated = (document.hidden === false || document.visibilityState === 'visible');
+                    
+                    // Restore original values
+                    Object.defineProperty(document, 'hidden', { value: originalHidden, configurable: true });
+                    Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true });
+                    
+                    return isManipulated;
+                };
+
+                if (focusManipulationTest()) {
+                    detectedExtensions.push('Focus/Visibility API manipulation detected');
+                    blockedExtensions.push({
+                        name: 'Focus Manipulation Extension',
+                        severity: 'CRITICAL',
+                        reason: 'Prevents detection of tab switching and window minimizing'
+                    });
+                    warnings.push('Extension detected that manipulates window focus - MUST be disabled');
+                }
+
+                // Generate warnings
+                if (blockedExtensions.length > 0) {
+                    warnings.push('CRITICAL: Extensions detected that MUST be disabled:');
+                    blockedExtensions.forEach(ext => {
+                        warnings.push(`• ${ext.name}: ${ext.reason}`);
+                    });
+                    warnings.push('Quiz access will be BLOCKED until these extensions are disabled');
+                }
+
+                return {
+                    extensionsDetected: detectedExtensions.length > 0,
+                    count: detectedExtensions.length,
+                    details: detectedExtensions,
+                    warnings: warnings,
+                    blockedExtensions: blockedExtensions,
+                    canProceedToQuiz: blockedExtensions.length === 0,
+                    riskLevel: blockedExtensions.length > 0 ? 'critical' : 
+                              detectedExtensions.length > 3 ? 'high' : 
+                              detectedExtensions.length > 1 ? 'medium' : 
+                              detectedExtensions.length > 0 ? 'low' : 'none'
+                };
+
+            } catch (error) {
+                return {
+                    extensionsDetected: false,
+                    count: 0,
+                    details: [],
+                    warnings: ['Security check failed'],
+                    blockedExtensions: [],
+                    canProceedToQuiz: false,
+                    riskLevel: 'unknown'
+                };
+            }
+        };
+
+        const testTabSwitchingDetection = () => {
+            return new Promise((resolve) => {
+                let focusEvents = 0;
+                let blurEvents = 0;
+                let visibilityChanges = 0;
+                
+                const focusHandler = () => focusEvents++;
+                const blurHandler = () => blurEvents++;
+                const visibilityHandler = () => visibilityChanges++;
+                
+                // Add event listeners
+                window.addEventListener('focus', focusHandler);
+                window.addEventListener('blur', blurHandler);
+                document.addEventListener('visibilitychange', visibilityHandler);
+                
+                // Test focus/blur events
+                setTimeout(() => {
+                    // Simulate events
+                    window.dispatchEvent(new Event('blur'));
+                    window.dispatchEvent(new Event('focus'));
+                    
+                    // Test visibility API
+                    document.dispatchEvent(new Event('visibilitychange'));
+                    
+                    setTimeout(() => {
+                        // Cleanup
+                        window.removeEventListener('focus', focusHandler);
+                        window.removeEventListener('blur', blurHandler);
+                        document.removeEventListener('visibilitychange', visibilityHandler);
+                        
+                        const isWorking = focusEvents > 0 && blurEvents > 0 && visibilityChanges > 0;
+                        
+                        resolve({
+                            isTabSwitchingDetectionWorking: isWorking,
+                            focusEvents,
+                            blurEvents,
+                            visibilityChanges,
+                            canDetectHidden: document.hidden !== undefined,
+                            canDetectVisibilityState: document.visibilityState !== undefined,
+                            warning: !isWorking ? 'Tab switching detection may be compromised by browser extensions' : null
+                        });
+                    }, 100);
+                }, 100);
+            });
+        };
+
+        function displayResult(test, result, className = 'test-result') {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = className;
+            resultDiv.innerHTML = `<strong>${test}:</strong> ${result}`;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        async function runTests() {
+            document.getElementById('results').innerHTML = '<h3>Security Test Results:</h3>';
+            
+            // Test 1: Extension Detection
+            const extensionResults = detectChromeExtensions();
+            
+            if (extensionResults.riskLevel === 'critical') {
+                displayResult('Extension Detection', 'CRITICAL RISK - Quiz would be BLOCKED', 'test-result critical');
+            } else if (extensionResults.riskLevel === 'high') {
+                displayResult('Extension Detection', 'HIGH RISK - Extensions detected', 'test-result fail');
+            } else if (extensionResults.riskLevel === 'medium') {
+                displayResult('Extension Detection', 'MEDIUM RISK - Some extensions detected', 'test-result warning');
+            } else {
+                displayResult('Extension Detection', 'PASS - No problematic extensions detected', 'test-result pass');
+            }
+
+            // Show details
+            if (extensionResults.details.length > 0) {
+                const extensionList = document.createElement('div');
+                extensionList.className = 'extension-list';
+                extensionList.innerHTML = '<strong>Detected Extensions:</strong><ul>' + 
+                    extensionResults.details.map(ext => `<li>${ext}</li>`).join('') + '</ul>';
+                document.getElementById('results').appendChild(extensionList);
+            }
+
+            if (extensionResults.blockedExtensions.length > 0) {
+                const blockedList = document.createElement('div');
+                blockedList.className = 'extension-list';
+                blockedList.style.backgroundColor = '#f8d7da';
+                blockedList.innerHTML = '<strong>BLOCKED Extensions (Must be disabled):</strong><ul>' + 
+                    extensionResults.blockedExtensions.map(ext => `<li><strong>${ext.name}</strong> (${ext.severity}): ${ext.reason}</li>`).join('') + '</ul>';
+                document.getElementById('results').appendChild(blockedList);
+            }
+
+            // Test 2: Tab Switching Detection
+            const tabResults = await testTabSwitchingDetection();
+            
+            if (tabResults.isTabSwitchingDetectionWorking) {
+                displayResult('Tab Switching Detection', 'PASS - Can detect tab switches and focus changes', 'test-result pass');
+            } else {
+                displayResult('Tab Switching Detection', 'FAIL - Tab switching detection compromised', 'test-result fail');
+            }
+
+            displayResult('Focus Events', `${tabResults.focusEvents} detected`, 'test-result');
+            displayResult('Blur Events', `${tabResults.blurEvents} detected`, 'test-result');
+            displayResult('Visibility Changes', `${tabResults.visibilityChanges} detected`, 'test-result');
+
+            // Test 3: Overall Security Assessment
+            const canProceed = extensionResults.canProceedToQuiz && tabResults.isTabSwitchingDetectionWorking;
+            
+            if (canProceed) {
+                displayResult('Overall Security', 'PASS - Safe to proceed with quiz', 'test-result pass');
+            } else {
+                displayResult('Overall Security', 'FAIL - Security issues must be resolved', 'test-result fail');
+            }
+        }
+
+        function testTabSwitching() {
+            displayResult('Tab Switch Test', 'Try switching tabs or minimizing window. Check console for events.', 'test-result');
+            
+            let switchCount = 0;
+            const handleVisibilityChange = () => {
+                switchCount++;
+                console.log(`Tab switch detected! Count: ${switchCount}, Hidden: ${document.hidden}, Visibility: ${document.visibilityState}`);
+                displayResult(`Tab Switch #${switchCount}`, `Hidden: ${document.hidden}, Visibility: ${document.visibilityState}`, 'test-result');
+            };
+
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+            
+            // Cleanup after 30 seconds
+            setTimeout(() => {
+                document.removeEventListener('visibilitychange', handleVisibilityChange);
+                displayResult('Tab Switch Test Complete', `Total switches detected: ${switchCount}`, 'test-result');
+            }, 30000);
+        }
+
+        function simulateAlwaysActiveWindow() {
+            // Simulate the Always Active Window extension
+            window.alwaysActiveWindow = true;
+            
+            // Override focus detection
+            const originalAddEventListener = window.addEventListener;
+            window.addEventListener = function(event, handler, options) {
+                if (event === 'focus' || event === 'blur') {
+                    // Simulate the extension interfering with focus events
+                    const wrappedHandler = function(...args) {
+                        console.log(`Always Active Window extension interfering with ${event} event`);
+                        // Don't call the original handler, simulating interference
+                        return;
+                    };
+                    return originalAddEventListener.call(this, event, wrappedHandler, options);
+                }
+                return originalAddEventListener.call(this, event, handler, options);
+            };
+
+            displayResult('Simulation', 'Always Active Window extension simulated - run tests to see detection', 'test-result warning');
+        }
+
+        // Auto-run tests on page load
+        window.onload = runTests;
+    </script>
+</body>
+</html>
