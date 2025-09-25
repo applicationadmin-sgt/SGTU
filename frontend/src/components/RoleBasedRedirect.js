@@ -35,7 +35,7 @@ const RoleBasedRedirect = () => {
 
         if (availableRoles.length > 0) {
           // Use role hierarchy to determine the primary role
-          const roleHierarchy = ['superadmin', 'admin', 'dean', 'hod', 'cc', 'teacher', 'student'];
+          const roleHierarchy = ['admin', 'dean', 'hod', 'teacher', 'student'];
           let primaryRole = userData.primaryRole;
           
           // If no primary role set, determine from hierarchy

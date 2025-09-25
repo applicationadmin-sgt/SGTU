@@ -47,7 +47,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { formatDistanceToNow } from 'date-fns';
 
-const HierarchicalAnnouncementBoard = ({ user }) => {
+const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
   const [announcements, setAnnouncements] = useState([]);
   const [pendingAnnouncements, setPendingAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -84,13 +84,21 @@ const HierarchicalAnnouncementBoard = ({ user }) => {
     if (user.role === 'hod') {
       loadPendingAnnouncements();
     }
-  }, []);
+  }, [currentRole]); // Re-load when currentRole changes
 
   const loadAnnouncements = async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/announcements', {
+      
+      // Build URL with currentRole parameter if provided
+      const params = new URLSearchParams();
+      if (currentRole) {
+        params.append('activeRole', currentRole);
+      }
+      const url = `/api/announcements${params.toString() ? `?${params.toString()}` : ''}`;
+      
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -584,8 +592,8 @@ const HierarchicalAnnouncementBoard = ({ user }) => {
                 )}
               </Grid>
 
-              {/* Admin/Superadmin can select all users */}
-              {(user.role === 'admin' || user.role === 'superadmin') && (
+              {/* Admin can select all users */}
+              {(user.role === 'admin') && (
                 <Grid item xs={12}>
                   <FormControlLabel
                     control={

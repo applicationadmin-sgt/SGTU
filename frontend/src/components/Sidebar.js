@@ -142,6 +142,7 @@ const Sidebar = ({ currentUser, mobileOpen = false, handleDrawerToggle = () => {
   const deanMenu = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: 'dashboard', color: theme.palette.primary.main },
     { text: 'Announcements', icon: <NotificationsActiveIcon />, path: 'announcements', color: theme.palette.primary.dark },
+    { text: 'Announcement History', icon: <HistoryIcon />, path: 'announcements/history', color: theme.palette.status?.warning },
     { text: 'Unlock Requests', icon: <LockOpenIcon />, path: 'unlock-requests', color: theme.palette.status?.error},
     { text: 'School Management', icon: <SupervisorAccountIcon />, path: 'school-management', color: theme.palette.secondary.main },
     { text: 'Departments', icon: <BusinessIcon />, path: 'departments', color: theme.palette.secondary.main },
@@ -156,6 +157,7 @@ const Sidebar = ({ currentUser, mobileOpen = false, handleDrawerToggle = () => {
     { text: 'Dashboard', icon: <DashboardIcon />, path: 'dashboard', color: theme.palette.primary.main },
     { text: 'Announcements', icon: <NotificationsActiveIcon />, path: 'announcements', color: theme.palette.primary.dark },
     { text: 'Announcement Approvals', icon: <AssignmentIcon />, path: 'announcement-approvals', color: theme.palette.status?.warning},
+    { text: 'Announcement History', icon: <HistoryIcon />, path: 'announcements/history', color: theme.palette.status?.warning },
     { text: 'Video Unlock Requests', icon: <VideoLibraryIcon />, path: 'video-unlock-requests', color: theme.palette.status?.error},
     { text: 'Quiz Management', icon: <QuizIcon />, path: 'quiz-management', color: theme.palette.secondary.main },
     { text: 'CC Management', icon: <SupervisorAccountIcon />, path: 'cc-management', color: theme.palette.secondary.main, isNew: true },
@@ -181,10 +183,10 @@ const Sidebar = ({ currentUser, mobileOpen = false, handleDrawerToggle = () => {
   });
   
   // Use strict role matching based on activeRole to prevent menu conflicts
-  if (currentRole === 'admin' || currentRole === 'superadmin') {
+  if (currentRole === 'admin') {
     menu = adminMenu;
     basePath = '/admin';
-    roleName = currentRole === 'superadmin' ? 'Super Admin' : 'Administrator';
+    roleName = 'Administrator';
     roleColor = theme.palette.roles?.admin || theme.palette.primary.dark;
   } else if (currentRole === 'dean') {
     menu = deanMenu;
@@ -196,7 +198,7 @@ const Sidebar = ({ currentUser, mobileOpen = false, handleDrawerToggle = () => {
     basePath = '/hod';
     roleName = 'HOD';
     roleColor = theme.palette.roles?.hod || theme.palette.primary.main;
-  } else if (currentRole === 'teacher' || currentRole === 'cc') {
+  } else if (currentRole === 'teacher') {
     // Filter teacher menu based on permissions and CC status
     menu = teacherMenu.filter(item => {
       // Special case: Hide CC Management if user is not currently a CC

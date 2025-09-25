@@ -11,8 +11,16 @@ import AssignCourseDialog from '../../components/admin/AssignCourseDialog';
 // Helper to check permission
 function hasPermission(user, perm) {
   if (!user) return false;
+  
+  // Check if user has admin role in roles array (new format)
+  if (user.roles && user.roles.includes('admin')) return true;
+  
+  // Check legacy role field
   if (user.role === 'admin') return true;
+  
+  // Check specific permissions
   if (Array.isArray(user.permissions) && (user.permissions.includes('*') || user.permissions.includes(perm))) return true;
+  
   return false;
 }
 

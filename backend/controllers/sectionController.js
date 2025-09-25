@@ -344,7 +344,11 @@ exports.getTeacherStudentConnections = async (req, res) => {
     console.log(`[getTeacherStudentConnections] Request user:`, req.user);
     
     // Allow admin to access any teacher's sections, but teachers can only access their own
-    if (req.user.role === 'teacher' && req.user._id.toString() !== teacherId) {
+    const userRoles = req.user.roles || [req.user.role];
+    const isTeacher = userRoles.includes('teacher');
+    const isAdmin = userRoles.includes('admin');
+    
+    if (isTeacher && !isAdmin && req.user._id.toString() !== teacherId) {
       console.log(`[getTeacherStudentConnections] Teacher ${req.user._id} trying to access ${teacherId} - unauthorized`);
       return res.status(403).json({ message: 'You can only access your own sections' });
     }

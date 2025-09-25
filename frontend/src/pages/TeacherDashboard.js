@@ -46,7 +46,7 @@ import QuizAnalytics from './teacher/QuizAnalytics';
 import TeacherSections from '../components/teacher/TeacherSections';
 import TeacherSectionAnalytics from '../components/teacher/TeacherSectionAnalytics';
 import TeacherProfile from '../components/TeacherProfile';
-import TeacherAnnouncementHistory from '../components/teacher/TeacherAnnouncementHistory';
+import TeacherAnnouncementHistory from './teacher/TeacherAnnouncementHistory';
 import TeacherCCManagement from './teacher/TeacherCCManagement';
 import QuizUnlockDashboard from '../components/teacher/QuizUnlockDashboard';
 import VideoUnlockDashboard from '../components/teacher/VideoUnlockDashboard';
@@ -121,13 +121,11 @@ const TeacherDashboard = () => {
     
     // Get the correct dashboard route for the target role
     const routes = {
-      admin: '/admin/dashboard',
-      superadmin: '/admin/dashboard', 
+      admin: '/admin/dashboard', 
       dean: '/dean/dashboard',
       hod: '/hod/dashboard',
       teacher: '/teacher/dashboard',
-      student: '/student/dashboard',
-      cc: '/teacher/dashboard' // Course coordinators use teacher dashboard
+      student: '/student/dashboard'
     };
     
     const targetRoute = routes[targetRole] || '/dashboard';
@@ -367,22 +365,18 @@ const TeacherDashboard = () => {
                 // Role labels and icons
                 const roleLabels = {
                   admin: 'Administrator',
-                  superadmin: 'Super Admin',
                   dean: 'Dean',
                   hod: 'HOD',
                   teacher: 'Teacher',
-                  student: 'Student',
-                  cc: 'Course Coordinator'
+                  student: 'Student'
                 };
                 
                 const roleIcons = {
                   admin: '👑',
-                  superadmin: '⚡',
                   dean: '🏛️',
                   hod: '🏢',
                   teacher: '👨‍🏫',
-                  student: '🎓',
-                  cc: '📚'
+                  student: '🎓'
                 };
                 
                 // Return the menu items

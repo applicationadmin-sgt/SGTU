@@ -246,7 +246,10 @@ const HODManagement = () => {
       const response = await axios.get('/api/admin/teachers', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setTeachers(response.data.filter(teacher => teacher.role === 'teacher'));
+      // Filter teachers to include users with teacher role (both new roles array and legacy role field)
+      setTeachers(response.data.filter(teacher => 
+        (teacher.roles && teacher.roles.includes('teacher')) || teacher.role === 'teacher'
+      ));
     } catch (error) {
       showSnackbar('Error fetching teachers', 'error');
     }

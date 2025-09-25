@@ -44,8 +44,6 @@ router.get('/courses', adminController.getAllCourses);
 router.get('/courses/department/:departmentId', adminController.getCoursesByDepartment);
 // Get all students
 router.get('/students', adminController.getAllStudents);
-// Get all teachers
-router.get('/teachers', adminController.getAllTeachers);
 // Get all users
 router.get('/users', adminController.getAllUsers);
 // Get all schools
@@ -91,7 +89,7 @@ router.post('/teacher', authorizePermissions('manage_teachers'), adminController
 router.post('/teacher/bulk', authorizePermissions('manage_teachers'), upload.single('file'), adminController.bulkUploadTeachers);
 router.post('/teacher/reset-password', authorizePermissions('manage_teachers'), adminController.resetTeacherPassword);
 router.patch('/teacher/:id/deactivate', authorizePermissions('manage_teachers'), adminController.deactivateTeacher);
-router.get('/teachers', authorizePermissions('manage_teachers'), adminController.getAllTeachers);
+router.get('/teachers', adminController.getAllTeachers);
 
 // Student management
 router.post('/student', adminController.createStudent);

@@ -37,12 +37,12 @@ const authorizePermissions = (...permissions) => (req, res, next) => {
     return res.status(401).json({ message: 'Authentication required' });
   }
   
-  // Check if user has admin role (admin has full access)
+  // Check if user has admin role (they have full access)
   const userRoles = req.user.roles || [req.user.role]; // Support both new and legacy format
   if (userRoles.includes('admin')) return next();
   
   if (!req.user.permissions || !permissions.some(p => req.user.permissions.includes(p))) {
-    return res.status(403).json({ message: 'Insufficient permissions' });
+    return res.status(403).json({ message: 'You do not have permission to manage teachers.' });
   }
   next();
 };

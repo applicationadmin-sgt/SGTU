@@ -94,13 +94,11 @@ const AdminDashboard = () => {
     
     // Get the correct dashboard route for the target role
     const routes = {
-      admin: '/admin/dashboard',
-      superadmin: '/admin/dashboard', 
+      admin: '/admin/dashboard', 
       dean: '/dean/dashboard',
       hod: '/hod/dashboard',
       teacher: '/teacher/dashboard',
-      student: '/student/dashboard',
-      cc: '/teacher/dashboard' // Course coordinators use teacher dashboard
+      student: '/student/dashboard'
     };
     
     const targetRoute = routes[targetRole] || '/dashboard';
@@ -339,22 +337,18 @@ const AdminDashboard = () => {
               // Role labels and icons
               const roleLabels = {
                 admin: 'Administrator',
-                superadmin: 'Super Admin',
                 dean: 'Dean',
                 hod: 'HOD',
                 teacher: 'Teacher',
-                student: 'Student',
-                cc: 'Course Coordinator'
+                student: 'Student'
               };
               
               const roleIcons = {
                 admin: '👑',
-                superadmin: '⚡',
                 dean: '🏛️',
                 hod: '🏢',
                 teacher: '👨‍🏫',
-                student: '🎓',
-                cc: '📚'
+                student: '🎓'
               };
               
               // Return the menu items
@@ -889,7 +883,7 @@ const AdminDashboard = () => {
                   <AnalyticsDashboard />
                 </Box>
               } />
-              <Route path="teachers" element={<TeacherManagement />} />
+              <Route path="teachers" element={<TeacherManagement currentUser={user} />} />
               <Route path="students" element={<StudentManagement />} />
               <Route path="courses" element={<CourseManagement />} />
               <Route path="schools" element={<SchoolManagement />} />

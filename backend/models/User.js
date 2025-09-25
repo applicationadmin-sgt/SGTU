@@ -15,18 +15,18 @@ const userSchema = new mongoose.Schema({
   // Multi-role system - each user can have multiple roles
   roles: [{ 
     type: String, 
-    enum: ['admin', 'teacher', 'student', 'dean', 'hod', 'cc', 'superadmin']
+    enum: ['admin', 'teacher', 'student', 'dean', 'hod']
   }],
   primaryRole: { 
     type: String, 
-    enum: ['admin', 'teacher', 'student', 'dean', 'hod', 'cc', 'superadmin']
+    enum: ['admin', 'teacher', 'student', 'dean', 'hod']
   },
   
   // Role-specific assignments - each role can have different school/department contexts
   roleAssignments: [{
     role: { 
       type: String, 
-      enum: ['admin', 'teacher', 'student', 'dean', 'hod', 'cc', 'superadmin'],
+      enum: ['admin', 'teacher', 'student', 'dean', 'hod'],
       required: true
     },
     school: { 
@@ -47,7 +47,7 @@ const userSchema = new mongoose.Schema({
   }],
   
   // Legacy field for backward compatibility (will be removed after migration)
-  role: { type: String, enum: ['admin', 'teacher', 'student', 'dean', 'hod', 'cc', 'superadmin'] },
+  role: { type: String, enum: ['admin', 'teacher', 'student', 'dean', 'hod'] },
   permissions: [{ type: String }], // e.g., ['manage_teachers', 'manage_students']
   
   // Hierarchy fields

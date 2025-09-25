@@ -41,6 +41,8 @@ import DeanAnalytics from './dean/DeanAnalytics';
 import DeanSchoolManagement from './dean/DeanSchoolManagement';
 import DeanSectionAnalytics from './dean/DeanSectionAnalytics';
 import DeanQuizUnlockDashboard from '../components/dean/DeanQuizUnlockDashboard';
+import DeanAnnouncements from './dean/DeanAnnouncements';
+import DeanAnnouncementHistory from './dean/DeanAnnouncementHistory';
 import MyTeachingSections from '../components/common/MyTeachingSections';
 
 const DeanDashboard = () => {
@@ -207,12 +209,10 @@ const DeanDashboard = () => {
     // Get the correct dashboard route for the target role
     const routes = {
       admin: '/admin/dashboard',
-      superadmin: '/admin/dashboard', 
       dean: '/dean/dashboard',
       hod: '/hod/dashboard',
       teacher: '/teacher/dashboard',
-      student: '/student/dashboard',
-      cc: '/teacher/dashboard'
+      student: '/student/dashboard'
     };
     
     const targetRoute = routes[targetRole] || '/dashboard';
@@ -398,22 +398,18 @@ const DeanDashboard = () => {
                 // Role labels and icons
                 const roleLabels = {
                   admin: 'Administrator',
-                  superadmin: 'Super Admin',
                   dean: 'Dean',
                   hod: 'HOD',
                   teacher: 'Teacher',
-                  student: 'Student',
-                  cc: 'Course Coordinator'
+                  student: 'Student'
                 };
                 
                 const roleIcons = {
                   admin: '👑',
-                  superadmin: '⚡',
                   dean: '🏛️',
                   hod: '🏢',
                   teacher: '👨‍🏫',
-                  student: '🎓',
-                  cc: '📚'
+                  student: '🎓'
                 };
                 
                 // Return the menu items
@@ -815,7 +811,8 @@ const DeanDashboard = () => {
                 <Route path="/school-management" element={<DeanSchoolManagement />} />
                 <Route path="/teachers" element={<DeanTeachers />} />
                 <Route path="/analytics" element={<DeanAnalytics />} />
-                <Route path="/announcements" element={<AnnouncementManagementPage />} />
+                <Route path="/announcements" element={<DeanAnnouncements />} />
+                <Route path="/announcements/history" element={<DeanAnnouncementHistory />} />
                 <Route path="/unlock-requests" element={<DeanQuizUnlockDashboard />} />
                 <Route path="/teaching-sections" element={<MyTeachingSections />} />
                 <Route path="*" element={<Navigate to="/dean/dashboard" replace />} />

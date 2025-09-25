@@ -20,13 +20,13 @@ exports.bulkMessage = async (req, res) => {
     if (target === 'students') users = await User.find({ 
       $or: [
         { role: 'student', isActive: true },
-        { roles: 'student', isActive: true }
+        { roles: { $in: ['student'] }, isActive: true }
       ]
     });
     else if (target === 'teachers') users = await User.find({ 
       $or: [
         { role: 'teacher', isActive: true },
-        { roles: 'teacher', isActive: true }
+        { roles: { $in: ['teacher'] }, isActive: true }
       ]
     });
     else return res.status(400).json({ message: 'Invalid target' });
@@ -162,7 +162,7 @@ exports.getAllTeachers = async (req, res) => {
     const teachers = await User.find({ 
       $or: [
         { role: 'teacher' },
-        { roles: 'teacher' }
+        { roles: { $in: ['teacher'] } }
       ]
     })
       .populate('coursesAssigned', 'title courseCode description');
@@ -295,7 +295,7 @@ exports.getTeachersByDepartment = async (req, res) => {
     
     let departmentId;
     
-    if (userRole === 'admin' || userRole === 'superadmin') {
+    if (userRole === 'admin') {
       // Admin can specify department or get all teachers
       departmentId = req.query.departmentId;
       if (!departmentId) {
@@ -313,7 +313,10 @@ exports.getTeachersByDepartment = async (req, res) => {
     }
     
     const teachers = await User.find({ 
-      role: 'teacher',
+      $or: [
+        { roles: { $in: ['teacher'] } },
+        { role: 'teacher' }
+      ],
       department: departmentId 
     })
       .populate('department', 'name code')
@@ -483,6 +486,108 @@ exports.getTeachersByDepartment = async (req, res) => {
       
       res.json({ message: 'Announcement deleted successfully.' });
     } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  };
+
+  // Get all announcements for admin management
+  exports.getAllAnnouncements = async (req, res) => {
+    try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 20;
+      const skip = (page - 1) * limit;
+      
+      const { role, status, search } = req.query;
+      
+      // Build filter
+      let filter = {};
+      if (role && role !== 'all') {
+        filter.role = role;
+      }
+      if (status && status !== 'all') {
+        filter.approvalStatus = status;
+      }
+      if (search) {
+        filter.$or = [
+          { title: { $regex: search, $options: 'i' } },
+          { message: { $regex: search, $options: 'i' } }
+        ];
+      }
+      
+      const total = await Announcement.countDocuments(filter);
+      const announcements = await Announcement.find(filter)
+        .populate('sender', 'name email teacherId regNo')
+        .populate('approvedBy', 'name email')
+        .populate('targetAudience.specificUsers', 'name email role')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean();
+      
+      // Format announcements with detailed participant info
+      const formattedAnnouncements = announcements.map(ann => {
+        let participantCount = 0;
+        let participantDetails = [];
+        
+        // Calculate participants based on recipients (legacy) or targetAudience
+        if (ann.recipients && Array.isArray(ann.recipients)) {
+          // Legacy recipients field
+          participantDetails = ann.recipients.map(role => ({ type: 'role', value: role }));
+          participantCount = ann.recipients.length;
+        } else if (ann.targetAudience) {
+          // Modern targetAudience structure
+          if (ann.targetAudience.targetRoles) {
+            participantDetails.push(...ann.targetAudience.targetRoles.map(role => ({ type: 'role', value: role })));
+          }
+          if (ann.targetAudience.specificUsers && Array.isArray(ann.targetAudience.specificUsers)) {
+            participantDetails.push(...ann.targetAudience.specificUsers.map(user => ({
+              type: 'user',
+              value: user.name || user.email,
+              role: user.role,
+              id: user._id
+            })));
+            participantCount = ann.targetAudience.specificUsers.length;
+          }
+        }
+        
+        return {
+          _id: ann._id,
+          title: ann.title,
+          message: ann.message,
+          role: ann.role,
+          sender: {
+            _id: ann.sender._id,
+            name: ann.sender.name,
+            email: ann.sender.email,
+            id: ann.sender.teacherId || ann.sender.regNo
+          },
+          participantCount,
+          participantDetails,
+          approvalStatus: ann.approvalStatus || 'approved',
+          requiresApproval: ann.requiresApproval || false,
+          approvedBy: ann.approvedBy ? {
+            _id: ann.approvedBy._id,
+            name: ann.approvedBy.name,
+            email: ann.approvedBy.email
+          } : null,
+          approvedAt: ann.approvedAt,
+          createdAt: ann.createdAt,
+          interSchoolRequest: ann.interSchoolRequest || false,
+          schoolScope: ann.targetAudience?.schoolScope
+        };
+      });
+      
+      res.json({
+        announcements: formattedAnnouncements,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
+    } catch (err) {
+      console.error('Error getting all announcements:', err);
       res.status(500).json({ message: err.message });
     }
   };
@@ -1032,7 +1137,7 @@ exports.updateUserRoles = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
     
-    const validRoles = ['admin', 'dean', 'hod', 'teacher', 'student', 'cc', 'superadmin'];
+    const validRoles = ['admin', 'dean', 'hod', 'teacher', 'student'];
     const invalidRoles = roles.filter(role => !validRoles.includes(role));
     if (invalidRoles.length > 0) {
       return res.status(400).json({ 
@@ -1081,8 +1186,8 @@ exports.updateUserRoles = async (req, res) => {
       user.primaryRole = primaryRole;
       user.role = primaryRole; // Backward compatibility
     } else if (!newRoles.includes(user.primaryRole)) {
-      // Set primary role based on hierarchy: superadmin > admin > dean > hod > teacher > cc > student
-      const roleHierarchy = ['superadmin', 'admin', 'dean', 'hod', 'teacher', 'cc', 'student'];
+      // Set primary role based on hierarchy: admin > dean > hod > teacher > student
+      const roleHierarchy = ['admin', 'dean', 'hod', 'teacher', 'student'];
       user.primaryRole = roleHierarchy.find(role => newRoles.includes(role)) || newRoles[0];
       user.role = user.primaryRole; // Backward compatibility
     }

@@ -20,7 +20,7 @@ export const UserRoleProvider = ({ children }) => {
 
   // Role hierarchy for determining primary role (highest priority first)
   const getRoleHierarchy = () => {
-    return ['superadmin', 'admin', 'dean', 'hod', 'cc', 'teacher', 'student'];
+    return ['admin', 'dean', 'hod', 'teacher', 'student'];
   };
 
   // Get the highest priority role from available roles
@@ -121,13 +121,11 @@ export const UserRoleProvider = ({ children }) => {
   // Get dashboard route for a role
   const getDashboardRoute = (role) => {
     const routes = {
-      superadmin: '/admin/dashboard',
       admin: '/admin/dashboard', 
       dean: '/dean/dashboard',
       hod: '/hod/dashboard',
       teacher: '/teacher/dashboard',
-      student: '/student/dashboard',
-      cc: '/teacher/dashboard' // Course coordinators use teacher dashboard
+      student: '/student/dashboard'
     };
     return routes[role] || '/dashboard';
   };
@@ -139,8 +137,8 @@ export const UserRoleProvider = ({ children }) => {
 
   // Check if user can access a specific role (for permissions)
   const canAccessRole = (role) => {
-    // Admin/Superadmin can access any role for testing purposes
-    if (hasRole('admin') || hasRole('superadmin')) {
+    // Admin can access any role for testing purposes
+    if (hasRole('admin')) {
       return true;
     }
     return hasRole(role);
@@ -154,12 +152,6 @@ export const UserRoleProvider = ({ children }) => {
         color: '#d32f2f', 
         icon: '👑',
         description: 'System Administration'
-      },
-      superadmin: { 
-        name: 'Super Admin', 
-        color: '#7b1fa2', 
-        icon: '⚡',
-        description: 'Full System Control'
       },
       dean: { 
         name: 'Dean', 
@@ -184,12 +176,6 @@ export const UserRoleProvider = ({ children }) => {
         color: '#5d4037', 
         icon: '🎓',
         description: 'Student'
-      },
-      cc: { 
-        name: 'Course Coordinator', 
-        color: '#00796b', 
-        icon: '📚',
-        description: 'Course Management'
       }
     };
     return roleInfo[role] || { 

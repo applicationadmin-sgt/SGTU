@@ -658,21 +658,63 @@ exports.uploadCourseVideo = async (req, res) => {
         return res.status(400).json({ message: 'Title, message, and target sections are required.' });
       }
       
-      // Verify teacher is assigned to all specified sections (support single or multi-teacher fields)
-      const teacherSections = await Section.find({ 
-        $or: [{ teacher: req.user._id }, { teachers: req.user._id }],
-        _id: { $in: targetSections } 
-      }).populate('department', 'name hod');
+      // Verify teacher is assigned to all specified sections using SectionCourseTeacher model
+      const SectionCourseTeacher = require('../models/SectionCourseTeacher');
+      const teacherAssignments = await SectionCourseTeacher.find({ 
+        teacher: req.user._id,
+        section: { $in: targetSections },
+        isActive: true
+      }).populate('section', 'name');
       
-      if (teacherSections.length !== targetSections.length) {
+      // Get unique sections from assignments
+      const authorizedSections = [...new Set(teacherAssignments.map(assignment => assignment.section._id.toString()))];
+      
+      if (authorizedSections.length !== targetSections.length) {
         return res.status(403).json({ message: 'Not authorized for some of the selected sections.' });
       }
       
-      // Get the HOD for approval (assuming all sections are in same department)
-      const department = teacherSections[0].department;
-      if (!department || !department.hod) {
-        return res.status(400).json({ message: 'No HOD found for approval.' });
+      // Get the teacher's department and HOD for approval
+      const User = require('../models/User');
+      const teacher = await User.findById(req.user._id).populate({
+        path: 'department',
+        select: 'name hod school',
+        populate: [
+          {
+            path: 'hod',
+            select: 'name email _id'
+          },
+          {
+            path: 'school',
+            select: 'name dean',
+            populate: {
+              path: 'dean',
+              select: 'name email _id'
+            }
+          }
+        ]
+      });
+      
+      console.log('Teacher Department:', teacher.department);
+      console.log('Department HOD:', teacher.department?.hod);
+      console.log('School Dean:', teacher.department?.school?.dean);
+      console.log('Current user ID:', req.user._id);
+      
+      if (!teacher.department) {
+        return res.status(400).json({ message: 'Teacher is not assigned to any department.' });
       }
+      
+      if (!teacher.department.hod) {
+        return res.status(400).json({ message: 'No HOD assigned to teacher\'s department.' });
+      }
+      
+      // Check if the current user is the HOD of their own department
+      const isUserHOD = teacher.department.hod._id.toString() === req.user._id.toString();
+      
+      // Check if the current user is the Dean of their school
+      const isUserDean = teacher.department.school?.dean?._id.toString() === req.user._id.toString();
+      
+      // Auto-approve if user is either HOD or Dean
+      const canAutoApprove = isUserHOD || isUserDean;
       
       const announcement = new Announcement({
         sender: req.user._id,
@@ -683,30 +725,41 @@ exports.uploadCourseVideo = async (req, res) => {
           targetSections: targetSections,
           targetRoles: ['student']
         },
-        requiresApproval: true,
-        approvalStatus: 'pending',
-        hodReviewRequired: true
+        requiresApproval: !canAutoApprove, // If user is HOD or Dean, no approval needed
+        approvalStatus: canAutoApprove ? 'approved' : 'pending',
+        hodReviewRequired: !canAutoApprove,
+        ...(canAutoApprove && {
+          approvedBy: req.user._id,
+          approvedAt: new Date(),
+          approvalComments: isUserHOD 
+            ? 'Auto-approved (sender is HOD)' 
+            : 'Auto-approved (sender is Dean)'
+        })
       });
       
       await announcement.save();
       
-      // Send notification to HOD for approval
-      const NotificationController = require('./notificationController');
-      await NotificationController.createNotification({
-        type: 'announcement_approval',
-        recipient: department.hod,
-        message: `New announcement from ${req.user.name} requires your approval: "${title}"`,
-        data: { 
-          announcementId: announcement._id, 
-          senderName: req.user.name,
-          sectionsCount: targetSections.length 
-        }
-      });
+      // Send notification to HOD for approval (only if user is not HOD or Dean)
+      if (!canAutoApprove) {
+        const NotificationController = require('./notificationController');
+        await NotificationController.createNotification({
+          type: 'announcement_approval',
+          recipient: teacher.department.hod._id,
+          message: `New announcement from ${req.user.name} requires your approval: "${title}"`,
+          data: { 
+            announcementId: announcement._id, 
+            senderName: req.user.name,
+            sectionsCount: targetSections.length 
+          }
+        });
+      }
       
       res.json({ 
-        message: 'Announcement submitted for HOD approval successfully.',
+        message: canAutoApprove 
+          ? `Announcement created and auto-approved successfully (${isUserHOD ? 'as HOD' : 'as Dean'}).`
+          : 'Announcement submitted for HOD approval successfully.',
         announcementId: announcement._id,
-        status: 'pending_approval'
+        status: canAutoApprove ? 'approved' : 'pending_approval'
       });
     } catch (err) {
       console.error('Error creating section announcement:', err);
@@ -1362,42 +1415,107 @@ function generateActivityHeatmap(watchHistory) {
 // Get teacher's announcement history with approval status
 exports.getAnnouncementHistory = async (req, res) => {
   try {
-    const teacherId = req.user.id;
-    
-    // Get all announcements created by this teacher
-    const announcements = await Announcement.find({ 
-      sender: teacherId,
+    const { page = 1, limit = 10, status, dateFrom, dateTo } = req.query;
+    const pageNum = Math.max(parseInt(page), 1);
+    const limitNum = Math.max(parseInt(limit), 1);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Build filter
+    const filter = { 
+      sender: req.user._id,
       role: 'teacher'
-    })
-    .populate('approvedBy', 'name email')
-    .populate('targetAudience.targetSections', 'name')
-    .sort({ createdAt: -1 });
+    };
+
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      filter.approvalStatus = status;
+    }
+
+    if (dateFrom || dateTo) {
+      filter.createdAt = {};
+      if (dateFrom) filter.createdAt.$gte = new Date(dateFrom);
+      if (dateTo) filter.createdAt.$lte = new Date(dateTo + 'T23:59:59.999Z');
+    }
+
+    // Get all announcements created by this teacher
+    const announcements = await Announcement.find(filter)
+      .populate('approvedBy', 'name email role')
+      .populate('targetAudience.specificUsers', 'name email role regNo teacherId')
+      .populate('targetAudience.targetSections', 'name')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
+
+    const total = await Announcement.countDocuments(filter);
 
     // Format the response
-    const history = announcements.map(announcement => ({
-      id: announcement._id,
-      title: announcement.title,
-      message: announcement.message,
-      targetSections: announcement.targetAudience.targetSections.map(section => section.name),
-      status: announcement.approvalStatus,
-      submittedAt: announcement.createdAt,
-      approvedBy: announcement.approvedBy ? {
-        name: announcement.approvedBy.name,
-        email: announcement.approvedBy.email
-      } : null,
-      approvalNote: announcement.approvalNote,
-      isVisible: announcement.approvalStatus === 'approved' && announcement.isActive
-    }));
+    const history = announcements.map(announcement => {
+      // Count participants by role
+      const participants = announcement.targetAudience?.specificUsers || [];
+      const participantStats = participants.reduce((acc, user) => {
+        if (!user) return acc;
+        const userRole = user.role;
+        acc[userRole] = (acc[userRole] || 0) + 1;
+        acc.total = (acc.total || 0) + 1;
+        return acc;
+      }, {});
+
+      // Format participant details
+      const participantDetails = participants.map(user => {
+        if (!user) return null;
+        return {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          uid: user.regNo || user.teacherId || user._id
+        };
+      }).filter(Boolean);
+
+      return {
+        _id: announcement._id,
+        title: announcement.title,
+        message: announcement.message,
+        createdAt: announcement.createdAt,
+        updatedAt: announcement.updatedAt,
+        targetSections: announcement.targetAudience?.targetSections?.map(section => section.name) || [],
+        targetRoles: announcement.targetAudience?.targetRoles || [],
+        participantStats,
+        participantDetails,
+        approvalStatus: announcement.approvalStatus,
+        requiresApproval: announcement.requiresApproval,
+        submittedAt: announcement.createdAt,
+        approvedBy: announcement.approvedBy ? {
+          _id: announcement.approvedBy._id,
+          name: announcement.approvedBy.name,
+          email: announcement.approvedBy.email,
+          role: announcement.approvedBy.role
+        } : null,
+        approvalNote: announcement.approvalNote,
+        approvalComments: announcement.approvalComments,
+        isVisible: announcement.approvalStatus === 'approved' && announcement.isActive
+      };
+    });
 
     res.json({
       announcements: history,
-      totalCount: announcements.length,
-      pendingCount: announcements.filter(a => a.approvalStatus === 'pending').length,
-      approvedCount: announcements.filter(a => a.approvalStatus === 'approved').length,
-      rejectedCount: announcements.filter(a => a.approvalStatus === 'rejected').length
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(total / limitNum),
+        totalItems: total,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < Math.ceil(total / limitNum),
+        hasPreviousPage: pageNum > 1
+      },
+      summary: {
+        totalCount: total,
+        pendingCount: await Announcement.countDocuments({ sender: req.user._id, role: 'teacher', approvalStatus: 'pending' }),
+        approvedCount: await Announcement.countDocuments({ sender: req.user._id, role: 'teacher', approvalStatus: 'approved' }),
+        rejectedCount: await Announcement.countDocuments({ sender: req.user._id, role: 'teacher', approvalStatus: 'rejected' })
+      }
     });
   } catch (error) {
-    console.error('Error fetching announcement history:', error);
+    console.error('Error fetching teacher announcement history:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };

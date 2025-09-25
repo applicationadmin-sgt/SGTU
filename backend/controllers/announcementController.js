@@ -27,7 +27,7 @@ const getTargetRecipients = async (sender, targetAudience) => {
   let recipients = [];
   
   try {
-    // All users (admin/superadmin only)
+    // All users (admin only)
     if (targetAudience.allUsers) {
       recipients = await User.find({ isActive: true }).select('_id');
       return recipients.map(r => r._id);
@@ -42,7 +42,13 @@ const getTargetRecipients = async (sender, targetAudience) => {
     // Role/School/Department intersection targeting (for dean/hod use cases)
     const attributeFilters = [];
     if (targetAudience.targetRoles && targetAudience.targetRoles.length > 0) {
-      attributeFilters.push({ role: { $in: targetAudience.targetRoles } });
+      // Support both new roles array and legacy role field
+      attributeFilters.push({ 
+        $or: [
+          { roles: { $in: targetAudience.targetRoles } },
+          { role: { $in: targetAudience.targetRoles } }
+        ]
+      });
     }
     if (targetAudience.targetSchools && targetAudience.targetSchools.length > 0) {
       attributeFilters.push({ school: { $in: targetAudience.targetSchools } });
@@ -92,7 +98,10 @@ const getTargetRecipients = async (sender, targetAudience) => {
       // Also get users directly enrolled in courses (not just through sections)
       if (targetAudience.includeStudents) {
         const courseStudents = await User.find({
-          role: 'student',
+          $or: [
+            { roles: { $in: ['student'] } },
+            { role: 'student' }
+          ],
           coursesAssigned: { $in: targetAudience.targetCourses },
           isActive: true
         }).select('_id');
@@ -101,7 +110,10 @@ const getTargetRecipients = async (sender, targetAudience) => {
       
       if (targetAudience.includeTeachers) {
         const courseTeachers = await User.find({
-          role: 'teacher',
+          $or: [
+            { roles: { $in: ['teacher'] } },
+            { role: 'teacher' }
+          ],
           coursesAssigned: { $in: targetAudience.targetCourses },
           isActive: true
         }).select('_id');
@@ -144,7 +156,6 @@ exports.createAnnouncement = async (req, res) => {
     
     switch (senderRole) {
       case 'admin':
-      case 'superadmin':
         allowedToCreate = true;
         break;
         
@@ -286,6 +297,7 @@ exports.createAnnouncement = async (req, res) => {
       title,
       message,
       targetAudience,
+      recipients: targetAudience.targetRoles || [], // Populate legacy field for backward compatibility
       priority: priority || 'normal',
       scheduledFor: scheduledFor ? new Date(scheduledFor) : undefined,
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
@@ -306,7 +318,10 @@ exports.createAnnouncement = async (req, res) => {
           if (senderRole === 'teacher') {
             // Teacher flow: notify HOD(s) for approval
             const hods = await User.find({
-              role: 'hod',
+              $or: [
+                { roles: 'hod' },
+                { role: 'hod' }
+              ],
               department: context.department?._id,
               isActive: true
             }).select('_id');
@@ -336,7 +351,7 @@ exports.createAnnouncement = async (req, res) => {
             });
           }
         } else {
-          // Immediate publish (admin/superadmin/dean/hod): notify recipients
+          // Immediate publish (admin/dean/hod): notify recipients
           const recipients = await getTargetRecipients(senderId, targetAudience);
           // Avoid notifying the sender
           const recipientsToNotify = recipients.filter(r => r.toString() !== senderId.toString());
@@ -379,7 +394,7 @@ exports.getAnnouncements = async (req, res) => {
   try {
     const userId = req.user._id;
     const userRole = req.user.role;
-    const { status = 'all', page = 1, limit = 20 } = req.query;
+    const { status = 'all', page = 1, limit = 20, activeRole } = req.query;
     
     // Get user's hierarchy context
     const context = await getUserHierarchyContext(userId);
@@ -392,25 +407,39 @@ exports.getAnnouncements = async (req, res) => {
     }
     
     // Role-based filtering
-    if (userRole === 'admin' || userRole === 'superadmin' || userRole === 'dean') {
-      // Admins/Deans see all announcements
+    const userRoles = req.user.roles || [req.user.role];
+    const isAdmin = userRoles.includes('admin');
+    const isDean = userRoles.includes('dean');
+    
+    if (isAdmin && !activeRole) {
+      // Admins see all announcements only when no activeRole is specified
       if (status === 'pending') {
         query.approvalStatus = 'pending';
       } else {
-        // For 'all' and other statuses, show approved announcements
         query.approvalStatus = 'approved';
       }
     } else {
-      // Non-admins only see approved announcements targeted to them
+      // All other cases: filter by role context
       query.approvalStatus = 'approved';
+      
+      // Determine which role to filter by
+      const filterRole = activeRole || userRole;
+      
+      // Validate that the user actually has the activeRole they're claiming
+      if (activeRole && !userRoles.includes(activeRole)) {
+        return res.status(403).json({ message: 'You do not have access to that role' });
+      }
       
       const targetConditions = [
         { 'targetAudience.allUsers': true },
-        { 'targetAudience.targetRoles': userRole },
-        { 'targetAudience.targetRoles': { $exists: false } }, // Handle missing targetRoles
-        { 'targetAudience.targetRoles': { $size: 0 } }, // Handle empty targetRoles array
+        { 'targetAudience.targetRoles': filterRole },
         { 'targetAudience.specificUsers': userId }
       ];
+      
+      // If no activeRole specified and user is not admin, fall back to checking all user roles
+      if (!activeRole && !isAdmin && userRoles && userRoles.length > 0) {
+        targetConditions.push({ 'targetAudience.targetRoles': { $in: userRoles } });
+      }
       
       if (context.school) {
         targetConditions.push({ 'targetAudience.targetSchools': context.school._id });
@@ -481,7 +510,7 @@ exports.moderateAnnouncement = async (req, res) => {
     // Check permissions
     let canModerate = false;
     
-    if (moderatorRole === 'admin' || moderatorRole === 'superadmin') {
+    if (moderatorRole === 'admin') {
       canModerate = true;
     } else if (moderatorRole === 'hod') {
       // HOD can moderate announcements from teachers in their department
@@ -533,7 +562,6 @@ exports.getTargetingOptions = async (req, res) => {
     
     switch (userRole) {
       case 'admin':
-      case 'superadmin':
     options.roles = ['admin', 'dean', 'hod', 'teacher', 'student'];
     options.schools = await School.find({ isActive: true }).select('name code');
     options.departments = await Department.find({ isActive: true }).select('name code school');
@@ -565,12 +593,30 @@ exports.getTargetingOptions = async (req, res) => {
 
           // Load users in dean's school grouped by department
           const [hods, teachers, students] = await Promise.all([
-            User.find({ role: 'hod', school: context.school._id, isActive: true })
-              .select('name email department'),
-            User.find({ role: 'teacher', school: context.school._id, isActive: true })
-              .select('name email department teacherId'),
-            User.find({ role: 'student', school: context.school._id, isActive: true })
-              .select('name email regNo department')
+            User.find({ 
+              $or: [
+                { roles: 'hod' },
+                { role: 'hod' }
+              ], 
+              school: context.school._id, 
+              isActive: true 
+            }).select('name email department'),
+            User.find({ 
+              $or: [
+                { roles: { $in: ['teacher'] } },
+                { role: 'teacher' }
+              ], 
+              school: context.school._id, 
+              isActive: true 
+            }).select('name email department teacherId'),
+            User.find({ 
+              $or: [
+                { roles: { $in: ['student'] } },
+                { role: 'student' }
+              ], 
+              school: context.school._id, 
+              isActive: true 
+            }).select('name email regNo department')
           ]);
 
           options.hods = hods;
@@ -651,7 +697,10 @@ exports.getTargetingOptions = async (req, res) => {
           // Get all teachers in HOD's department with their courses (from legacy coursesAssigned)
           const departmentTeachers = await User.find({
             department: context.department._id,
-            role: 'teacher',
+            $or: [
+              { roles: { $in: ['teacher'] } },
+              { role: 'teacher' }
+            ],
             isActive: true
           }).select('name email teacherId coursesAssigned assignedSections').populate('coursesAssigned', 'title courseCode');
           
@@ -668,7 +717,10 @@ exports.getTargetingOptions = async (req, res) => {
           
           // Get all students in HOD's department with their course enrollments
           const departmentStudents = await User.find({
-            role: 'student',
+            $or: [
+              { roles: { $in: ['student'] } },
+              { role: 'student' }
+            ],
             isActive: true,
             department: context.department._id
           }).select('name email regNo coursesAssigned assignedSections').populate('coursesAssigned', 'title courseCode').populate('assignedSections', 'name');
@@ -837,7 +889,11 @@ exports.getPendingApprovals = async (req, res) => {
     const pendingAnnouncements = await Announcement.find({
       approvalStatus: 'pending',
       hodReviewRequired: true,
-      role: 'teacher'
+      $or: [
+        { role: 'teacher' },
+        { 'sender.roles': 'teacher' },
+        { 'sender.role': 'teacher' }
+      ]
     })
   .populate('sender', 'name email department')
   .populate('targetAudience.targetSections', 'name courses')
@@ -1024,7 +1080,7 @@ exports.getAnnouncementHistory = async (req, res) => {
     const userRole = req.user.role;
     
     // Only admins can view edit history
-    if (userRole !== 'admin' && userRole !== 'superadmin') {
+    if (userRole !== 'admin') {
       return res.status(403).json({ message: 'Not authorized to view edit history' });
     }
     

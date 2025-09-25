@@ -1770,6 +1770,202 @@ const getAvailableSectionsForTeacherCourse = async (req, res) => {
   }
 };
 
+// GET /api/hod/announcements/history
+function getHODAnnouncementHistory(req, res) {
+  return (async () => {
+    try {
+      const { page = 1, limit = 10, status, dateFrom, dateTo } = req.query;
+      const pageNum = Math.max(parseInt(page), 1);
+      const limitNum = Math.max(parseInt(limit), 1);
+      const skip = (pageNum - 1) * limitNum;
+
+      // Build filter
+      const filter = { 
+        sender: req.user._id,
+        role: 'hod'
+      };
+
+      if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+        filter.approvalStatus = status;
+      }
+
+      if (dateFrom || dateTo) {
+        filter.createdAt = {};
+        if (dateFrom) filter.createdAt.$gte = new Date(dateFrom);
+        if (dateTo) filter.createdAt.$lte = new Date(dateTo + 'T23:59:59.999Z');
+      }
+
+      // Get announcements with populated data
+      const announcements = await Announcement.find(filter)
+        .populate('targetAudience.specificUsers', 'name email role regNo teacherId')
+        .populate('approvedBy', 'name email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean();
+
+      const total = await Announcement.countDocuments(filter);
+
+      // Format response data
+      const formattedAnnouncements = announcements.map(announcement => {
+        // Count participants by role
+        const participants = announcement.targetAudience?.specificUsers || [];
+        const participantStats = participants.reduce((acc, user) => {
+          if (!user) return acc;
+          const userRole = user.role;
+          acc[userRole] = (acc[userRole] || 0) + 1;
+          acc.total = (acc.total || 0) + 1;
+          return acc;
+        }, {});
+
+        // Format participant details
+        const participantDetails = participants.map(user => {
+          if (!user) return null;
+          return {
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            uid: user.regNo || user.teacherId || user._id
+          };
+        }).filter(Boolean);
+
+        return {
+          _id: announcement._id,
+          title: announcement.title,
+          message: announcement.message,
+          createdAt: announcement.createdAt,
+          updatedAt: announcement.updatedAt,
+          approvalStatus: announcement.approvalStatus,
+          requiresApproval: announcement.requiresApproval,
+          targetRoles: announcement.targetAudience?.targetRoles || [],
+          participantStats,
+          participantDetails,
+          approvedBy: announcement.approvedBy ? {
+            _id: announcement.approvedBy._id,
+            name: announcement.approvedBy.name,
+            email: announcement.approvedBy.email
+          } : null,
+          approvalNote: announcement.approvalNote,
+          approvalComments: announcement.approvalComments
+        };
+      });
+
+      res.json({
+        announcements: formattedAnnouncements,
+        pagination: {
+          currentPage: pageNum,
+          totalPages: Math.ceil(total / limitNum),
+          totalItems: total,
+          itemsPerPage: limitNum,
+          hasNextPage: pageNum < Math.ceil(total / limitNum),
+          hasPreviousPage: pageNum > 1
+        }
+      });
+
+    } catch (err) {
+      console.error('Error fetching HOD announcement history:', err);
+      res.status(500).json({ message: err.message });
+    }
+  })();
+}
+
+// GET /api/hod/approvals/history - Announcements that HOD approved for teachers
+function getHODApprovalHistory(req, res) {
+  return (async () => {
+    try {
+      const { page = 1, limit = 10, dateFrom, dateTo } = req.query;
+      const pageNum = Math.max(parseInt(page), 1);
+      const limitNum = Math.max(parseInt(limit), 1);
+      const skip = (pageNum - 1) * limitNum;
+
+      // Build filter - find announcements approved BY this HOD
+      const filter = { 
+        approvedBy: req.user._id,
+        approvalStatus: 'approved',
+        role: 'teacher' // Only teacher announcements that this HOD approved
+      };
+
+      if (dateFrom || dateTo) {
+        filter.approvedAt = {};
+        if (dateFrom) filter.approvedAt.$gte = new Date(dateFrom);
+        if (dateTo) filter.approvedAt.$lte = new Date(dateTo + 'T23:59:59.999Z');
+      }
+
+      // Get approved announcements with sender details
+      const announcements = await Announcement.find(filter)
+        .populate('sender', 'name email role teacherId')
+        .populate('targetAudience.specificUsers', 'name email role regNo teacherId')
+        .sort({ approvedAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean();
+
+      const total = await Announcement.countDocuments(filter);
+
+      // Format response data
+      const formattedAnnouncements = announcements.map(announcement => {
+        // Count participants by role
+        const participants = announcement.targetAudience?.specificUsers || [];
+        const participantStats = participants.reduce((acc, user) => {
+          if (!user) return acc;
+          const userRole = user.role;
+          acc[userRole] = (acc[userRole] || 0) + 1;
+          acc.total = (acc.total || 0) + 1;
+          return acc;
+        }, {});
+
+        // Format participant details
+        const participantDetails = participants.map(user => {
+          if (!user) return null;
+          return {
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            uid: user.regNo || user.teacherId || user._id
+          };
+        }).filter(Boolean);
+
+        return {
+          _id: announcement._id,
+          title: announcement.title,
+          message: announcement.message,
+          createdAt: announcement.createdAt,
+          approvedAt: announcement.approvedAt,
+          approvalComments: announcement.approvalComments,
+          sender: announcement.sender ? {
+            _id: announcement.sender._id,
+            name: announcement.sender.name,
+            email: announcement.sender.email,
+            role: announcement.sender.role,
+            uid: announcement.sender.teacherId || announcement.sender._id
+          } : null,
+          targetRoles: announcement.targetAudience?.targetRoles || [],
+          participantStats,
+          participantDetails
+        };
+      });
+
+      res.json({
+        approvals: formattedAnnouncements,
+        pagination: {
+          currentPage: pageNum,
+          totalPages: Math.ceil(total / limitNum),
+          totalItems: total,
+          itemsPerPage: limitNum,
+          hasNextPage: pageNum < Math.ceil(total / limitNum),
+          hasPreviousPage: pageNum > 1
+        }
+      });
+
+    } catch (err) {
+      console.error('Error fetching HOD approval history:', err);
+      res.status(500).json({ message: err.message });
+    }
+  })();
+}
+
 module.exports = {
   getHODDashboard,
   getPendingAnnouncements,
@@ -1802,7 +1998,9 @@ module.exports = {
   getApprovedQuestions,
   updateQuizQuestion,
   deleteQuizQuestion,
-  createQuizQuestion
+  createQuizQuestion,
+  getHODAnnouncementHistory,
+  getHODApprovalHistory
 };
 
 // Assign a Course Coordinator (CC) to a course (HOD only)
@@ -2227,3 +2425,4 @@ async function createQuizQuestion(req, res) {
     return res.status(500).json({ message: 'Internal server error' });
   }
 }
+

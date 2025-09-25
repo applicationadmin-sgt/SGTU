@@ -8,11 +8,14 @@ const Unit = require('../models/Unit');
 const StudentProgress = require('../models/StudentProgress');
 const QuizAttempt = require('../models/QuizAttempt');
 const SectionCourseTeacher = require('../models/SectionCourseTeacher');
+const Announcement = require('../models/Announcement');
 const mongoose = require('mongoose');
 
 // Ensure requester is dean and get school
 async function getDeanSchool(req) {
-  if (req.user.role !== 'dean') {
+  // Support multi-role users
+  const userRoles = req.user.roles || [req.user.role];
+  if (!userRoles.includes('dean')) {
     const err = new Error('Access denied: Dean only');
     err.status = 403;
     throw err;
@@ -1202,4 +1205,398 @@ exports.exportSectionAnalyticsCsv = async (req, res) => {
     res.status(err.status || 500).json({ message: err.message });
   }
 };
+
+// GET /api/dean/announcement/options
+exports.getAnnouncementOptions = async (req, res) => {
+  try {
+    const dean = await User.findById(req.user._id).populate({
+      path: 'school',
+      select: 'name _id',
+      populate: {
+        path: 'departments',
+        select: 'name _id hod',
+        populate: {
+          path: 'hod',
+          select: 'name email _id'
+        }
+      }
+    });
+
+    if (!dean.school) {
+      return res.status(400).json({ message: 'Dean is not assigned to any school.' });
+    }
+
+    // Get all schools for "other schools" option
+    const allSchools = await School.find({ _id: { $ne: dean.school._id } })
+      .select('name _id')
+      .lean();
+
+    // Get dean's school departments with HODs
+    const mySchoolDepartments = dean.school.departments.map(dept => ({
+      _id: dept._id,
+      name: dept.name,
+      hod: dept.hod ? {
+        _id: dept.hod._id,
+        name: dept.hod.name,
+        email: dept.hod.email
+      } : null
+    }));
+
+    // Get ALL teachers in dean's school (not grouped by department)
+    const allTeachers = await User.find({
+      $or: [
+        { roles: { $in: ['teacher'] } },
+        { role: 'teacher' }
+      ],
+      school: dean.school._id,
+      isActive: true
+    }).select('name email teacherId _id department').populate('department', 'name').lean();
+
+    // Remove duplicates based on _id
+    const uniqueTeachers = allTeachers.filter((teacher, index, self) => 
+      index === self.findIndex(t => t._id.toString() === teacher._id.toString())
+    );
+
+    // Get ALL HODs in dean's school
+    const allHODs = dean.school.departments
+      .filter(dept => dept.hod)
+      .map(dept => ({
+        _id: dept.hod._id,
+        name: dept.hod.name,
+        email: dept.hod.email,
+        department: {
+          _id: dept._id,
+          name: dept.name
+        }
+      }));
+
+    // Get ALL sections in dean's school (sections are connected to school, not department)
+    const allSections = await Section.find({
+      school: dean.school._id,
+      isActive: true
+    }).select('name _id students').populate('students', 'name email regNo').lean();
+
+    const sectionsData = allSections.map(section => ({
+      _id: section._id,
+      name: section.name,
+      studentCount: section.students?.length || 0,
+      students: section.students || []
+    }));
+
+    res.json({
+      mySchool: {
+        _id: dean.school._id,
+        name: dean.school.name,
+        departments: mySchoolDepartments,
+        teachers: uniqueTeachers,
+        hods: allHODs,
+        sections: sectionsData
+      },
+      otherSchools: allSchools
+    });
+  } catch (err) {
+    console.error('Error getting dean announcement options:', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/dean/announcement
+exports.createDeanAnnouncement = async (req, res) => {
+  try {
+    const { title, message, schoolScope, targetRoles, targetSchools, teachers, hods, sections } = req.body;
+
+    if (!title || !message || !schoolScope || !targetRoles || !Array.isArray(targetRoles) || targetRoles.length === 0) {
+      return res.status(400).json({ 
+        message: 'Title, message, school scope, and target roles are required.' 
+      });
+    }
+
+    const dean = await User.findById(req.user._id).populate('school', 'name _id');
+
+    if (!dean.school) {
+      return res.status(400).json({ message: 'Dean is not assigned to any school.' });
+    }
+
+    const Announcement = require('../models/Announcement');
+    let recipients = [];
+    let targetAudience = {
+      targetRoles: targetRoles,
+      schoolScope: schoolScope
+    };
+
+    // Handle school scope
+    if (schoolScope === 'mySchool') {
+      // Process each target role for dean's school - NO department dependency
+      
+      if (targetRoles.includes('hod')) {
+        if (hods && hods.length > 0) {
+          // Use specifically selected HODs
+          recipients.push(...hods);
+        } else {
+          // Get ALL HODs in dean's school
+          const allDepartments = await Department.find({
+            school: dean.school._id,
+            hod: { $ne: null }
+          }).populate('hod', '_id').lean();
+          
+          recipients.push(...allDepartments.map(dept => dept.hod._id));
+        }
+      }
+
+      if (targetRoles.includes('teacher')) {
+        if (teachers && teachers.length > 0) {
+          // Use specifically selected teachers
+          recipients.push(...teachers);
+        } else {
+          // Get ALL teachers in dean's school
+          const allTeachers = await User.find({
+            $or: [
+              { roles: { $in: ['teacher'] } },
+              { role: 'teacher' }
+            ],
+            school: dean.school._id,
+            isActive: true
+          }).select('_id').lean();
+          
+          recipients.push(...allTeachers.map(teacher => teacher._id));
+        }
+      }
+
+      if (targetRoles.includes('student')) {
+        if (sections && sections.length > 0) {
+          // Get students from specifically selected sections
+          const selectedSections = await Section.find({
+            _id: { $in: sections },
+            school: dean.school._id
+          }).populate('students', '_id').lean();
+          
+          selectedSections.forEach(section => {
+            if (section.students) {
+              recipients.push(...section.students.map(student => student._id));
+            }
+          });
+        } else {
+          // Get ALL students in dean's school (from all sections)
+          const allSections = await Section.find({
+            school: dean.school._id,
+            isActive: true
+          }).populate('students', '_id').lean();
+          
+          allSections.forEach(section => {
+            if (section.students) {
+              recipients.push(...section.students.map(student => student._id));
+            }
+          });
+        }
+      }
+
+      // Create announcement for own school
+      const announcement = new Announcement({
+        sender: req.user._id,
+        role: 'dean',
+        title,
+        message,
+        targetAudience: {
+          ...targetAudience,
+          specificUsers: [...new Set(recipients.map(id => id.toString()))]
+        },
+        requiresApproval: false,
+        approvalStatus: 'approved',
+        hodReviewRequired: false,
+        approvedBy: req.user._id,
+        approvedAt: new Date(),
+        approvalComments: 'Auto-approved (sender is Dean)'
+      });
+
+      await announcement.save();
+
+      res.json({ 
+        message: 'Dean announcement created successfully.',
+        announcementId: announcement._id,
+        recipientsCount: recipients.length,
+        status: 'approved'
+      });
+
+    } else if (schoolScope === 'otherSchools') {
+      // Inter-school announcements - send to target school deans for approval
+      
+      if (!targetSchools || !Array.isArray(targetSchools) || targetSchools.length === 0) {
+        return res.status(400).json({ message: 'Target schools must be selected for inter-school announcements.' });
+      }
+
+      // Get target school deans
+      const targetSchoolData = await School.find({
+        _id: { $in: targetSchools }
+      }).populate('dean', '_id name email').lean();
+
+      if (targetSchoolData.length === 0) {
+        return res.status(400).json({ message: 'No valid target schools found.' });
+      }
+
+      // Create approval request announcements for each target school dean
+      const approvalRequests = [];
+      
+      for (const school of targetSchoolData) {
+        if (school.dean) {
+          const approvalRequest = new Announcement({
+            sender: req.user._id,
+            role: 'dean',
+            title: `[INTER-SCHOOL REQUEST] ${title}`,
+            message: `${message}\n\n--- \nThis is an inter-school announcement request from ${dean.school.name}. Please review and approve to distribute to your school.`,
+            targetAudience: {
+              ...targetAudience,
+              targetSchool: school._id,
+              originalTargetRoles: targetRoles,
+              specificUsers: [school.dean._id]
+            },
+            requiresApproval: true,
+            approvalStatus: 'pending',
+            hodReviewRequired: false,
+            interSchoolRequest: true,
+            sourceSchool: dean.school._id,
+            targetSchool: school._id
+          });
+
+          await approvalRequest.save();
+          approvalRequests.push(approvalRequest);
+
+          // Send notification to target dean
+          const NotificationController = require('./notificationController');
+          if (NotificationController && NotificationController.createNotification) {
+            await NotificationController.createNotification({
+              type: 'inter_school_announcement_request',
+              recipient: school.dean._id,
+              message: `Inter-school announcement request from ${dean.school.name}: "${title}"`,
+              data: { 
+                announcementId: approvalRequest._id,
+                sourceSchool: dean.school.name,
+                senderName: dean.name
+              }
+            });
+          }
+        }
+      }
+
+      res.json({ 
+        message: `Inter-school announcement requests sent to ${approvalRequests.length} school dean(s) for approval.`,
+        approvalRequestIds: approvalRequests.map(req => req._id),
+        targetSchools: targetSchoolData.length,
+        status: 'pending_approval'
+      });
+    }
+
+  } catch (err) {
+    console.error('Error creating dean announcement:', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/dean/announcements/history
+exports.getDeanAnnouncementHistory = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, status, dateFrom, dateTo } = req.query;
+    const pageNum = Math.max(parseInt(page), 1);
+    const limitNum = Math.max(parseInt(limit), 1);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Build filter
+    const filter = { 
+      sender: req.user._id,
+      role: 'dean'
+    };
+
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      filter.approvalStatus = status;
+    }
+
+    if (dateFrom || dateTo) {
+      filter.createdAt = {};
+      if (dateFrom) filter.createdAt.$gte = new Date(dateFrom);
+      if (dateTo) filter.createdAt.$lte = new Date(dateTo + 'T23:59:59.999Z');
+    }
+
+    // Get announcements with populated data
+    const announcements = await Announcement.find(filter)
+      .populate('targetAudience.specificUsers', 'name email role regNo teacherId')
+      .populate('approvedBy', 'name email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
+
+    const total = await Announcement.countDocuments(filter);
+
+    // Format response data
+    const formattedAnnouncements = announcements.map(announcement => {
+      // Count participants by role
+      const participants = announcement.targetAudience?.specificUsers || [];
+      const participantStats = participants.reduce((acc, user) => {
+        if (!user) return acc;
+        const userRole = user.role;
+        acc[userRole] = (acc[userRole] || 0) + 1;
+        acc.total = (acc.total || 0) + 1;
+        return acc;
+      }, {});
+
+      // Format participant details
+      const participantDetails = participants.map(user => {
+        if (!user) return null;
+        return {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          uid: user.regNo || user.teacherId || user._id
+        };
+      }).filter(Boolean);
+
+      return {
+        _id: announcement._id,
+        title: announcement.title,
+        message: announcement.message,
+        createdAt: announcement.createdAt,
+        updatedAt: announcement.updatedAt,
+        approvalStatus: announcement.approvalStatus,
+        requiresApproval: announcement.requiresApproval,
+        interSchoolRequest: announcement.interSchoolRequest || false,
+        sourceSchool: announcement.sourceSchool ? {
+          _id: announcement.sourceSchool._id,
+          name: announcement.sourceSchool.name
+        } : null,
+        targetSchool: announcement.targetSchool ? {
+          _id: announcement.targetSchool._id,
+          name: announcement.targetSchool.name
+        } : null,
+        schoolScope: announcement.targetAudience?.schoolScope || 'mySchool',
+        targetRoles: announcement.targetAudience?.targetRoles || [],
+        participantStats,
+        participantDetails,
+        approvedBy: announcement.approvedBy ? {
+          _id: announcement.approvedBy._id,
+          name: announcement.approvedBy.name,
+          email: announcement.approvedBy.email
+        } : null,
+        approvalNote: announcement.approvalNote,
+        approvalComments: announcement.approvalComments
+      };
+    });
+
+    res.json({
+      announcements: formattedAnnouncements,
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(total / limitNum),
+        totalItems: total,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < Math.ceil(total / limitNum),
+        hasPreviousPage: pageNum > 1
+      }
+    });
+
+  } catch (err) {
+    console.error('Error fetching dean announcement history:', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
 // ...existing code...

@@ -82,7 +82,7 @@ function App() {
         <Route 
           path="/admin/*" 
           element={
-            <PrivateRoute allowedRoles={['admin', 'superadmin']}>
+            <PrivateRoute allowedRoles={['admin']}>
               <AdminDashboard />
             </PrivateRoute>
           } 
@@ -90,7 +90,7 @@ function App() {
         <Route 
           path="/dean/*" 
           element={
-            <PrivateRoute allowedRoles={['dean', 'admin', 'superadmin']}>
+            <PrivateRoute allowedRoles={['dean', 'admin']}>
               <DeanDashboard />
             </PrivateRoute>
           } 
@@ -98,7 +98,7 @@ function App() {
         <Route 
           path="/hod/*" 
           element={
-            <PrivateRoute allowedRoles={['hod', 'admin', 'superadmin']}>
+            <PrivateRoute allowedRoles={['hod', 'admin']}>
               <HODDashboard />
             </PrivateRoute>
           } 
@@ -106,7 +106,7 @@ function App() {
         <Route 
           path="/teacher/*" 
           element={
-            <PrivateRoute allowedRoles={['teacher', 'cc', 'admin', 'superadmin']}>
+            <PrivateRoute allowedRoles={['teacher', 'admin']}>
               <TeacherDashboard />
             </PrivateRoute>
           } 
@@ -114,7 +114,7 @@ function App() {
         <Route 
           path="/cc/*" 
           element={
-            <PrivateRoute allowedRoles={['cc', 'admin', 'superadmin']}>
+            <PrivateRoute allowedRoles={['teacher', 'admin']}>
               <CCDashboard />
             </PrivateRoute>
           } 
@@ -122,7 +122,7 @@ function App() {
         <Route 
           path="/student/*" 
           element={
-            <PrivateRoute allowedRoles={['student', 'admin', 'superadmin']}>
+            <PrivateRoute allowedRoles={['student', 'admin']}>
               <StudentDashboard />
             </PrivateRoute>
           } 

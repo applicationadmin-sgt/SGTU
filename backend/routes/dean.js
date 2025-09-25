@@ -28,4 +28,9 @@ router.get('/sections', deanController.getSections);
 // Get dean's assigned sections and teaching assignments
 // router.get('/assignments', deanController.getDeanAssignments); // TODO: Implement getDeanAssignments
 
+// Announcement management routes
+router.get('/announcement/options', deanController.getAnnouncementOptions);
+router.post('/announcement', deanController.createDeanAnnouncement);
+router.get('/announcements/history', deanController.getDeanAnnouncementHistory);
+
 module.exports = router;

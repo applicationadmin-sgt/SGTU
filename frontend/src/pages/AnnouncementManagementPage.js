@@ -21,19 +21,19 @@ import HODApprovalDashboard from '../components/HODApprovalDashboard';
 import HODApprovalHistory from '../components/HODApprovalHistory';
 import { parseJwt } from '../utils/jwt';
 
-const AnnouncementManagementPage = () => {
+const AnnouncementManagementPage = ({ currentRole }) => {
   const token = localStorage.getItem('token');
   const user = parseJwt(token);
   const [activeTab, setActiveTab] = useState(0);
 
-  const canManagePermissions = user.role === 'hod' || user.role === 'admin' || user.role === 'superadmin';
-  const canApproveAnnouncements = user.role === 'hod' || user.role === 'admin' || user.role === 'superadmin';
+  const canManagePermissions = user.role === 'hod' || user.role === 'admin';
+  const canApproveAnnouncements = user.role === 'hod' || user.role === 'admin';
   const canViewApprovalHistory = canApproveAnnouncements; // same roles
 
   const renderTabContent = () => {
     switch (activeTab) {
       case 0:
-        return <HierarchicalAnnouncementBoard user={user} />;
+        return <HierarchicalAnnouncementBoard user={user} currentRole={currentRole} />;
       case 1:
         return canApproveAnnouncements ? (
           <HODApprovalDashboard />

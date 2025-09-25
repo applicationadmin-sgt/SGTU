@@ -653,7 +653,16 @@ const AnnouncementBoard = ({ role, token, teacherCourses, userId }) => {
                       <>
                         <GroupsIcon fontSize="small" sx={{ mr: 0.5, color: theme.palette.primary.main }} />
                         <Typography variant="caption" component="span">
-                          To: {announcement.recipients?.map(r => r === 'teacher' ? 'Teachers' : 'Students').join(', ')}
+                          To: {announcement.recipients?.map(r => {
+                            const roleMap = {
+                              'teacher': 'Teachers',
+                              'student': 'Students', 
+                              'hod': 'HODs',
+                              'dean': 'Deans',
+                              'admin': 'Administrators'
+                            };
+                            return roleMap[r] || r.charAt(0).toUpperCase() + r.slice(1) + 's';
+                          }).join(', ')}
                         </Typography>
                       </>
                     )}

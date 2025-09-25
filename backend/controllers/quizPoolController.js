@@ -664,7 +664,7 @@ exports.getQuizPoolQuestions = async (req, res) => {
     console.log(`Fetching questions for quiz pool: ${quizPoolId}`);
 
     // Check if user is authorized (teacher, cc, or admin)
-    if (!['teacher', 'cc', 'admin'].includes(req.user.role)) {
+    if (!['teacher', 'admin'].includes(req.user.role)) {
       console.log('Unauthorized user role:', req.user.role);
       return res.status(403).json({ message: 'Unauthorized' });
     }

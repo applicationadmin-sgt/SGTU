@@ -15,6 +15,10 @@ router.get('/announcements/pending', hodController.getPendingAnnouncements);
 // Approve or reject teacher announcement
 router.put('/announcements/:announcementId/review', hodController.reviewAnnouncement);
 
+// Get HOD's announcement history (created) and approval history (approved)
+router.get('/announcements/history', hodController.getHODAnnouncementHistory);
+router.get('/approvals/history', hodController.getHODApprovalHistory);
+
 // Get department teachers
 router.get('/teachers', hodController.getDepartmentTeachers);
 

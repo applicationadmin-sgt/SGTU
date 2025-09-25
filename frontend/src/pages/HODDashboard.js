@@ -39,6 +39,7 @@ import HODCourses from './hod/HODCourses';
 import HODSections from './hod/HODSections';
 import HODAnalytics from './hod/HODAnalytics';
 import HODAnnouncements from './hod/HODAnnouncements';
+import HODAnnouncementHistory from './hod/HODAnnouncementHistory';
 import MyTeachingSections from '../components/common/MyTeachingSections';
 
 import HODAnnouncementApproval from '../components/hod/HODAnnouncementApproval';
@@ -210,12 +211,10 @@ const HODDashboard = () => {
     // Get the correct dashboard route for the target role
     const routes = {
       admin: '/admin/dashboard',
-      superadmin: '/admin/dashboard', 
       dean: '/dean/dashboard',
       hod: '/hod/dashboard',
       teacher: '/teacher/dashboard',
-      student: '/student/dashboard',
-      cc: '/teacher/dashboard'
+      student: '/student/dashboard'
     };
     
     const targetRoute = routes[targetRole] || '/dashboard';
@@ -401,22 +400,18 @@ const HODDashboard = () => {
                 // Role labels and icons
                 const roleLabels = {
                   admin: 'Administrator',
-                  superadmin: 'Super Admin',
                   dean: 'Dean',
                   hod: 'HOD',
                   teacher: 'Teacher',
-                  student: 'Student',
-                  cc: 'Course Coordinator'
+                  student: 'Student'
                 };
                 
                 const roleIcons = {
                   admin: '👑',
-                  superadmin: '⚡',
                   dean: '🏛️',
                   hod: '🏢',
                   teacher: '👨‍🏫',
-                  student: '🎓',
-                  cc: '📚'
+                  student: '🎓'
                 };
                 
                 // Return the menu items
@@ -818,6 +813,7 @@ const HODDashboard = () => {
               <Route path="/sections" element={<HODSections />} />
               <Route path="/analytics" element={<HODAnalytics />} />
               <Route path="/announcements" element={<HODAnnouncements user={currentUser} />} />
+              <Route path="/announcements/history" element={<HODAnnouncementHistory />} />
               <Route path="/announcement-approvals" element={<HODAnnouncementApproval token={token} />} />
               <Route path="/quiz-management" element={<HODQuizManagement />} />
               <Route path="/cc-management" element={<HODCCManagement />} />

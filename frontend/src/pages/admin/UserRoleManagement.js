@@ -53,9 +53,7 @@ const AVAILABLE_ROLES = [
   { value: 'dean', label: 'Dean', icon: '🎓', color: '#9c27b0' },
   { value: 'hod', label: 'HOD', icon: '📋', color: '#3f51b5' },
   { value: 'teacher', label: 'Teacher', icon: '👨‍🏫', color: '#2196f3' },
-  { value: 'cc', label: 'CC', icon: '📞', color: '#00bcd4' },
-  { value: 'student', label: 'Student', icon: '🎒', color: '#4caf50' },
-  { value: 'superadmin', label: 'Super Admin', icon: '⚡', color: '#ff5722' }
+  { value: 'student', label: 'Student', icon: '🎒', color: '#4caf50' }
 ];
 
 const UserRoleManagement = () => {
@@ -279,14 +277,12 @@ const UserRoleManagement = () => {
     const primaryRole = user.primaryRole || user.role;
     switch (primaryRole) {
       case 'admin':
-      case 'superadmin':
         return <SupervisorAccountIcon />;
       case 'dean':
         return <SchoolIcon />;
       case 'hod':
         return <BusinessIcon />;
       case 'teacher':
-      case 'cc':
         return <PersonIcon />;
       case 'student':
         return <PersonIcon />;
