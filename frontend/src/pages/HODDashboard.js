@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Box, 
   Typography,
@@ -46,8 +46,11 @@ import HODAnnouncementApproval from '../components/hod/HODAnnouncementApproval';
 import HODQuizManagement from './hod/HODQuizManagement';
 import HODCCManagement from './hod/HODCCManagement';
 import HODVideoUnlockApproval from './hod/HODVideoUnlockApproval';
+import HODQuizUnlockDashboard from '../components/hod/HODQuizUnlockDashboard';
+import HODProfile from '../components/HODProfile';
 
 const HODDashboard = () => {
+  const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const currentUser = parseJwt(token);
   const { hasRole, user: contextUser, switchRole, availableRoles, activeRole } = useUserRole();
@@ -189,8 +192,8 @@ const HODDashboard = () => {
   };
 
   const handleProfileDialogOpen = () => {
-    // You can implement profile dialog functionality here
     handleProfileMenuClose();
+    navigate('/hod/profile');
   };
 
   const handleSwitchRole = (targetRole) => {
@@ -808,6 +811,7 @@ const HODDashboard = () => {
             {/* Routes */}
             <Routes>
               <Route path="/dashboard" element={<HODDashboardHome />} />
+              <Route path="/profile" element={<HODProfile />} />
               <Route path="/teachers" element={<HODTeachers />} />
               <Route path="/courses" element={<HODCourses />} />
               <Route path="/sections" element={<HODSections />} />
@@ -819,6 +823,7 @@ const HODDashboard = () => {
               <Route path="/cc-management" element={<HODCCManagement />} />
               <Route path="/teaching-sections" element={<MyTeachingSections />} />
               <Route path="/video-unlock-requests" element={<HODVideoUnlockApproval token={token} user={currentUser} />} />
+              <Route path="/quiz-unlock-requests" element={<HODQuizUnlockDashboard />} />
               <Route path="*" element={<Navigate to="/hod/dashboard" replace />} />
             </Routes>
             </Box>

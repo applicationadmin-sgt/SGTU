@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Box, 
   Typography,
@@ -52,8 +52,10 @@ import QuizUnlockDashboard from '../components/teacher/QuizUnlockDashboard';
 import VideoUnlockDashboard from '../components/teacher/VideoUnlockDashboard';
 import UnauthorizedPage from './UnauthorizedPage';
 import TeacherLiveClassDashboard from '../components/teacher/TeacherLiveClassDashboard';
+import LiveClassRoom from '../components/teacher/LiveClassRoom';
 
 const TeacherDashboard = () => {
+  const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const currentUser = parseJwt(token);
   const { user: contextUser, switchRole, availableRoles, activeRole, hasRole } = useUserRole();
@@ -100,8 +102,8 @@ const TeacherDashboard = () => {
   };
 
   const handleProfileDialogOpen = () => {
-    // You can implement profile dialog functionality here
     handleProfileMenuClose();
+    navigate('/teacher/profile');
   };
 
   const handleSwitchRole = (targetRole) => {
@@ -688,6 +690,7 @@ const TeacherDashboard = () => {
                 <Route path="/sections" element={<TeacherSections />} />
                 <Route path="/section-analytics" element={<TeacherSectionAnalytics user={currentUser} token={token} />} />
                 <Route path="/live-classes" element={<TeacherLiveClassDashboard user={currentUser} token={token} />} />
+                <Route path="/live-class/:classId" element={<LiveClassRoom role="teacher" user={currentUser} token={token} />} />
                 <Route path="/course/:courseId" element={<TeacherCourseDetail />} />
                 <Route path="/videos" element={<PermissionRoute element={<TeacherVideos />} permission="manage_videos" />} />
                 <Route path="/students" element={<PermissionRoute element={<TeacherStudents />} permission="manage_students" />} />

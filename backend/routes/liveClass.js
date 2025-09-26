@@ -95,18 +95,21 @@ router.post(
 // Student routes
 router.get(
   '/student/classes',
+  auth,
   authorizeRoles('student'),
   liveClassController.getStudentClasses
 );
 
 router.post(
   '/:classId/join',
+  auth,
   authorizeRoles('student'),
   liveClassController.joinClass
 );
 
 router.post(
   '/:classId/leave',
+  auth,
   authorizeRoles('student'),
   liveClassController.leaveClass
 );
@@ -114,6 +117,7 @@ router.post(
 // Shared routes (teacher and student)
 router.get(
   '/:classId',
+  auth,
   authorizeRoles('teacher', 'student', 'admin'),
   liveClassController.getClassDetails
 );

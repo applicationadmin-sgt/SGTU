@@ -581,6 +581,46 @@ const StudentCourseVideos = () => {
             >
               🔧 Force Update Progress
             </Button>
+            <Button
+              variant="outlined"
+              color="info"
+              size="small"
+              sx={{ ml: 1 }}
+              onClick={async () => {
+                try {
+                  console.log('Refreshing quiz status for unit:', unit._id);
+                  
+                  // Fetch fresh quiz availability
+                  const token = localStorage.getItem('token');
+                  const availabilityResponse = await axios.get(`/api/student/unit/${unit._id}/quiz/availability`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                  });
+                  
+                  console.log('Fresh quiz availability:', availabilityResponse.data);
+                  
+                  // Update the unit quiz status for this specific unit
+                  setUnitQuizStatus(prev => ({
+                    ...prev,
+                    [unit._id]: {
+                      quizCompleted: !!availabilityResponse.data.quizCompleted,
+                      quizPassed: !!availabilityResponse.data.quizPassed,
+                      attemptsTaken: typeof availabilityResponse.data.attemptsTaken === 'number' ? availabilityResponse.data.attemptsTaken : undefined,
+                      remainingAttempts: typeof availabilityResponse.data.remainingAttempts === 'number' ? availabilityResponse.data.remainingAttempts : undefined,
+                      attemptLimit: typeof availabilityResponse.data.attemptLimit === 'number' ? availabilityResponse.data.attemptLimit : 3,
+                      isLocked: !!availabilityResponse.data.isLocked,
+                      lockInfo: availabilityResponse.data.lockInfo || null
+                    }
+                  }));
+                  
+                  alert(`Quiz status refreshed!\n\nAvailable: ${availabilityResponse.data.available}\nLocked: ${availabilityResponse.data.isLocked}\nRemaining Attempts: ${availabilityResponse.data.remainingAttempts || 'N/A'}`);
+                } catch (err) {
+                  console.error('Error refreshing quiz status:', err);
+                  alert('Error refreshing quiz status: ' + (err.response?.data?.message || err.message));
+                }
+              }}
+            >
+              🔄 Refresh Quiz Status
+            </Button>
           </Box>
         )}
       </Box>

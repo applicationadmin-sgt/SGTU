@@ -167,37 +167,66 @@ exports.signup = async (req, res) => {
   }
 };
 
-// Login (all roles)
+// Login (all roles) - supports email, regNo (student UID), or teacherId (teacher UID)
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
     
     if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
+      return res.status(400).json({ message: 'Email/UID and password are required' });
     }
     
-    // Normalize email (trim whitespace and convert to lowercase)
-    const normalizedEmail = email.trim().toLowerCase();
+    // Normalize the login identifier (trim whitespace)
+    const loginIdentifier = email.trim();
     
-    const user = await User.findOne({ email: normalizedEmail })
-      .populate({
-        path: 'roleAssignments.school roleAssignments.schools',
-        select: 'name code'
+    // Try to find user by email, regNo, or teacherId
+    let user = null;
+    
+    // Check if it's an email (contains @)
+    if (loginIdentifier.includes('@')) {
+      // Login by email
+      const normalizedEmail = loginIdentifier.toLowerCase();
+      user = await User.findOne({ email: normalizedEmail })
+        .populate({
+          path: 'roleAssignments.school roleAssignments.schools',
+          select: 'name code'
+        })
+        .populate({
+          path: 'roleAssignments.departments',
+          select: 'name code school'
+        });
+    } else {
+      // Login by UID (regNo for students or teacherId for teachers)
+      // Try both regNo and teacherId since we don't know the user type
+      user = await User.findOne({
+        $or: [
+          { regNo: loginIdentifier },
+          { teacherId: loginIdentifier }
+        ]
       })
-      .populate({
-        path: 'roleAssignments.departments',
-        select: 'name code school'
-      });
+        .populate({
+          path: 'roleAssignments.school roleAssignments.schools',
+          select: 'name code'
+        })
+        .populate({
+          path: 'roleAssignments.departments',
+          select: 'name code school'
+        });
+    }
+    
     if (!user) {
-      // Try a more flexible search if exact match not found
-      const similarEmailUser = await User.findOne({ 
-        email: { $regex: new RegExp(normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } 
-      });
-      
-      if (similarEmailUser) {
-        console.log('Found user with similar email during login:', similarEmailUser.email);
-        // Don't suggest the email for security reasons, just use a generic message
-        return res.status(400).json({ message: 'Invalid credentials. Please check your email address.' });
+      // If not found and it was an email, try a more flexible search
+      if (loginIdentifier.includes('@')) {
+        const normalizedEmail = loginIdentifier.toLowerCase();
+        const similarEmailUser = await User.findOne({ 
+          email: { $regex: new RegExp(normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } 
+        });
+        
+        if (similarEmailUser) {
+          console.log('Found user with similar email during login:', similarEmailUser.email);
+          // Don't suggest the email for security reasons, just use a generic message
+          return res.status(400).json({ message: 'Invalid credentials. Please check your email address.' });
+        }
       }
       
       return res.status(400).json({ message: 'Invalid credentials' });

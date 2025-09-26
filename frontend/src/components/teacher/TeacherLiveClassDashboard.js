@@ -239,7 +239,7 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
   const handleDownloadRecording = (classItem) => {
     if (classItem.recordingUrl) {
       const link = document.createElement('a');
-  link.href = `${process.env.REACT_APP_API_URL || 'https://10.20.58.236:5000'}${classItem.recordingUrl}`;
+  link.href = `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${classItem.recordingUrl}`;
       link.download = `${classItem.title}-recording.webm`;
       document.body.appendChild(link);
       link.click();
@@ -602,7 +602,7 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
                 preload="metadata"
               >
                 <source 
-                  src={`${process.env.REACT_APP_API_URL || 'https://10.20.58.236:5000'}${selectedRecording.recordingUrl}`} 
+                  src={`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${selectedRecording.recordingUrl}`} 
                   type="video/webm"
                 />
                 Your browser does not support the video tag.

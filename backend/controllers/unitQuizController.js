@@ -142,13 +142,14 @@ exports.checkUnitQuizAvailability = async (req, res) => {
   let quizFailureLocked = false;
   let quizLockInfo = null;
   let teacherUnlockAttempts = 0; // Additional attempts granted by teacher unlocks
+  let existingLock = null; // Store for later use
   
   try {
     const QuizLock = require('../models/QuizLock');
     const quizId = unit.quizPool?._id || (unit.quizzes && unit.quizzes[0]?._id);
     
     if (quizId) {
-      const existingLock = await QuizLock.findOne({ 
+      existingLock = await QuizLock.findOne({ 
         studentId, 
         quizId
       });
@@ -167,8 +168,11 @@ exports.checkUnitQuizAvailability = async (req, res) => {
           };
         }
         
-        // Grant additional attempts for teacher unlocks (1 attempt per unlock)
-        teacherUnlockAttempts = existingLock.teacherUnlockCount || 0;
+        // Grant additional attempts for ALL types of unlocks (teacher, HOD, dean, admin)
+        teacherUnlockAttempts = (existingLock.teacherUnlockCount || 0) + 
+                               (existingLock.hodUnlockCount || 0) + 
+                               (existingLock.deanUnlockCount || 0) + 
+                               (existingLock.adminUnlockCount || 0);
       }
     }
   } catch (lockError) {
@@ -203,7 +207,11 @@ exports.checkUnitQuizAvailability = async (req, res) => {
       attemptsTaken,
       remainingAttempts: adjustedRemainingAttempts,
       attemptLimit: adjustedAttemptLimit,
-      teacherUnlocks: teacherUnlockAttempts, // For debugging
+      teacherUnlocks: teacherUnlockAttempts, // For debugging - includes all unlock types
+      teacherUnlockCount: existingLock?.teacherUnlockCount || 0,
+      hodUnlockCount: existingLock?.hodUnlockCount || 0,
+      deanUnlockCount: existingLock?.deanUnlockCount || 0,
+      adminUnlockCount: existingLock?.adminUnlockCount || 0,
       totalVideos,
       watchedVideos: Math.max(
         unitProgress.videosWatched.filter(v => v.completed).length,
@@ -370,10 +378,21 @@ exports.generateUnitQuiz = async (req, res) => {
           quizId
         });
         
-        if (existingLock && existingLock.teacherUnlockCount > 0) {
-          // Grant additional attempts for teacher unlocks (1 attempt per unlock)
-          attemptLimit += existingLock.teacherUnlockCount;
-          console.log(`🔓 Teacher unlocks granted ${existingLock.teacherUnlockCount} additional attempts. New limit: ${attemptLimit}`);
+        if (existingLock) {
+          // Grant additional attempts for ALL types of unlocks (1 attempt per unlock)
+          const totalUnlocks = (existingLock.teacherUnlockCount || 0) + 
+                               (existingLock.hodUnlockCount || 0) + 
+                               (existingLock.deanUnlockCount || 0) + 
+                               (existingLock.adminUnlockCount || 0);
+          
+          if (totalUnlocks > 0) {
+            attemptLimit += totalUnlocks;
+            console.log(`🔓 Total unlocks (${totalUnlocks}) granted additional attempts. New limit: ${attemptLimit}`);
+            console.log(`  - Teacher: ${existingLock.teacherUnlockCount || 0}`);
+            console.log(`  - HOD: ${existingLock.hodUnlockCount || 0}`);
+            console.log(`  - Dean: ${existingLock.deanUnlockCount || 0}`);
+            console.log(`  - Admin: ${existingLock.adminUnlockCount || 0}`);
+          }
         }
       }
     } catch (lockError) {

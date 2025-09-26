@@ -51,8 +51,12 @@ export const getTeacherStudentConnections = async (teacherId) => {
 };
 
 // Get student's section
-export const getStudentSection = async (studentId) => {
-  const response = await axios.get(`/api/sections/student/${studentId}`);
+export const getStudentSection = async (studentId, token) => {
+  const response = await axios.get(`/api/sections/student/${studentId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
   return response.data;
 };
 

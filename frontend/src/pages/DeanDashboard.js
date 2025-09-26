@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Box, 
   Typography,
@@ -44,8 +44,10 @@ import DeanQuizUnlockDashboard from '../components/dean/DeanQuizUnlockDashboard'
 import DeanAnnouncements from './dean/DeanAnnouncements';
 import DeanAnnouncementHistory from './dean/DeanAnnouncementHistory';
 import MyTeachingSections from '../components/common/MyTeachingSections';
+import DeanProfile from '../components/DeanProfile';
 
 const DeanDashboard = () => {
+  const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const currentUser = parseJwt(token);
   const { hasRole, user: contextUser, switchRole, availableRoles, activeRole } = useUserRole();
@@ -187,8 +189,8 @@ const DeanDashboard = () => {
   };
 
   const handleProfileDialogOpen = () => {
-    // You can implement profile dialog functionality here
     handleProfileMenuClose();
+    navigate('/dean/profile');
   };
 
   const handleSwitchRole = (targetRole) => {
@@ -806,6 +808,7 @@ const DeanDashboard = () => {
               {/* Routes */}
               <Routes>
                 <Route path="/dashboard" element={<DeanDashboardHome />} />
+                <Route path="/profile" element={<DeanProfile />} />
                 <Route path="/departments" element={<DeanDepartments />} />
                 <Route path="/sections" element={<DeanSectionAnalytics />} />
                 <Route path="/school-management" element={<DeanSchoolManagement />} />

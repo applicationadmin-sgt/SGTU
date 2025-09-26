@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { 
   Typography, 
   List, 
@@ -47,11 +47,14 @@ import VideoManagement from './admin/VideoManagement';
 import QuizManagement from './admin/QuizManagement';
 import Analytics from './admin/Analytics';
 import UnlockRequests from './admin/UnlockRequests';
+import AdminQuizUnlockDashboard from '../components/admin/AdminQuizUnlockDashboard';
+import AdminProfile from '../components/AdminProfile';
 import UserRoleManagement from './admin/UserRoleManagement';
 import RoleManagement from './admin/RoleManagement';
 import { useLocation } from 'react-router-dom';
 
 const AdminDashboard = () => {
+  const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const currentUser = parseJwt(token);
   const { user: contextUser, switchRole, availableRoles, activeRole } = useUserRole();
@@ -73,8 +76,8 @@ const AdminDashboard = () => {
   };
 
   const handleProfileDialogOpen = () => {
-    // You can implement profile dialog functionality here
     handleProfileMenuClose();
+    navigate('/admin/profile');
   };
 
   const handleSwitchRole = (targetRole) => {
@@ -895,6 +898,7 @@ const AdminDashboard = () => {
               <Route path="quizzes" element={<QuizManagement />} />
               <Route path="quiz-attempts" element={<Analytics />} />
               <Route path="quiz-bulk-unlock" element={<UnlockRequests />} />
+              <Route path="quiz-unlock-dashboard" element={<AdminQuizUnlockDashboard />} />
               <Route path="analytics" element={<AnalyticsDashboard />} />
               <Route path="enhanced-analytics" element={<EnhancedAnalytics />} />
               <Route path="announcements" element={<AnnouncementPage role="admin" />} />

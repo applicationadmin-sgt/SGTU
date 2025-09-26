@@ -1,6 +1,7 @@
 const Quiz = require('../models/Quiz');
 const QuizAttempt = require('../models/QuizAttempt');
 const QuizPool = require('../models/QuizPool');
+const QuizLock = require('../models/QuizLock');
 const User = require('../models/User');
 const Course = require('../models/Course');
 const Video = require('../models/Video');
@@ -1038,6 +1039,44 @@ exports.submitQuizAttempt = async (req, res) => {
         autoSubmitted: isAutoSubmit || false
       }
     });
+
+    // Create or update QuizLock if student failed or has security violations
+    if (!passed || (securityViolations && securityViolations.length > 0)) {
+      try {
+        // Find existing lock for this student-quiz combination
+        let quizLock = await QuizLock.findOne({
+          studentId: req.user._id,
+          quizId: attempt.quiz || attempt.quizPool,
+          courseId: attempt.course
+        });
+
+        if (!quizLock) {
+          // Create new quiz lock
+          quizLock = new QuizLock({
+            studentId: req.user._id,
+            quizId: attempt.quiz || attempt.quizPool,
+            courseId: attempt.course,
+            passingScore: passingScore
+          });
+        }
+
+        // Determine lock reason
+        let lockReason;
+        if (securityViolations && securityViolations.length > 0) {
+          lockReason = 'SECURITY_VIOLATION';
+        } else if (!passed) {
+          lockReason = 'BELOW_PASSING_SCORE';
+        }
+
+        // Lock the quiz with the failure details
+        await quizLock.lockQuiz(lockReason, percentage, passingScore);
+
+        console.log(`🔒 Quiz locked for student ${req.user.name} - Reason: ${lockReason}, Score: ${percentage}%`);
+      } catch (lockError) {
+        console.error('Error creating quiz lock:', lockError);
+        // Don't fail the entire submission if lock creation fails
+      }
+    }
     
     // Update student progress if this was a passing attempt
     if (passed && attempt.unit) {
@@ -1286,6 +1325,36 @@ exports.submitQuizPoolAttempt = async (req, res) => {
       performedBy: req.user._id,
       details: { quizPoolId, score, percentage, passed }
     });
+
+    // Create or update QuizLock if student failed 
+    if (!passed) {
+      try {
+        // Find existing lock for this student-quiz combination
+        let quizLock = await QuizLock.findOne({
+          studentId: req.user._id,
+          quizId: quizPoolId,
+          courseId: quizPool.course
+        });
+
+        if (!quizLock) {
+          // Create new quiz lock
+          quizLock = new QuizLock({
+            studentId: req.user._id,
+            quizId: quizPoolId,
+            courseId: quizPool.course,
+            passingScore: quizPool.passingScore
+          });
+        }
+
+        // Lock the quiz with failure details
+        await quizLock.lockQuiz('BELOW_PASSING_SCORE', percentage, quizPool.passingScore);
+
+        console.log(`🔒 Quiz pool locked for student ${req.user.name} - Score: ${percentage}%`);
+      } catch (lockError) {
+        console.error('Error creating quiz pool lock:', lockError);
+        // Don't fail the entire submission if lock creation fails
+      }
+    }
     
     // Update student progress
     if (quizPool.unit) {

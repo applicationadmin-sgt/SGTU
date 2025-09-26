@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { 
   Box,
   Typography,
@@ -38,9 +38,11 @@ import StudentLiveClassDashboard from '../components/student/StudentLiveClassDas
 import StudentLiveClassRoom from '../components/student/StudentLiveClassRoom';
 import QuizResults from '../components/student/QuizResults';
 import RecentVideos from '../components/student/RecentVideos';
+import StudentProfile from '../components/StudentProfile';
 import WatchHistory from '../components/student/WatchHistory';
 
 const StudentDashboard = () => {
+  const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const currentUser = getCurrentUser();
   const { user: contextUser, switchRole, availableRoles, activeRole } = useUserRole();
@@ -61,8 +63,8 @@ const StudentDashboard = () => {
   };
 
   const handleProfileDialogOpen = () => {
-    // You can implement profile dialog functionality here
     handleProfileMenuClose();
+    navigate('/student/profile');
   };
 
   const handleSwitchRole = (targetRole) => {
@@ -343,6 +345,7 @@ const StudentDashboard = () => {
             <Routes>
             <Route path="/" element={<StudentHomeDashboard />} />
             <Route path="/dashboard" element={<StudentHomeDashboard />} />
+            <Route path="/profile" element={<StudentProfile />} />
             <Route path="/courses" element={<StudentCoursesPage />} />
             <Route path="/section" element={<StudentSection user={currentUser} token={token} />} />
             <Route path="/live-classes" element={<StudentLiveClassDashboard token={token} user={currentUser} />} />

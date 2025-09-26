@@ -1,13 +1,15 @@
 import React, { useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Box, Toolbar, Typography } from '@mui/material';
 import Sidebar from '../components/Sidebar';
 import { parseJwt } from '../utils/jwt';
 
 const CCDashboardHome = React.lazy(() => import('./cc/CCDashboardHome'));
 const CCReviews = React.lazy(() => import('./cc/CCReviews'));
+const CCProfile = React.lazy(() => import('../components/CCProfile'));
 
 const CCDashboard = () => {
+  const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const currentUser = parseJwt(token);
   const location = useLocation();
@@ -35,6 +37,7 @@ const CCDashboard = () => {
         <React.Suspense fallback={<div style={{ padding: 24 }}>Loading…</div>}> 
           <Routes>
             <Route path="/dashboard" element={<CCDashboardHome />} />
+            <Route path="/profile" element={<CCProfile />} />
             <Route path="/reviews" element={<CCReviews />} />
             <Route path="*" element={<Navigate to="/cc/dashboard" replace />} />
           </Routes>

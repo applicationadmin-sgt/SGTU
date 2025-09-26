@@ -16,6 +16,7 @@ import TeacherEnhancedAnalytics from '../pages/teacher/TeacherEnhancedAnalytics'
 import TeacherAnalyticsFixed from '../components/teacher/TeacherAnalyticsFixed';
 import TeacherProfile from '../components/TeacherProfile';
 import TeacherLiveClassDashboard from '../components/teacher/TeacherLiveClassDashboard';
+import LiveClassRoom from '../components/teacher/LiveClassRoom';
 import TestLiveClassPage from '../components/teacher/TestLiveClassPage';
 import TeacherSections from '../components/teacher/TeacherSections';
 import TeacherSectionAnalytics from '../components/teacher/TeacherSectionAnalytics';
@@ -72,8 +73,9 @@ const TeacherRoutes = ({ user, token }) => {
         <Route path="/course/:courseId/forums" element={<CourseForums token={token} user={user} />} />
         <Route path="/forum/:forumId" element={<ForumDiscussion token={token} user={user} />} />
         
-        {/* Live Classes route */}
+        {/* Live Classes routes */}
         <Route path="/live-classes" element={<TeacherLiveClassDashboard token={token} user={user} />} />
+        <Route path="/live-class/:classId" element={<LiveClassRoom token={token} user={user} />} />
         
         {/* Sections routes */}
         <Route path="/sections" element={<TeacherSections token={token} user={user} />} />

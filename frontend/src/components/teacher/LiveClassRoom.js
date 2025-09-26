@@ -157,7 +157,7 @@ const LiveClassRoom = ({ token, user }) => {
       }
       
       // Initialize socket connection
-      socket.current = io(process.env.REACT_APP_API_URL || 'https://10.20.58.236:5000', {
+      socket.current = io(process.env.REACT_APP_API_URL || 'http://localhost:5000', {
         auth: { token }
       });
       

@@ -27,7 +27,8 @@ import {
   CheckCircle,
   AccessTime,
   SupervisorAccount,
-  AdminPanelSettings
+  AdminPanelSettings,
+  Business
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import axios from 'axios';
@@ -69,11 +70,27 @@ const QuizLockStatus = ({ quizId, studentId, onUnlockUpdate }) => {
   };
 
   const getAuthorizationIcon = (level) => {
-    return level === 'DEAN' ? <AdminPanelSettings /> : <SupervisorAccount />;
+    switch (level) {
+      case 'DEAN':
+        return <AdminPanelSettings />;
+      case 'HOD':
+        return <Business />;
+      case 'TEACHER':
+      default:
+        return <SupervisorAccount />;
+    }
   };
 
   const getAuthorizationColor = (level) => {
-    return level === 'DEAN' ? 'error' : 'warning';
+    switch (level) {
+      case 'DEAN':
+        return 'error';
+      case 'HOD':
+        return 'warning';
+      case 'TEACHER':
+      default:
+        return 'info';
+    }
   };
 
   const getReasonText = (reason) => {
@@ -230,7 +247,22 @@ const QuizLockStatus = ({ quizId, studentId, onUnlockUpdate }) => {
                   <Typography variant="body2">
                     <strong>Contact your teacher</strong> to request an unlock. Your teacher can unlock this quiz 
                     {data.remainingTeacherUnlocks > 0 ? ` ${data.remainingTeacherUnlocks} more time${data.remainingTeacherUnlocks > 1 ? 's' : ''}` : ' no more times'}.
-                    {data.remainingTeacherUnlocks === 0 && ' Further unlocks require Dean authorization.'}
+                    {data.remainingTeacherUnlocks === 0 && ' Further unlocks require HOD authorization.'}
+                  </Typography>
+                </Alert>
+              </Box>
+            ) : data.unlockAuthorizationLevel === 'HOD' ? (
+              <Box>
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <Typography variant="body2">
+                    <strong>Teacher unlock limit exceeded.</strong> All {data.teacherUnlockCount} teacher unlocks have been used.
+                  </Typography>
+                </Alert>
+                
+                <Alert severity="warning">
+                  <Typography variant="body2">
+                    <strong>HOD authorization required.</strong> Please contact your Head of Department 
+                    for approval to unlock this quiz.
                   </Typography>
                 </Alert>
               </Box>
@@ -238,7 +270,7 @@ const QuizLockStatus = ({ quizId, studentId, onUnlockUpdate }) => {
               <Box>
                 <Alert severity="warning" sx={{ mb: 2 }}>
                   <Typography variant="body2">
-                    <strong>Teacher unlock limit exceeded.</strong> All {data.teacherUnlockCount} teacher unlocks have been used.
+                    <strong>HOD unlock used.</strong> The department head has already approved an unlock for this quiz.
                   </Typography>
                 </Alert>
                 
@@ -315,11 +347,29 @@ const QuizLockStatus = ({ quizId, studentId, onUnlockUpdate }) => {
                   4. Wait for teacher approval and unlock
                 </Typography>
               </Box>
-            ) : (
+            ) : data.unlockAuthorizationLevel === 'HOD' ? (
               <Box>
                 <Alert severity="warning" sx={{ mb: 2 }}>
                   <Typography variant="body2">
-                    <strong>Dean authorization required</strong> (Teacher unlock limit exceeded)
+                    <strong>HOD authorization required</strong> (Teacher unlock limit exceeded)
+                  </Typography>
+                </Alert>
+                
+                <Typography variant="body2" paragraph>
+                  <strong>Steps to request HOD unlock:</strong>
+                </Typography>
+                <Typography variant="body2" component="div">
+                  1. Contact your course teacher first to get their recommendation<br/>
+                  2. Submit a formal appeal to your Head of Department<br/>
+                  3. Include teacher's recommendation and supporting documentation<br/>
+                  4. Wait for HOD's review and decision
+                </Typography>
+              </Box>
+            ) : (
+              <Box>
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  <Typography variant="body2">
+                    <strong>Dean authorization required</strong> (HOD unlock limit exceeded)
                   </Typography>
                 </Alert>
                 
@@ -327,10 +377,10 @@ const QuizLockStatus = ({ quizId, studentId, onUnlockUpdate }) => {
                   <strong>Steps to request dean unlock:</strong>
                 </Typography>
                 <Typography variant="body2" component="div">
-                  1. Contact your course teacher first to get their recommendation<br/>
+                  1. Contact your course teacher and HOD first to get their recommendations<br/>
                   2. Submit a formal appeal to the academic dean<br/>
-                  3. Include teacher's recommendation and supporting documentation<br/>
-                  4. Wait for dean's review and decision
+                  3. Include teacher's and HOD's recommendations with supporting documentation<br/>
+                  4. Wait for dean's review and final decision
                 </Typography>
               </Box>
             )}

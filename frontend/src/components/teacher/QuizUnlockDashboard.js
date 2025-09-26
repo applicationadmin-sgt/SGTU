@@ -142,7 +142,7 @@ const QuizUnlockDashboard = () => {
 
   const handleTeacherUnlock = async (item) => {
     if (!item.canTeacherUnlock) {
-      showAlert('Teacher unlock limit exceeded. Dean authorization required.', 'warning');
+      showAlert('Teacher unlock limit exceeded. HOD authorization required.', 'warning');
       return;
     }
     setSelectedLock(item);
@@ -178,8 +178,8 @@ const QuizUnlockDashboard = () => {
         setUnlockDialogOpen(false);
         await fetchData(); // Refresh the list
       } else {
-        if (response.data.requiresDeanUnlock) {
-          showAlert('Teacher unlock limit exceeded. Dean authorization required.', 'warning');
+        if (response.data.requiresHodUnlock) {
+          showAlert('Teacher unlock limit exceeded. HOD authorization required.', 'warning');
         } else {
           showAlert(response.data.message || 'Error unlocking student', 'error');
         }
@@ -215,7 +215,7 @@ const QuizUnlockDashboard = () => {
               </Box>
             </Box>
           }
-          subheader="Students in your sections who need quiz unlock authorization (max 3 teacher unlocks per student)."
+          subheader="Students in your sections who need quiz unlock authorization (max 3 teacher unlocks per student, then escalates to HOD)."
         />
         <Divider />
         <CardContent>
@@ -306,7 +306,7 @@ const QuizUnlockDashboard = () => {
                             onClick={() => handleTeacherUnlock(it)}
                             disabled={!it.canTeacherUnlock}
                           >
-                            {it.canTeacherUnlock ? `Unlock (${it.remainingTeacherUnlocks})` : 'Dean Required'}
+                            {it.canTeacherUnlock ? `Unlock (${it.remainingTeacherUnlocks})` : 'HOD Required'}
                           </Button>
                           <IconButton 
                             size="small" 
