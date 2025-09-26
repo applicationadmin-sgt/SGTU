@@ -583,25 +583,58 @@ const getDepartmentSections = async (req, res) => {
       sectionMap[sectionId].courseCount++;
     });
 
-    // For each section, get student count and build response
+    // For each section, get detailed data including students and courses
     const sectionsResult = [];
     
     for (const [sectionId, data] of Object.entries(sectionMap)) {
       const { section, courseCount } = data;
       
+      // Get full section data with code
+      const fullSection = await Section.findById(section._id).lean();
+      
       // Get students assigned to this section
-      const studentCount = await User.countDocuments({
+      const students = await User.find({
         $or: [{ role: 'student' }, { roles: 'student' }],
         isActive: { $ne: false },
         assignedSections: section._id
+      }).select('_id name email studentId').lean();
+
+      // Get courses assigned to this section from HOD's department
+      const sectionCourses = await SectionCourseTeacher.find({
+        section: section._id
+      })
+      .populate({
+        path: 'course',
+        match: { department: departmentId },
+        select: '_id title courseCode department'
+      })
+      .lean();
+
+      // Filter and get unique courses
+      const courses = [];
+      const courseIds = new Set();
+      
+      sectionCourses.forEach(sct => {
+        if (sct.course && !courseIds.has(sct.course._id.toString())) {
+          courseIds.add(sct.course._id.toString());
+          courses.push({
+            _id: sct.course._id,
+            title: sct.course.title,
+            courseCode: sct.course.courseCode,
+            department: sct.course.department
+          });
+        }
       });
 
       sectionsResult.push({
         _id: section._id,
         name: section.name,
+        code: fullSection?.code || `SEC${section.name}`, // Add code field
         school: section.school,
-        studentCount,
-        courseCount,
+        students: students, // Full students array
+        courses: courses, // Full courses array
+        studentCount: students.length, // Keep backward compatibility
+        courseCount: courses.length, // Keep backward compatibility
         createdAt: section.createdAt
       });
     }

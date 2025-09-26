@@ -103,4 +103,7 @@ router.post('/remove-teacher', authorizeRoles('admin'), sectionController.remove
 // Get available students for assignment (admin only)
 router.get('/available-students/:schoolId', authorizeRoles('admin'), sectionController.getAvailableStudents);
 
+// Get section by ID (for group chat)
+router.get('/:id', authorizeRoles('admin', 'teacher', 'student'), sectionController.getSectionById);
+
 module.exports = router;

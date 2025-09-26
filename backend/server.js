@@ -63,6 +63,7 @@ const secureQuizRoutes = require('./routes/secureQuiz');
 const ccRoutes = require('./routes/cc');
 const quizUnlockRoutes = require('./routes/quizUnlock');
 const liveClassRoutes = require('./routes/liveClass');
+const groupChatRoutes = require('./routes/groupChat');
 
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
@@ -98,6 +99,7 @@ app.use('/api/student', secureQuizRoutes); // Secure quiz routes
 app.use('/api/cc', ccRoutes); // Course Coordinator routes
 app.use('/api/quiz-unlock', quizUnlockRoutes); // Quiz unlock system routes
 app.use('/api/live-classes', liveClassRoutes); // Live class routes
+app.use('/api/group-chat', groupChatRoutes); // Group chat routes
 app.use('/api/video-unlock', require('./routes/videoUnlock')); // Video unlock system routes
 
 // Connect to MongoDB using only the .env file configuration
@@ -194,12 +196,34 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Internal server error' });
 });
 
-// Initialize Socket.IO for live classes BEFORE starting the server
+// Initialize Socket.IO for live classes and group chat BEFORE starting the server
 const http = require('http');
 const server = http.createServer(app);
+
+// Create a single Socket.IO instance for both live classes and group chat
+const { Server } = require('socket.io');
+const io = new Server(server, {
+  cors: {
+    origin: [
+      "http://localhost:3000",
+      "http://10.20.58.236:3000", 
+      "https://10.20.58.236:3000",
+      "https://localhost:3000"
+    ],
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
+
+// Initialize Live Class Socket (using shared Socket.IO instance)
 const initializeLiveClassSocket = require('./socket/liveClassSocket');
-initializeLiveClassSocket(server);
+initializeLiveClassSocket(server, io); // Pass the io instance
 console.log('✅ Live Class Socket.IO server initialized');
+
+// Initialize Group Chat Socket (using shared Socket.IO instance)
+const initializeGroupChatSocket = require('./socket/groupChatSocket');
+initializeGroupChatSocket(io);
+console.log('✅ Group Chat Socket.IO server initialized');
 
 server.listen(PORT, '0.0.0.0', async () => {
   await createAdmin();

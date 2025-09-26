@@ -120,6 +120,7 @@ exports.getStudentCourses = async (req, res) => {
           courseCode: course.courseCode,
           description: course.description,
           section: course.section,
+          sectionId: course.section._id, // Add sectionId for group chat navigation
           teacher: course.teacher?.name || 'Not assigned',
           teacherName: course.teacher?.name || 'Not assigned', // Frontend expects this field
           totalVideos: 0,
@@ -172,6 +173,7 @@ exports.getStudentCourses = async (req, res) => {
           courseCode: course.courseCode,
           description: course.description,
           section: course.section,
+          sectionId: course.section._id, // Add sectionId for group chat navigation
           teacher: course.teacher?.name || 'Not assigned',
           teacherName: course.teacher?.name || 'Not assigned', // Frontend expects this field
           totalVideos,

@@ -233,21 +233,52 @@ const LoginPage = () => {
       >
         <Container maxWidth="sm">
           <Paper
-            elevation={8}
-            sx={{
-              p: 4,
-              borderRadius: 3,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              background: 'rgba(255,255,255,0.95)',
-              backdropFilter: 'blur(10px)',
-              boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
-              maxWidth: 450,
-              width: '100%',
-              mx: 'auto',
-            }}
-          >
+      elevation={8}
+      sx={{
+        // All your original styles
+        p: 4,
+        borderRadius: 3,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        background: 'rgba(255,255,255,0.95)',
+        backdropFilter: 'blur(10px)',
+        boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
+        maxWidth: 450,
+        width: '100%',
+        mx: 'auto',
+
+        // Core 3D effect styling
+        position: 'relative',
+        transform: 'translateY(-8px)', // Lifts the paper up
+        transition: 'transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out',
+
+        // New zoom-in effect on hover
+        '&:hover': {
+          transform: 'translateY(-8px) scale(1.009)', // Zooms in slightly and stays lifted
+          boxShadow: '0 30px 60px rgba(0,0,0,0.15)',
+        },
+
+        // The pseudo-element for the 3D bottom layer
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: '#eef6ffff', // The darker base color
+          borderRadius: 'inherit',
+          zIndex: -1, // Positions it behind the main Paper
+          boxShadow: '0 10px 20px rgba(0,0,0,0.2)',
+          transition: 'transform 0.3s ease-in-out',
+        },
+        // Ensures the base also scales on hover
+        '&:hover::before': {
+          transform: 'scale(1.02)',
+        },
+      }}
+    >
             <Box sx={{
               display: 'flex',
               flexDirection: 'column',
@@ -267,15 +298,17 @@ const LoginPage = () => {
               <Typography
                 variant="h4"
                 sx={{
-                  fontWeight: 700,
+                  fontWeight: 800,
                   color: '#1a237e',
                   letterSpacing: 0.5,
                   textAlign: 'center',
                   lineHeight: 1.2,
+                  fontFamily: 'Montserrat',
+                  fontSize: '2rem',
                   mb: 1
                 }}
               >
-                University Management
+                University Management System
               </Typography>
               <Typography
                 variant="h6"
@@ -285,7 +318,6 @@ const LoginPage = () => {
                   textAlign: 'center',
                 }}
               >
-                System
               </Typography>
             </Box>
             
@@ -324,11 +356,12 @@ const LoginPage = () => {
                 autoFocus
                 disabled={loading}
                 placeholder="Enter your email or user ID"
-                helperText="You can login using either your email address or UID"
+                
                 sx={{
                   mb: 2,
                   '& .MuiOutlinedInput-root': {
                     borderRadius: 2,
+                    backgroundColor: 'rgba(0, 0, 0, 0.04)', // A slight dark shade
                   }
                 }}
               />
@@ -345,32 +378,72 @@ const LoginPage = () => {
                   mb: 3,
                   '& .MuiOutlinedInput-root': {
                     borderRadius: 2,
+                    backgroundColor: 'rgba(0, 0, 0, 0.04)', // A slight dark shade
                   }
                 }}
               />
-              <Button
-                type="submit"
-                variant="contained"
-                fullWidth
-                sx={{ 
-                  mt: 1, 
-                  mb: 2, 
-                  py: 1.5,
-                  fontWeight: 600, 
-                  fontSize: '1.1rem',
-                  borderRadius: 2,
-                  backgroundColor: '#1a237e',
-                  '&:hover': {
-                    backgroundColor: '#303f9f',
-                  },
-                  '&:disabled': {
-                    backgroundColor: '#ccc',
-                  }
-                }}
-                disabled={loading}
-              >
-                {loading ? 'Signing in...' : 'Sign In'}
-              </Button>
+              <style jsx>{`
+        .pushable {
+          /* General button properties from original sx prop */
+          background-color: #1a237e; /* The darker base color */
+          border-radius: 16px;
+          border: none;
+          padding: 0;
+          cursor: pointer;
+          outline-offset: 4px;
+          width: 100%;
+          margin-top: 8px;
+          margin-bottom: 16px;
+        }
+        
+        .front {
+          /* This section now permanently applies the 3D 'raised' effect. */
+          display: block;
+          padding: 12px 42px;
+          border-radius: 16px;
+          font-size: 1.1rem;
+          font-weight: 600;
+          background-color: #303f9f; /* The lighter 'face' color */
+          color: white;
+          /* The permanent 3D effect is created here */
+          transform: translateY(-6px);
+          transition: transform 600ms cubic-bezier(.3, .7, .4, 1);
+        }
+
+        /* Added a new hover effect to darken the button face slightly */
+        .pushable:hover .front {
+          background-color: #2a3a8a; /* A darker shade for hover */
+          transform: translateY(-8px); /* Also makes it "lift" more on hover */
+          transition: transform 250ms cubic-bezier(.3, .7, .4, 1.5);
+        }
+
+        /* Active (push) effect remains on click */
+        .pushable:active .front {
+          transform: translateY(-2px);
+          transition: transform 34ms;
+        }
+
+        /* Disabled state, matching the original button's disabled color */
+        .pushable:disabled {
+          background-color: #ccc;
+        }
+
+        .pushable:disabled .front {
+          background-color: #ccc;
+          transform: none; /* No animation when disabled */
+        }
+      `}</style>
+
+      {/* The new button element with the classes applied */}
+      <button
+        className="pushable"
+        type="submit"
+        disabled={loading}
+      >
+        <span className="front">
+          {loading ? 'Signing in...' : 'Sign In'}
+        </span>
+      </button>
               <Box mt={2} textAlign="center">
                 <Link 
                   href="/forgot-password" 
@@ -378,6 +451,7 @@ const LoginPage = () => {
                   sx={{
                     color: '#1a237e',
                     textDecoration: 'none',
+                    fontWeight: 'bold',
                     '&:hover': {
                       textDecoration: 'underline',
                     }
