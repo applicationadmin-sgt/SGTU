@@ -23,13 +23,16 @@ import {
   People as PeopleIcon, 
   School as SchoolIcon,
   MenuBook as MenuBookIcon,
-  Person as PersonIcon
+  Person as PersonIcon,
+  Chat as ChatIcon
 } from '@mui/icons-material';
 import * as sectionApi from '../../api/sectionApi';
 import { useUserRole } from '../../contexts/UserRoleContext';
 import { parseJwt } from '../../utils/jwt';
+import { useNavigate } from 'react-router-dom';
 
 const TeacherSections = () => {
+  const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const { user: contextUser } = useUserRole();
   const currentUser = parseJwt(token);
@@ -174,14 +177,39 @@ const TeacherSections = () => {
                       </Box>
                     )}
 
-                    <Button
-                      variant="outlined"
-                      fullWidth
-                      onClick={() => handleViewStudents(section)}
-                      disabled={!section.students?.length}
-                    >
-                      View All Students
-                    </Button>
+                    <Box sx={{ display: 'flex', gap: 1, flexDirection: 'column' }}>
+                      <Button
+                        variant="outlined"
+                        fullWidth
+                        onClick={() => handleViewStudents(section)}
+                        disabled={!section.students?.length}
+                      >
+                        View All Students
+                      </Button>
+                      
+                      {/* Group Chat buttons for each course in the section */}
+                      {section.courses && section.courses.length > 0 && (
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {section.courses.map((course) => (
+                            <Button
+                              key={course._id}
+                              variant="contained"
+                              size="small"
+                              startIcon={<ChatIcon />}
+                              onClick={() => navigate(`/group-chat/${course._id}/${section._id}`)}
+                              sx={{ 
+                                bgcolor: '#395a7f',
+                                '&:hover': { bgcolor: '#6e9fc1' },
+                                flex: 1,
+                                minWidth: 'auto'
+                              }}
+                            >
+                              {course.courseCode} Chat
+                            </Button>
+                          ))}
+                        </Box>
+                      )}
+                    </Box>
                   </CardContent>
                 </Card>
               </Grid>

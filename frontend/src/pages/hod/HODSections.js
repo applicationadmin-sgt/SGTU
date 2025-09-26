@@ -28,11 +28,14 @@ import {
   Group as GroupIcon,
   School as SchoolIcon,
   Book as BookIcon,
-  Assignment as AssignmentIcon
+  Assignment as AssignmentIcon,
+  Chat as ChatIcon
 } from '@mui/icons-material';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 const HODSections = () => {
+  const navigate = useNavigate();
   const [sections, setSections] = useState([]);
   const [selectedSection, setSelectedSection] = useState('');
   const [courses, setCourses] = useState([]);
@@ -256,6 +259,80 @@ const HODSections = () => {
         <Alert severity="error" sx={{ mb: 3 }}>
           {error}
         </Alert>
+      )}
+
+      {/* Sections Overview */}
+      {sections.length > 0 && (
+        <Card sx={{ mb: 4 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Department Sections Overview
+            </Typography>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Section Name</TableCell>
+                  <TableCell>Section Code</TableCell>
+                  <TableCell>Students</TableCell>
+                  <TableCell>Courses & Group Chat</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {sections.map((section) => (
+                  <TableRow key={section._id}>
+                    <TableCell>{section.name}</TableCell>
+                    <TableCell>
+                      <Chip label={section.code} size="small" />
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        icon={<GroupIcon />} 
+                        label={section.students?.length || section.studentCount || 0} 
+                        variant="outlined" 
+                        size="small" 
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {section.courses && section.courses.length > 0 ? (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          <Chip 
+                            icon={<BookIcon />} 
+                            label={`${section.courses.length} course${section.courses.length !== 1 ? 's' : ''}`} 
+                            variant="outlined" 
+                            size="small" 
+                          />
+                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                            {section.courses.map((course) => (
+                              <Button
+                                key={course._id}
+                                variant="contained"
+                                size="small"
+                                startIcon={<ChatIcon />}
+                                onClick={() => navigate(`/group-chat/${course._id}/${section._id}`)}
+                                sx={{ 
+                                  bgcolor: '#395a7f',
+                                  '&:hover': { bgcolor: '#6e9fc1' },
+                                  minWidth: 'auto',
+                                  fontSize: '0.75rem'
+                                }}
+                              >
+                                {course.courseCode}
+                              </Button>
+                            ))}
+                          </Box>
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No courses
+                        </Typography>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
 
       {/* Analytics Results */}

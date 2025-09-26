@@ -42,11 +42,14 @@ import {
   Cell
 } from 'recharts';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import CloseIcon from '@mui/icons-material/Close';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import DownloadIcon from '@mui/icons-material/Download';
 
+
 const HODAnalytics = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState(0);

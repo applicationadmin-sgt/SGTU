@@ -36,7 +36,8 @@ import {
   Info as InfoIcon,
   PersonAdd as PersonAddIcon,
   LibraryBooks as LibraryBooksIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  Chat as ChatIcon
 } from '@mui/icons-material';
 import * as sectionApi from '../../api/sectionApi';
 import { 
@@ -47,8 +48,10 @@ import {
   getStudentsBySchool,
   createSectionWithCourses
 } from '../../api/hierarchyApi';
+import { useNavigate } from 'react-router-dom';
 
 const SectionManagement = ({ user, token }) => {
+  const navigate = useNavigate();
   const [sections, setSections] = useState([]);
   const [allSections, setAllSections] = useState([]);
   const [schools, setSchools] = useState([]);
@@ -960,15 +963,30 @@ const SectionManagement = ({ user, token }) => {
                               secondary={`Course Code: ${course.courseCode || 'N/A'}`}
                             />
                             <ListItemSecondaryAction>
-                              <IconButton 
-                                edge="end" 
-                                aria-label="remove"
-                                onClick={() => handleRemoveCourse(course._id)}
-                                color="error"
-                                size="small"
-                              >
-                                <CloseIcon />
-                              </IconButton>
+                              <Box sx={{ display: 'flex', gap: 1 }}>
+                                <Button
+                                  variant="contained"
+                                  size="small"
+                                  startIcon={<ChatIcon />}
+                                  onClick={() => navigate(`/group-chat/${course._id}/${selectedSection._id}`)}
+                                  sx={{ 
+                                    bgcolor: '#395a7f',
+                                    '&:hover': { bgcolor: '#6e9fc1' },
+                                    mr: 1
+                                  }}
+                                >
+                                  Group Chat
+                                </Button>
+                                <IconButton 
+                                  edge="end" 
+                                  aria-label="remove"
+                                  onClick={() => handleRemoveCourse(course._id)}
+                                  color="error"
+                                  size="small"
+                                >
+                                  <CloseIcon />
+                                </IconButton>
+                              </Box>
                             </ListItemSecondaryAction>
                           </ListItem>
                         ))
@@ -1070,6 +1088,39 @@ const SectionManagement = ({ user, token }) => {
                 {detailsTab === 4 && (
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="h6" gutterBottom>Section Management</Typography>
+                    
+                    {/* Group Chat Section */}
+                    <Box sx={{ mb: 3, p: 2, bgcolor: '#e9ecee', borderRadius: 2 }}>
+                      <Typography variant="subtitle1" gutterBottom sx={{ color: '#395a7f', fontWeight: 600 }}>
+                        Group Chat for Section Courses
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Access group chats for all courses in this section
+                      </Typography>
+                      {selectedSection?.courses?.map((course) => (
+                        <Button
+                          key={course._id}
+                          variant="contained"
+                          size="small"
+                          startIcon={<ChatIcon />}
+                          onClick={() => navigate(`/group-chat/${course._id}/${selectedSection._id}`)}
+                          sx={{ 
+                            mr: 1, 
+                            mb: 1,
+                            bgcolor: '#395a7f',
+                            '&:hover': { bgcolor: '#6e9fc1' }
+                          }}
+                        >
+                          {course.courseCode} Chat
+                        </Button>
+                      ))}
+                      {(!selectedSection?.courses || selectedSection.courses.length === 0) && (
+                        <Typography variant="body2" color="text.secondary">
+                          No courses assigned to this section yet
+                        </Typography>
+                      )}
+                    </Box>
+
                     <Grid container spacing={2}>
                       <Grid item xs={12} md={3}>
                         <Button

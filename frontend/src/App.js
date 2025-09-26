@@ -17,6 +17,8 @@ const StudentDashboard = lazy(() => import('./pages/StudentDashboard'));
 const DeanDashboard = lazy(() => import('./pages/DeanDashboard'));
 const HODDashboard = lazy(() => import('./pages/HODDashboard'));
 const CCDashboard = lazy(() => import('./pages/CCDashboard'));
+const GroupChatPage = lazy(() => import('./components/GroupChatPage'));
+const GroupChatListPage = lazy(() => import('./components/GroupChatList'));
 
 // Create a simple theme
 const theme = createTheme({
@@ -124,6 +126,22 @@ function App() {
           element={
             <PrivateRoute allowedRoles={['student', 'admin', 'superadmin']}>
               <StudentDashboard />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/group-chat/:courseId/:sectionId" 
+          element={
+            <PrivateRoute allowedRoles={['student', 'teacher', 'hod', 'dean', 'admin', 'cc', 'superadmin']}>
+              <GroupChatPage />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/group-chat-list" 
+          element={
+            <PrivateRoute allowedRoles={['hod', 'dean', 'admin', 'superadmin']}>
+              <GroupChatListPage />
             </PrivateRoute>
           } 
         />

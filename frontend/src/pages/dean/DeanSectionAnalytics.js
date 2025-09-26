@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Grid, Card, CardContent, Typography, Alert, CircularProgress, TextField, MenuItem, Button, Paper, Table, TableHead, TableBody, TableRow, TableCell, Chip, Divider } from '@mui/material';
+import { Chat as ChatIcon } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 const DeanSectionAnalytics = () => {
+  const navigate = useNavigate();
   const [departments, setDepartments] = useState([]);
   const [deptId, setDeptId] = useState('');
   const [courses, setCourses] = useState([]);
@@ -169,8 +172,25 @@ const DeanSectionAnalytics = () => {
             <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
               Courses: {(analytics.courses || []).map(c => `${c.title} (${c.courseCode || ''})`).join(', ')}
             </Typography>
-            <Box sx={{ mb: 2 }}>
+            <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
               <Button variant="outlined" onClick={downloadCsv}>Download CSV</Button>
+              {analytics.courses && analytics.courses.length > 0 && (
+                analytics.courses.map(course => (
+                  <Button
+                    key={course._id}
+                    variant="contained"
+                    size="small"
+                    startIcon={<ChatIcon />}
+                    onClick={() => navigate(`/group-chat/${course._id}/${analytics.section._id}`)}
+                    sx={{ 
+                      bgcolor: '#395a7f',
+                      '&:hover': { bgcolor: '#6e9fc1' }
+                    }}
+                  >
+                    {course.courseCode} Chat
+                  </Button>
+                ))
+              )}
             </Box>
 
             {(analytics.students || []).map(st => (
