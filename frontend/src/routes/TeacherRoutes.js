@@ -1,6 +1,8 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Box } from '@mui/material';
+import { getCurrentUser } from '../utils/authService';
+import { useUserRole } from '../contexts/UserRoleContext';
 import TeacherDashboard from '../components/teacher/TeacherDashboard';
 import CourseList from '../components/teacher/CourseList';
 import NotFound from '../components/common/NotFound';
@@ -26,8 +28,13 @@ import TeacherQuizzes from '../pages/teacher/TeacherQuizzes';
 import QuizUnlockDashboard from '../components/teacher/QuizUnlockDashboard';
 import TeacherCCManagement from '../pages/teacher/TeacherCCManagement';
 
-const TeacherRoutes = ({ user, token }) => {
-  if (!user || user.role !== 'teacher') {
+const TeacherRoutes = () => {
+  const { user: contextUser } = useUserRole();
+  const currentUser = getCurrentUser();
+  const user = contextUser || currentUser;
+  const token = localStorage.getItem('token');
+
+  if (!user || (user.role !== 'teacher' && user.role !== 'cc' && user.role !== 'admin' && user.role !== 'superadmin')) {
     return <Navigate to="/login" replace />;
   }
 

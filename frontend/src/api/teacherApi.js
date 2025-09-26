@@ -230,3 +230,28 @@ export const deleteTeacherUnit = async (unitId, token) => {
   });
   return res.data;
 };
+
+// Forum-related functions (placeholder implementations)
+export const getCourseForums = async (courseId, token) => {
+  // Placeholder implementation - replace with actual API call when forums are implemented
+  console.warn('getCourseForums: Forum functionality not yet implemented');
+  return { forums: [] };
+};
+
+export const getForumDiscussion = async (forumId, token) => {
+  // Placeholder implementation - replace with actual API call when forums are implemented
+  console.warn('getForumDiscussion: Forum functionality not yet implemented');
+  return { discussion: { posts: [] } };
+};
+
+export const postForumReply = async (forumId, replyData, token) => {
+  // Placeholder implementation - replace with actual API call when forums are implemented
+  console.warn('postForumReply: Forum functionality not yet implemented');
+  return { success: true, message: 'Forum functionality not yet implemented' };
+};
+
+export const getTeacherForums = async (token) => {
+  // Placeholder implementation - replace with actual API call when forums are implemented
+  console.warn('getTeacherForums: Forum functionality not yet implemented');
+  return { forums: [] };
+};
