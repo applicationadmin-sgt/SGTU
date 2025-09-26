@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Quiz Results Navigation</title>
+</head>
+<body>
+    <h1>Debug Quiz Results Navigation</h1>
+    
+    <p>This is a simple test to debug the routing issue.</p>
+    
+    <script>
+        console.log('Current URL:', window.location.href);
+        console.log('Current pathname:', window.location.pathname);
+        
+        // Check if quiz-results should be accessible
+        if (window.location.pathname.includes('/student/quiz-results')) {
+            console.log('✅ We are on the quiz-results page');
+        } else {
+            console.log('❌ We are NOT on the quiz-results page');
+        }
+        
+        // Test localStorage token
+        const token = localStorage.getItem('token');
+        console.log('Token exists:', !!token);
+        
+        // Test navigation via JavaScript
+        function testNavigation() {
+            console.log('Testing navigation to quiz results...');
+            window.history.pushState({}, '', '/student/quiz-results');
+            console.log('After navigation - pathname:', window.location.pathname);
+        }
+        
+        // Add button to test navigation
+        const button = document.createElement('button');
+        button.textContent = 'Test Navigate to Quiz Results';
+        button.onclick = testNavigation;
+        document.body.appendChild(button);
+    </script>
+</body>
+</html>

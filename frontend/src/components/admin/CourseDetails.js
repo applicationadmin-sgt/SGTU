@@ -146,7 +146,8 @@ const VideoAnalyticsDialog = ({ open, onClose, videoId, token }) => {
                   console.error('Video loading error for URL:', analytics.videoUrl, e);
                   // Try alternative URL if the current one fails
                   if (!analytics.videoUrl.startsWith('http')) {
-                    const fallbackUrl = `http://localhost:5000/${analytics.videoUrl}`;
+                    const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+                    const fallbackUrl = `${API_BASE_URL}/${analytics.videoUrl}`;
                     console.log('Trying fallback URL:', fallbackUrl);
                     e.target.src = fallbackUrl;
                   }
@@ -165,7 +166,7 @@ const VideoAnalyticsDialog = ({ open, onClose, videoId, token }) => {
                 Video URL: {analytics.videoUrl}
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Fallback URL: {analytics.videoUrl.startsWith('http') ? 'N/A' : `http://localhost:5000/${analytics.videoUrl}`}
+                Fallback URL: {analytics.videoUrl.startsWith('http') ? 'N/A' : `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/${analytics.videoUrl}`}
               </Typography>
             </Box>
 

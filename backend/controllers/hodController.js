@@ -1214,6 +1214,8 @@ const getStudentAnalytics = async (req, res) => {
     const hodId = req.user.id;
     const { page = 1, limit = 20, search = '', sortBy = 'name', sortOrder = 'asc' } = req.query;
     
+    console.log('HOD Student Analytics Request:', { hodId, page, limit, search, sortBy, sortOrder });
+    
     // Get HOD's department
     const hod = await User.findById(hodId).populate('department');
     if (!hod || !hod.department) {
@@ -1221,25 +1223,29 @@ const getStudentAnalytics = async (req, res) => {
     }
 
     const departmentId = hod.department._id;
+    console.log('HOD Department:', hod.department.name, departmentId);
 
     // Build search filter
-    const searchFilter = search ? {
-      $or: [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { regNo: { $regex: search, $options: 'i' } }
-      ]
-    } : {};
+    let matchConditions = {
+      department: departmentId,
+      role: 'student',
+      isActive: { $ne: false }
+    };
+
+    if (search && search.trim() !== '') {
+      matchConditions.$or = [
+        { name: { $regex: search.trim(), $options: 'i' } },
+        { email: { $regex: search.trim(), $options: 'i' } },
+        { regNo: { $regex: search.trim(), $options: 'i' } }
+      ];
+    }
+
+    console.log('Match conditions:', JSON.stringify(matchConditions, null, 2));
 
     // Get students with detailed analytics
     const studentAnalytics = await User.aggregate([
       {
-        $match: {
-          department: departmentId,
-          role: 'student',
-          isActive: { $ne: false },
-          ...searchFilter
-        }
+        $match: matchConditions
       },
       {
         $lookup: {
@@ -1328,14 +1334,13 @@ const getStudentAnalytics = async (req, res) => {
         $limit: parseInt(limit)
       }
     ]);
+    
+    console.log('Student analytics aggregation completed, results:', studentAnalytics.length);
 
     // Get total count for pagination
-    const totalCount = await User.countDocuments({
-      department: departmentId,
-      role: 'student',
-      isActive: { $ne: false },
-      ...searchFilter
-    });
+    const totalCount = await User.countDocuments(matchConditions);
+    
+    console.log('Found students:', studentAnalytics.length, 'Total count:', totalCount);
 
     res.json({
       students: studentAnalytics,

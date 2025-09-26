@@ -902,6 +902,7 @@ const AdminDashboard = () => {
               <Route path="analytics" element={<AnalyticsDashboard />} />
               <Route path="enhanced-analytics" element={<EnhancedAnalytics />} />
               <Route path="announcements" element={<AnnouncementPage role="admin" />} />
+              <Route path="profile" element={<AdminProfile />} />
               {currentUser?.role === 'admin' && <Route path="user-roles" element={<UserRoleManagement />} />}
               {currentUser?.role === 'admin' && <Route path="roles" element={<RoleManagement />} />}
               <Route path="*" element={<Navigate to="/admin/dashboard" />} />

@@ -20,7 +20,6 @@ import {
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import VideoLibraryIcon from '@mui/icons-material/VideoLibrary';
-import ForumIcon from '@mui/icons-material/Forum';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import EventIcon from '@mui/icons-material/Event';
@@ -51,7 +50,6 @@ const TeacherCourseDetail = () => {
   const [course, setCourse] = useState(null);
   const [students, setStudents] = useState([]);
   const [videos, setVideos] = useState([]);
-  const [forums, setForums] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tabValue, setTabValue] = useState(0);
@@ -81,11 +79,7 @@ const TeacherCourseDetail = () => {
           headers: { Authorization: `Bearer ${token}` }
         });
         setVideos(videosResponse.data);
-        // Fetch forums
-        const forumsResponse = await axios.get(`/api/teacher/course/${courseId}/forums`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setForums(forumsResponse.data);
+        
         // Fetch units
         const unitsData = await getUnitsByCourse(courseId, token);
         console.log('🎯 Teacher units data received:', unitsData);
@@ -180,11 +174,10 @@ const TeacherCourseDetail = () => {
         >
           <Tab label="Students" icon={<PersonIcon />} iconPosition="start" />
           <Tab label="Videos" icon={<VideoLibraryIcon />} iconPosition="start" />
-          <Tab label="Forums" icon={<ForumIcon />} iconPosition="start" />
           <Tab label="Units" />
         </Tabs>
         {/* Units Tab */}
-        <TabPanel value={tabValue} index={3}>
+        <TabPanel value={tabValue} index={2}>
           <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6">Units ({units.length})</Typography>
             <Button variant="contained" color="primary" onClick={handleOpenUnitDialog}>
@@ -375,54 +368,6 @@ const TeacherCourseDetail = () => {
           )}
         </TabPanel>
         
-        <TabPanel value={tabValue} index={2}>
-          <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="h6">
-              Discussion Forums ({forums.length})
-            </Typography>
-            <Button 
-              variant="contained" 
-              color="primary"
-              onClick={() => alert('Create forum functionality not implemented yet')}
-            >
-              Create New Forum
-            </Button>
-          </Box>
-          
-          {forums.length === 0 ? (
-            <Typography variant="body1">No forums available for this course yet.</Typography>
-          ) : (
-            <List>
-              {forums.map((forum) => (
-                <React.Fragment key={forum._id}>
-                  <ListItem alignItems="flex-start">
-                    <ListItemText
-                      primary={forum.title}
-                      secondary={
-                        <>
-                          <Typography component="span" variant="body2" color="text.secondary">
-                            {forum.description || 'No description'}
-                          </Typography>
-                          <Typography component="span" variant="body2" display="block" color="text.secondary">
-                            Posts: {forum.postCount || 0} | Last activity: {new Date(forum.lastActivity).toLocaleDateString()}
-                          </Typography>
-                        </>
-                      }
-                    />
-                    <Button 
-                      variant="outlined"
-                      size="small"
-                      onClick={() => navigate(`/teacher/forum/${forum._id}`)}
-                    >
-                      View Forum
-                    </Button>
-                  </ListItem>
-                  <Divider component="li" />
-                </React.Fragment>
-              ))}
-            </List>
-          )}
-        </TabPanel>
       </Paper>
     </div>
   );

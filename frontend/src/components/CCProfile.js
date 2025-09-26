@@ -45,9 +45,7 @@ const CCProfile = () => {
 
   const fetchProfile = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/auth/profile', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await axios.get('/api/auth/me');
       setProfile(response.data);
       setError(null);
     } catch (error) {

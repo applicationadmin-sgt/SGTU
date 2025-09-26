@@ -313,6 +313,36 @@ exports.getCurrentUser = async (req, res) => {
     const user = await User.findById(req.user._id)
       .populate('school', 'name code')
       .populate('department', 'name code')
+      .populate({
+        path: 'assignedSections',
+        select: 'name school department courses teacher teachers students',
+        populate: [
+          {
+            path: 'courses',
+            select: 'name title code courseCode'
+          },
+          {
+            path: 'teacher',
+            select: 'name email teacherId'
+          },
+          {
+            path: 'teachers',
+            select: 'name email teacherId'
+          },
+          {
+            path: 'students',
+            select: 'name email'
+          },
+          {
+            path: 'school',
+            select: 'name'
+          },
+          {
+            path: 'department',
+            select: 'name'
+          }
+        ]
+      })
       .select('-password');
     
     if (!user) {
@@ -331,8 +361,10 @@ exports.getCurrentUser = async (req, res) => {
       school: user.school,
       department: user.department,
       regNo: user.regNo,
+      studentId: user.regNo, // Add studentId for students
       teacherId: user.teacherId,
       coursesAssigned: user.coursesAssigned,
+      assignedSections: user.assignedSections, // Include populated sections
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     };

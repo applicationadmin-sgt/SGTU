@@ -39,7 +39,9 @@ const PrivateRoute = ({ children, allowedRoles }) => {
     allowedRoles,
     activeRole,
     availableRoles: rolesToCheck,
-    userAuthenticated: !!userToCheck
+    userAuthenticated: !!userToCheck,
+    contextUser: !!contextUser,
+    currentUser: !!currentUser
   });
   
   // If specific roles are required, check access
@@ -57,8 +59,17 @@ const PrivateRoute = ({ children, allowedRoles }) => {
     
     if (!hasAccess) {
       console.log('❌ Access denied, redirecting to user dashboard');
+      console.log('🔍 Access denial details:', {
+        contextUser: !!contextUser,
+        allowedRoles,
+        rolesToCheck,
+        roleToCheck,
+        hasAccessViaContext: contextUser ? allowedRoles.some(role => canAccessRole(role)) : 'N/A',
+        hasAccessViaLegacy: allowedRoles.some(role => rolesToCheck.includes(role))
+      });
       // User doesn't have required role, redirect to their primary dashboard
       const targetDashboard = getDashboardRoute(roleToCheck);
+      console.log('🎯 Redirecting to dashboard:', targetDashboard);
       if (targetDashboard && location.pathname !== targetDashboard) {
         return <Navigate to={targetDashboard} replace />;
       } else {

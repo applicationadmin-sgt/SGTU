@@ -136,6 +136,7 @@ const Sidebar = ({ currentUser, mobileOpen = false, handleDrawerToggle = () => {
     { text: 'My Section', icon: <GroupsIcon />, path: 'section', color: theme.palette.primary.light },
     { text: 'Live Classes', icon: <VideoCallIcon />, path: 'live-classes', color: theme.palette.status?.success},
     { text: 'Videos', icon: <VideoLibraryIcon />, path: 'videos', color: theme.palette.primary.light },
+    { text: 'Quiz Results', icon: <AssessmentIcon />, path: 'quiz-results', color: theme.palette.status?.info },
   ];
   
   // Dean menu

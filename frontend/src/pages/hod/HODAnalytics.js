@@ -127,6 +127,7 @@ const HODAnalytics = () => {
     if (!token) return;
     
     try {
+      console.log('Fetching student analytics with search:', studentSearch);
       const params = new URLSearchParams({
         page: studentPage,
         limit: 10,
@@ -135,10 +136,12 @@ const HODAnalytics = () => {
         sortOrder: studentSort.order
       });
 
+      console.log('Request params:', params.toString());
       const response = await axios.get(`/api/hod/analytics/students?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
+      console.log('Student analytics response:', response.data);
       setStudentAnalytics(response.data);
     } catch (error) {
       console.error('Error fetching student analytics:', error);
@@ -559,15 +562,33 @@ const HODAnalytics = () => {
               <CardContent>
                 <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center' }}>
                   <TextField
-                    placeholder="Search students..."
+                    placeholder="Search students by name, email, or reg number..."
                     value={studentSearch}
                     onChange={(e) => setStudentSearch(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        handleStudentSearch();
+                      }
+                    }}
                     size="small"
                     sx={{ flexGrow: 1 }}
                   />
                   <Button variant="contained" onClick={handleStudentSearch}>
                     Search
                   </Button>
+                  {studentSearch && (
+                    <Button 
+                      variant="outlined" 
+                      onClick={() => {
+                        setStudentSearch('');
+                        setStudentPage(1);
+                        // Automatically fetch data when clearing search
+                        setTimeout(() => fetchStudentAnalytics(), 100);
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  )}
                 </Box>
                 
                 <Typography variant="h6" sx={{ mb: 2 }}>

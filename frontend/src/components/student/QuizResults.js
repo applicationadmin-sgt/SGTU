@@ -30,6 +30,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 
 const QuizResults = () => {
+  console.log('QuizResults: Component rendering...');
   const [quizResults, setQuizResults] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -37,22 +38,41 @@ const QuizResults = () => {
   useEffect(() => {
     const fetchQuizResults = async () => {
       try {
+        setLoading(true);
+        setError(null);
+        
         const token = localStorage.getItem('token');
         if (!token) {
+          console.error('QuizResults: No authentication token found');
           setError('No authentication token found');
+          setLoading(false);
           return;
         }
         
+        console.log('QuizResults: Fetching quiz results...');
         const results = await getStudentQuizResults(null, token); // Get all quiz results
+        console.log('QuizResults: Successfully fetched quiz results:', results);
         setQuizResults(results);
       } catch (err) {
-        console.error('Error fetching quiz results:', err);
-        setError('Failed to load quiz results');
+        console.error('QuizResults: Error fetching quiz results:', err);
+        console.error('QuizResults: Error details:', err.response?.data || err.message);
+        
+        // Don't throw the error - just set error state
+        if (err.response?.status === 401) {
+          setError('Authentication failed. Please log in again.');
+        } else if (err.response?.status === 404) {
+          setError('Quiz results not found.');
+        } else if (err.code === 'NETWORK_ERROR' || !err.response) {
+          setError('Cannot connect to server. Please ensure the server is running.');
+        } else {
+          setError('Failed to load quiz results. Please try again later.');
+        }
       } finally {
         setLoading(false);
       }
     };
 
+    console.log('QuizResults: Component mounted, starting data fetch...');
     fetchQuizResults();
   }, []);
 

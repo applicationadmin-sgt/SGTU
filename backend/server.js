@@ -6,7 +6,24 @@ const compression = require('compression');
 const helmet = require('helmet');
 const app = express();
 require('dotenv').config();
-app.use(cors());
+
+// Enhanced CORS configuration for HTTPS frontend
+const corsOptions = {
+  origin: [
+    'http://localhost:3000',
+    'https://localhost:3000',
+    'http://10.20.49.165:3000',
+    'https://10.20.49.165:3000',
+    'http://127.0.0.1:3000',
+    'https://127.0.0.1:3000'
+  ],
+  credentials: true,
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+};
+
+app.use(cors(corsOptions));
 
 // Security headers (lightweight defaults)
 app.use(helmet({
@@ -174,8 +191,6 @@ async function createAdmin() {
   }
 }
 
-const PORT = process.env.PORT || 5000;
-
 // Error handling middleware for multer and file uploads
 app.use((err, req, res, next) => {
   if (err.name === 'MulterError') {
@@ -196,16 +211,43 @@ app.use((err, req, res, next) => {
 
 // Initialize Socket.IO for live classes BEFORE starting the server
 const http = require('http');
-const server = http.createServer(app);
+const https = require('https');
+const fs = require('fs');
+
+// Set PORT
+const PORT = process.env.PORT || 5000;
+
+// Always use HTTPS for better WebRTC and live class compatibility
+let server;
+try {
+  // SSL certificate options
+  const sslOptions = {
+    key: fs.readFileSync(path.join(__dirname, 'localhost+3-key.pem')),
+    cert: fs.readFileSync(path.join(__dirname, 'localhost+3.pem'))
+  };
+  
+  // Create HTTPS server
+  server = https.createServer(sslOptions, app);
+  console.log('🔐 HTTPS server created with SSL certificates');
+} catch (error) {
+  console.error('❌ SSL certificate error:', error.message);
+  console.error('Please ensure localhost+3.pem and localhost+3-key.pem files exist in the backend directory');
+  process.exit(1);
+}
+
+// Initialize Socket.IO with HTTPS server
 const initializeLiveClassSocket = require('./socket/liveClassSocket');
 initializeLiveClassSocket(server);
-console.log('✅ Live Class Socket.IO server initialized');
+console.log('✅ Live Class Socket.IO server initialized (HTTPS)');
 
+// Start HTTPS server
 server.listen(PORT, '0.0.0.0', async () => {
   await createAdmin();
   // Run migrations
   const generateTeacherIds = require('./migrations/generateTeacherIds');
   await generateTeacherIds();
   
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🔐 HTTPS Server running on port ${PORT}`);
+  console.log(`   Access via: https://10.20.49.165:${PORT}`);
+  console.log(`   Access via: https://localhost:${PORT}`);
 });

@@ -2,7 +2,18 @@ import axios from 'axios';
 import { getToken, logoutUser } from './authService';
 
 // Set base URL for all API calls
-axios.defaults.baseURL = 'http://localhost:5000';
+// In development, use relative URLs to leverage the proxy
+// In production, use the full API URL
+const isDevelopment = process.env.NODE_ENV === 'development';
+const API_BASE_URL = isDevelopment ? '' : (process.env.REACT_APP_API_URL || 'http://localhost:5000');
+axios.defaults.baseURL = API_BASE_URL;
+
+console.log('🔧 Axios Configuration:', {
+  isDevelopment,
+  API_BASE_URL,
+  NODE_ENV: process.env.NODE_ENV,
+  REACT_APP_API_URL: process.env.REACT_APP_API_URL
+});
 
 // Add request interceptor for adding auth token
 axios.interceptors.request.use(

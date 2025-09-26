@@ -108,16 +108,65 @@ const StudentLiveClassRoom = ({ token, user }) => {
       }
       
       // Initialize socket connection
-  socket.current = io(process.env.REACT_APP_API_URL || 'http://localhost:5000', {
-        auth: { token }
+  // Force HTTPS for Socket.io connection to fix SSL issues
+  let apiUrl = process.env.REACT_APP_API_URL || 'https://10.20.49.165:5000';
+  
+  // Ensure URL is properly formatted with HTTPS
+  if (!apiUrl.startsWith('http')) {
+    apiUrl = 'https://' + apiUrl;
+  } else {
+    apiUrl = apiUrl.replace('http://', 'https://');
+  }
+  
+  // Always use the server's IP address for Socket.IO
+  const socketUrl = apiUrl;
+  
+  console.log('🔌 Student connecting to Socket.IO server:', socketUrl);
+  
+  socket.current = io(socketUrl, {
+    auth: { token },
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    path: '/socket.io',
+    secure: true,
+    rejectUnauthorized: false,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    secure: true,
+    rejectUnauthorized: false
+  });      // Initialize WebRTC
+      webrtcManager.current = new WebRTCManager();
+
+      // Get user ID with fallback
+      const userId = user.id || user._id || user.userId || 'student_' + Date.now();
+      
+      console.log('🎬 Student WebRTC initialization config:', {
+        roomId: classResponse.liveClass.roomId,
+        userId: userId,
+        isTeacher: false,
+        socketConnected: socket.current?.connected
       });
       
-      // Initialize WebRTC
-      webrtcManager.current = new WebRTCManager();
+      // Wait for socket connection before initializing WebRTC
+      if (!socket.current.connected) {
+        await new Promise(resolve => {
+          const connectTimeout = setTimeout(() => {
+            console.log('⏱️ Student socket connection timed out, proceeding anyway');
+            resolve();
+          }, 5000);
+          
+          socket.current.once('connect', () => {
+            clearTimeout(connectTimeout);
+            resolve();
+          });
+        });
+      }
       
       await webrtcManager.current.initialize({
         roomId: classResponse.liveClass.roomId,
-        userId: user.id || user._id, // JWT token uses 'id' not '_id'
+        userId: userId,
         isTeacher: false,
         socket: socket.current
       });
@@ -128,9 +177,22 @@ const StudentLiveClassRoom = ({ token, user }) => {
       // Set up socket event handlers
       setupSocketHandlers();
       
-      // For students, we don't need to get user media initially
-      // They can enable it later if the teacher allows it
+      // For students, create silent/blank tracks initially to avoid WebRTC issues
+      // They can enable actual media later if the teacher allows it
+      console.log('🚪 Student getting placeholder media tracks...');
+      try {
+        // Create silent audio and blank video tracks
+        await webrtcManager.current.createPlaceholderTracks();
+        console.log('✅ Created placeholder tracks for student');
+      } catch (error) {
+        console.warn('⚠️ Could not create placeholder tracks, joining without media:', error);
+      }
+      
+      console.log('🚪 Student joining room...');
+      await webrtcManager.current.joinRoom();
+      
       setConnectionStatus('connected');
+      setHasJoined(true);
       
     } catch (err) {
       console.error('Error initializing class:', err);
@@ -140,58 +202,78 @@ const StudentLiveClassRoom = ({ token, user }) => {
     }
   };
   
-  const joinClass = async () => {
-    try {
-      console.log('🚪 Student attempting to join class:', classId);
-      
-      // Join the class via API
-      await liveClassAPI.joinClass(classId, token);
-      console.log('✅ Student joined class API successfully');
-      
-      // Join the WebRTC room
-      console.log('🔗 Student joining WebRTC room...');
-      await webrtcManager.current.joinRoom();
-      console.log('✅ Student joined WebRTC room successfully');
-      
-      setHasJoined(true);
-      
-    } catch (err) {
-      console.error('❌ Error joining class:', err);
-      setError(err.message);
-    }
-  };
+  // Removed separate joinClass function - now joining in initializeClass
   
   const setupWebRTCHandlers = () => {
     if (!webrtcManager.current) return;
     
     webrtcManager.current.onRemoteStream = (userId, stream) => {
-      console.log('Received remote stream from:', userId);
+      console.log('📹 Received remote stream from:', userId, {
+        hasVideo: stream.getVideoTracks().length > 0,
+        hasAudio: stream.getAudioTracks().length > 0,
+        videoEnabled: stream.getVideoTracks()[0]?.enabled,
+        audioEnabled: stream.getAudioTracks()[0]?.enabled
+      });
       
-      // Check if this is the teacher's stream (use safe string comparison)
+      // Check if this is the teacher's stream
       const isTeacherStream = classData && String(classData.teacher._id) === String(userId);
-      if (isTeacherStream || (!teacherVideoRef.current?.srcObject)) {
+      console.log('🔍 Stream identification:', {
+        userId: userId,
+        teacherId: classData?.teacher?._id,
+        isTeacherStream: isTeacherStream,
+        hasTeacherVideoAlready: !!teacherVideoRef.current?.srcObject
+      });
+      
+      if (isTeacherStream) {
+        // This is definitely the teacher's stream
         if (teacherVideoRef.current) {
+          console.log('📺 Setting teacher stream to teacher video element');
           teacherVideoRef.current.srcObject = stream;
           // Ensure autoplay kicks in
-          try { teacherVideoRef.current.play().catch(() => {}); } catch (e) {}
+          try { 
+            teacherVideoRef.current.play().catch(() => {
+              console.warn('⚠️ Teacher video autoplay failed');
+            }); 
+          } catch (e) {
+            console.warn('⚠️ Teacher video play exception:', e);
+          }
           teacherVideoRef.current.onloadedmetadata = () => {
-            try { teacherVideoRef.current.play().catch(() => {}); } catch (e) {}
+            try { 
+              teacherVideoRef.current.play().catch(() => {
+                console.warn('⚠️ Teacher video play failed after metadata');
+              });
+            } catch (e) {
+              console.warn('⚠️ Teacher video metadata play exception:', e);
+            }
           };
         }
       } else {
-        // Handle other student streams
-        const videoElement = document.createElement('video');
-        videoElement.srcObject = stream;
-        videoElement.autoplay = true;
-        videoElement.playsInline = true;
-        videoElement.style.width = '100%';
-        videoElement.style.height = '100%';
-        videoElement.style.objectFit = 'cover';
-        
-        remoteVideosRef.current.set(userId, {
-          stream,
-          videoElement
-        });
+        // Handle other student streams or unknown streams
+        // If we don't have a teacher stream yet, try this one
+        if (!teacherVideoRef.current?.srcObject) {
+          console.log('📺 No teacher stream yet, trying this stream as teacher');
+          if (teacherVideoRef.current) {
+            teacherVideoRef.current.srcObject = stream;
+            try { teacherVideoRef.current.play().catch(() => {}); } catch (e) {}
+            teacherVideoRef.current.onloadedmetadata = () => {
+              try { teacherVideoRef.current.play().catch(() => {}); } catch (e) {}
+            };
+          }
+        } else {
+          // Store as student stream
+          const videoElement = document.createElement('video');
+          videoElement.srcObject = stream;
+          videoElement.autoplay = true;
+          videoElement.playsInline = true;
+          videoElement.style.width = '100%';
+          videoElement.style.height = '100%';
+          videoElement.style.objectFit = 'cover';
+          
+          remoteVideosRef.current.set(userId, {
+            stream,
+            videoElement
+          });
+        }
       }
       
       // Update participants
@@ -311,17 +393,99 @@ const StudentLiveClassRoom = ({ token, user }) => {
     });
   };
   
-  const toggleVideo = () => {
-    if (webrtcManager.current && classData?.allowStudentCamera) {
-      const newState = webrtcManager.current.toggleVideo();
-      setIsVideoOn(newState);
+  const toggleVideo = async () => {
+    if (!webrtcManager.current) return;
+    
+    try {
+      if (!classData?.allowStudentCamera) {
+        setError('Camera is disabled by the teacher');
+        return;
+      }
+      
+      if (!isVideoOn) {
+        if (!webrtcManager.current.localStream) {
+          // First time enabling camera - need to get user media
+          console.log('🎥 Getting user media for first time (video)');
+          const stream = await webrtcManager.current.enableStudentMedia({ 
+            video: true, 
+            audio: isAudioOn 
+          });
+          
+          // Set stream to local video element
+          if (localVideoRef.current && stream) {
+            localVideoRef.current.srcObject = stream;
+            try {
+              await localVideoRef.current.play();
+            } catch (e) {
+              console.warn('⚠️ Student video autoplay failed:', e);
+            }
+          }
+          
+          // Force renegotiation to send new tracks to teacher
+          await webrtcManager.current.forceRenegotiationWithAllPeers();
+          
+          setIsVideoOn(true);
+        } else {
+          // Enable existing video track
+          const newState = webrtcManager.current.toggleVideo();
+          setIsVideoOn(newState);
+        }
+      } else {
+        // Disable video track
+        const newState = webrtcManager.current.toggleVideo();
+        setIsVideoOn(newState);
+      }
+    } catch (error) {
+      console.error('❌ Error toggling video:', error);
+      setError('Failed to toggle camera: ' + error.message);
     }
   };
   
-  const toggleAudio = () => {
-    if (webrtcManager.current && classData?.allowStudentMic) {
-      const newState = webrtcManager.current.toggleAudio();
-      setIsAudioOn(newState);
+  const toggleAudio = async () => {
+    if (!webrtcManager.current) return;
+    
+    try {
+      if (!classData?.allowStudentMic) {
+        setError('Microphone is disabled by the teacher');
+        return;
+      }
+      
+      if (!isAudioOn) {
+        if (!webrtcManager.current.localStream) {
+          // First time enabling microphone - need to get user media
+          console.log('🎤 Getting user media for first time (audio)');
+          const stream = await webrtcManager.current.enableStudentMedia({ 
+            video: isVideoOn, 
+            audio: true 
+          });
+          
+          // Update local video element with new stream if it has video
+          if (localVideoRef.current && stream && isVideoOn) {
+            localVideoRef.current.srcObject = stream;
+            try {
+              await localVideoRef.current.play();
+            } catch (e) {
+              console.warn('⚠️ Student video autoplay failed:', e);
+            }
+          }
+          
+          // Force renegotiation to send new tracks to teacher
+          await webrtcManager.current.forceRenegotiationWithAllPeers();
+          
+          setIsAudioOn(true);
+        } else {
+          // Enable existing audio track
+          const newState = webrtcManager.current.toggleAudio();
+          setIsAudioOn(newState);
+        }
+      } else {
+        // Disable audio track
+        const newState = webrtcManager.current.toggleAudio();
+        setIsAudioOn(newState);
+      }
+    } catch (error) {
+      console.error('❌ Error toggling audio:', error);
+      setError('Failed to toggle microphone: ' + error.message);
     }
   };
   
@@ -333,6 +497,11 @@ const StudentLiveClassRoom = ({ token, user }) => {
       });
       setNewMessage('');
     }
+  };
+
+  const joinClass = () => {
+    // Since we already joined in initialize, just show the interface
+    setHasJoined(true);
   };
   
   const leaveClass = () => {
@@ -1016,7 +1185,7 @@ const StudentLiveClassRoom = ({ token, user }) => {
           }>
             <span>
               <IconButton 
-                onClick={toggleAudio}
+                onClick={toggleMicrophone}
                 disabled={!classData?.allowStudentMic}
                 color={isAudioOn ? 'primary' : 'default'}
                 sx={{ bgcolor: isAudioOn ? 'primary.light' : 'grey.300' }}

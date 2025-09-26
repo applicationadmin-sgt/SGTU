@@ -28,7 +28,8 @@ import {
   CalendarToday as CalendarIcon,
   Refresh as RefreshIcon,
   AccountBox as AccountBoxIcon,
-  Class as ClassIcon
+  Class as ClassIcon,
+  Groups as GroupsIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -42,9 +43,7 @@ const StudentProfile = () => {
 
   const fetchProfile = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/auth/profile', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await axios.get('/api/auth/me');
       setProfile(response.data);
       setError(null);
     } catch (error) {
@@ -165,7 +164,7 @@ const StudentProfile = () => {
               />
               
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Student ID: {profile?.studentId || 'Not assigned'}
+                Student ID: {profile?.studentId || profile?.regNo || 'Not assigned'}
               </Typography>
 
               {profile?.createdAt && (
@@ -204,7 +203,7 @@ const StudentProfile = () => {
                     </ListItemIcon>
                     <ListItemText 
                       primary="Student ID" 
-                      secondary={profile?.studentId || 'Not assigned'} 
+                      secondary={profile?.studentId || profile?.regNo || 'Not assigned'} 
                     />
                   </ListItem>
                   <ListItem>
@@ -251,41 +250,95 @@ const StudentProfile = () => {
                       />
                     </ListItem>
                   )}
-                  {profile?.section && (
+                  {profile?.assignedSections && profile.assignedSections.length > 0 && (
                     <ListItem>
                       <ListItemIcon>
-                        <ClassIcon color="primary" />
+                        <GroupsIcon color="primary" />
                       </ListItemIcon>
                       <ListItemText 
-                        primary="Section" 
-                        secondary={profile.section.name || 'Not assigned'} 
-                      />
-                    </ListItem>
-                  )}
-                  {profile?.enrolledCourses && (
-                    <ListItem>
-                      <ListItemIcon>
-                        <MenuBook color="primary" />
-                      </ListItemIcon>
-                      <ListItemText 
-                        primary="Enrolled Courses" 
-                        secondary={`${profile.enrolledCourses.length} course(s)`} 
+                        primary="Sections" 
+                        secondary={`Enrolled in ${profile.assignedSections.length} section(s)`} 
                       />
                     </ListItem>
                   )}
                 </List>
               </Paper>
             </Grid>
+
+            {/* Sections and Teachers Information */}
+            {profile?.assignedSections && profile.assignedSections.length > 0 && (
+              <Grid item xs={12}>
+                <Paper sx={{ p: 3, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                  <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+                    <GroupsIcon sx={{ mr: 1, color: '#1976d2' }} />
+                    Enrolled Sections
+                  </Typography>
+                  <Divider sx={{ mb: 2 }} />
+                  <List dense>
+                    {profile.assignedSections.map((section, index) => (
+                      <ListItem key={section._id || index} sx={{ mb: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
+                        <ListItemIcon>
+                          <ClassIcon color="primary" />
+                        </ListItemIcon>
+                        <ListItemText 
+                          primary={
+                            <span>
+                              <Typography variant="subtitle2" component="span" sx={{ fontWeight: 'bold' }}>
+                                {section.course?.name || 'Course Name N/A'}
+                              </Typography>
+                              <Typography variant="caption" component="span" sx={{ ml: 1, color: 'text.secondary' }}>
+                                ({section.course?.code || 'N/A'})
+                              </Typography>
+                            </span>
+                          }
+                          secondary={
+                            <span style={{ marginTop: '4px', display: 'block' }}>
+                              <Typography variant="caption" display="block" color="text.secondary">
+                                <PersonIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
+                                Teacher: {section.teacher?.name || 'Not assigned'}
+                              </Typography>
+                              {section.teacher?.email && (
+                                <Typography variant="caption" display="block" color="text.secondary">
+                                  <EmailIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
+                                  {section.teacher.email}
+                                </Typography>
+                              )}
+                            </span>
+                          } 
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Paper>
+              </Grid>
+            )}
+
+            {/* Enrolled Courses Summary */}
+            {profile?.assignedSections && profile.assignedSections.length > 0 && (
+              <Grid item xs={12}>
+                <Paper sx={{ p: 3, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                  <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+                    <CourseIcon sx={{ mr: 1, color: '#1976d2' }} />
+                    Course Enrollment Summary
+                  </Typography>
+                  <Divider sx={{ mb: 2 }} />
+                  <List dense>
+                    <ListItem>
+                      <ListItemIcon>
+                        <CourseIcon color="primary" />
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary="Total Courses" 
+                        secondary={`Enrolled in ${profile.assignedSections.length} course(s)`} 
+                      />
+                    </ListItem>
+                  </List>
+                </Paper>
+              </Grid>
+            )}
           </Grid>
         </Grid>
       </Grid>
-
-      <style jsx>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </Box>
   );
 };

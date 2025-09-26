@@ -193,8 +193,8 @@ class WebRTCManager {
 
         // Get current senders
         const senders = pc.getSenders();
-        const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-        const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+        const videoSender = senders.find(s => s.track?.kind === 'video');
+        const audioSender = senders.find(s => s.track?.kind === 'audio');
         
         // Handle video track
         if (videoTrack) {
@@ -210,6 +210,13 @@ class WebRTCManager {
             console.log(`➕ Adding video track for ${userId} (first time)`);
             pc.addTrack(videoTrack, this.localStream);
           }
+        } else if (videoSender && videoSender.track) {
+          // Remove video track if it exists but we have no new video track
+          videoSender.replaceTrack(null).then(() => {
+            console.log(`🚫 Removed video track for ${userId}`);
+          }).catch(err => {
+            console.error(`❌ Failed to remove video track for ${userId}:`, err);
+          });
         }
         
         // Handle audio track
@@ -226,15 +233,18 @@ class WebRTCManager {
             console.log(`➕ Adding audio track for ${userId} (first time)`);
             pc.addTrack(audioTrack, this.localStream);
           }
+        } else if (audioSender && audioSender.track) {
+          // Remove audio track if it exists but we have no new audio track
+          audioSender.replaceTrack(null).then(() => {
+            console.log(`🚫 Removed audio track for ${userId}`);
+          }).catch(err => {
+            console.error(`❌ Failed to remove audio track for ${userId}:`, err);
+          });
         }
         
-        // Trigger renegotiation if needed
-        if (pc.signalingState === 'stable') {
-          console.log(`🔄 Triggering renegotiation for ${userId}`);
-          this.createOffer(userId);
-        } else {
-          console.log(`⏳ Waiting for stable state to renegotiate with ${userId} (current: ${pc.signalingState})`);
-        }
+        // Don't manually trigger negotiation - let the negotiationneeded event handle it
+        console.log(`🔄 Tracks updated for ${userId}, negotiation will be handled automatically`);
+        
         
       } catch (error) {
         console.error(`❌ Error updating tracks for ${userId}:`, error);
@@ -267,7 +277,7 @@ class WebRTCManager {
         isTeacher: this.isTeacher
       });
       
-      console.log('� Emitted join-room event to backend');
+      console.log('  Emitted join-room event to backend');
       
     } catch (error) {
       console.error('❌ Error joining room:', error);
@@ -315,30 +325,54 @@ class WebRTCManager {
     try {
       const pc = new RTCPeerConnection(this.rtcConfig);
       
-      // Ensure media sections exist even before local tracks
-      try {
-        pc.addTransceiver('video', { direction: 'sendrecv' });
-        pc.addTransceiver('audio', { direction: 'sendrecv' });
-      } catch (e) {
-        console.warn('Transceiver add failed (older browser?)', e);
-      }
+      // Add transceivers first to ensure media sections exist
+      const videoTransceiver = pc.addTransceiver('video', { 
+        direction: 'sendrecv',
+        streams: this.localStream ? [this.localStream] : []
+      });
+      const audioTransceiver = pc.addTransceiver('audio', { 
+        direction: 'sendrecv',
+        streams: this.localStream ? [this.localStream] : []
+      });
       
-      // Add local stream tracks
+      // Add local stream tracks if available
       if (this.localStream) {
-        this.localStream.getTracks().forEach(track => {
-          pc.addTrack(track, this.localStream);
-        });
+        const videoTrack = this.localStream.getVideoTracks()[0];
+        const audioTrack = this.localStream.getAudioTracks()[0];
+        
+        if (videoTrack && videoTransceiver.sender) {
+          videoTransceiver.sender.replaceTrack(videoTrack);
+        }
+        if (audioTrack && audioTransceiver.sender) {
+          audioTransceiver.sender.replaceTrack(audioTrack);
+        }
       }
       
       // Handle negotiationneeded to renegotiate when tracks are added/replaced
+      let negotiationTimer = null;
       pc.onnegotiationneeded = async () => {
         try {
-          // Avoid spamming offers: only create an offer if connection is stable
-          if (pc.signalingState === 'stable') {
-            await this.createOffer(remoteUserId);
+          // Debounce negotiation to avoid multiple rapid calls
+          if (negotiationTimer) {
+            clearTimeout(negotiationTimer);
           }
+          
+          negotiationTimer = setTimeout(async () => {
+            try {
+              // Only create an offer if we should initiate and connection is stable
+              if (pc.signalingState === 'stable' && this.shouldInitiateOffer(remoteUserId, false)) {
+                console.log(`🔄 Negotiation needed for ${remoteUserId}, creating offer`);
+                await this.createOffer(remoteUserId);
+              } else {
+                console.log(`⏳ Skipping negotiation for ${remoteUserId}: state=${pc.signalingState}, shouldInitiate=${this.shouldInitiateOffer(remoteUserId, false)}`);
+              }
+            } catch (err) {
+              console.error('Negotiation error:', err);
+            }
+          }, 100); // 100ms debounce
+          
         } catch (err) {
-          console.error('Negotiation error:', err);
+          console.error('Negotiation setup error:', err);
         }
       };
       
@@ -409,9 +443,22 @@ class WebRTCManager {
   // Create and send offer
   async createOffer(remoteUserId) {
     try {
-      const pc = this.peerConnections.get(remoteUserId) || this.createPeerConnection(remoteUserId);
+      let pc = this.peerConnections.get(remoteUserId);
       
-      const offer = await pc.createOffer();
+      if (!pc) {
+        pc = this.createPeerConnection(remoteUserId);
+      }
+      
+      // Check if we're in the right state to create an offer
+      if (pc.signalingState !== 'stable') {
+        console.warn(`⚠️ Cannot create offer in state: ${pc.signalingState} for ${remoteUserId}`);
+        return;
+      }
+      
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      });
       await pc.setLocalDescription(offer);
       
       this.socket.emit('offer', {
@@ -434,9 +481,24 @@ class WebRTCManager {
   // Handle received offer
   async handleOffer(fromUserId, offer) {
     try {
-      const pc = this.peerConnections.get(fromUserId) || this.createPeerConnection(fromUserId);
+      let pc = this.peerConnections.get(fromUserId);
       
+      if (!pc) {
+        pc = this.createPeerConnection(fromUserId);
+      }
+      
+      // Check if we're in the right state to handle an offer
+      if (pc.signalingState !== 'stable' && pc.signalingState !== 'have-local-offer') {
+        console.warn(`⚠️ Received offer in wrong state: ${pc.signalingState}, closing and recreating connection`);
+        pc.close();
+        pc = this.createPeerConnection(fromUserId);
+      }
+      
+      // Set remote description (the offer)
       await pc.setRemoteDescription(offer);
+      console.log('✅ Set remote description (offer) from:', fromUserId);
+      
+      // Create and send answer
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       
@@ -454,6 +516,12 @@ class WebRTCManager {
       
     } catch (error) {
       console.error('❌ Error handling offer:', error);
+      // Clean up the problematic connection
+      const pc = this.peerConnections.get(fromUserId);
+      if (pc) {
+        pc.close();
+        this.peerConnections.delete(fromUserId);
+      }
     }
   }
   
@@ -461,18 +529,35 @@ class WebRTCManager {
   async handleAnswer(fromUserId, answer) {
     try {
       const pc = this.peerConnections.get(fromUserId);
-      if (pc) {
-        await pc.setRemoteDescription(answer);
-        console.log('✅ Set remote description from:', fromUserId, {
-          signalingState: pc.signalingState,
-          connectionState: pc.connectionState,
-          iceState: pc.iceConnectionState
-        });
-        // Optional: dump selected candidate pair after a short delay
-        setTimeout(() => this.logSelectedCandidatePair(fromUserId).catch(()=>{}), 1500);
+      if (!pc) {
+        console.warn(`⚠️ No peer connection found for ${fromUserId} when handling answer`);
+        return;
       }
+      
+      // Check if we're in the right state to handle an answer
+      if (pc.signalingState !== 'have-local-offer') {
+        console.warn(`⚠️ Received answer in wrong state: ${pc.signalingState} for ${fromUserId}`);
+        return;
+      }
+      
+      await pc.setRemoteDescription(answer);
+      console.log('✅ Set remote description (answer) from:', fromUserId, {
+        signalingState: pc.signalingState,
+        connectionState: pc.connectionState,
+        iceState: pc.iceConnectionState
+      });
+      
+      // Optional: dump selected candidate pair after a short delay
+      setTimeout(() => this.logSelectedCandidatePair(fromUserId).catch(()=>{}), 1500);
+      
     } catch (error) {
       console.error('❌ Error handling answer:', error);
+      // Clean up the problematic connection
+      const pc = this.peerConnections.get(fromUserId);
+      if (pc) {
+        pc.close();
+        this.peerConnections.delete(fromUserId);
+      }
     }
   }
   
@@ -609,6 +694,7 @@ class WebRTCManager {
       const videoTrack = this.localStream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
+        console.log(`📹 Video ${videoTrack.enabled ? 'enabled' : 'disabled'}`);
         return videoTrack.enabled;
       }
     }
@@ -621,10 +707,206 @@ class WebRTCManager {
       const audioTrack = this.localStream.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
+        console.log(`🎤 Audio ${audioTrack.enabled ? 'enabled' : 'disabled'}`);
         return audioTrack.enabled;
       }
     }
     return false;
+  }
+
+  // Enable video (get new video track if needed)
+  async enableVideo() {
+    try {
+      if (!this.localStream) {
+        // Get new stream with video
+        this.localStream = await this.getUserMedia({ video: true, audio: true });
+        this.updateLocalStreamTracks();
+        return true;
+      }
+
+      const videoTrack = this.localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = true;
+        console.log(`📹 Video enabled`);
+        return true;
+      } else {
+        // Need to get video track
+        const newStream = await navigator.mediaDevices.getUserMedia({ 
+          video: true, 
+          audio: false 
+        });
+        const newVideoTrack = newStream.getVideoTracks()[0];
+        
+        if (newVideoTrack) {
+          this.localStream.addTrack(newVideoTrack);
+          this.updateLocalStreamTracks();
+          console.log(`📹 Video track added and enabled`);
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('❌ Error enabling video:', error);
+      throw error;
+    }
+  }
+
+  // Enable audio (get new audio track if needed)
+  async enableAudio() {
+    try {
+      if (!this.localStream) {
+        // Get new stream with audio
+        this.localStream = await this.getUserMedia({ video: false, audio: true });
+        this.updateLocalStreamTracks();
+        return true;
+      }
+
+      const audioTrack = this.localStream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = true;
+        console.log(`🎤 Audio enabled`);
+        return true;
+      } else {
+        // Need to get audio track
+        const newStream = await navigator.mediaDevices.getUserMedia({ 
+          video: false, 
+          audio: true 
+        });
+        const newAudioTrack = newStream.getAudioTracks()[0];
+        
+        if (newAudioTrack) {
+          this.localStream.addTrack(newAudioTrack);
+          this.updateLocalStreamTracks();
+          console.log(`🎤 Audio track added and enabled`);
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('❌ Error enabling audio:', error);
+      throw error;
+    }
+  }
+
+  // Disable video
+  disableVideo() {
+    if (this.localStream) {
+      const videoTrack = this.localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = false;
+        console.log(`📹 Video disabled`);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Disable audio
+  disableAudio() {
+    if (this.localStream) {
+      const audioTrack = this.localStream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = false;
+        console.log(`🎤 Audio disabled`);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Create placeholder tracks for students (silent audio, blank video)
+  async createPlaceholderTracks() {
+    try {
+      console.log('🎭 Creating placeholder tracks for student...');
+      
+      // Create a blank video track (1x1 pixel canvas)
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, 1, 1);
+      
+      const videoStream = canvas.captureStream(15); // 15 FPS
+      const videoTrack = videoStream.getVideoTracks()[0];
+      videoTrack.enabled = false; // Start disabled
+      
+      // Create a silent audio track
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const dst = audioContext.createMediaStreamDestination();
+      oscillator.connect(dst);
+      oscillator.start();
+      
+      const audioTrack = dst.stream.getAudioTracks()[0];
+      audioTrack.enabled = false; // Start disabled
+      
+      // Create a MediaStream with these tracks
+      this.localStream = new MediaStream([videoTrack, audioTrack]);
+      
+      console.log('✅ Created placeholder tracks:', {
+        hasVideo: this.localStream.getVideoTracks().length > 0,
+        hasAudio: this.localStream.getAudioTracks().length > 0,
+        videoEnabled: this.localStream.getVideoTracks()[0]?.enabled,
+        audioEnabled: this.localStream.getAudioTracks()[0]?.enabled
+      });
+      
+      return this.localStream;
+    } catch (error) {
+      console.error('❌ Error creating placeholder tracks:', error);
+      throw error;
+    }
+  }
+
+  // Enable student media (for students who start with no media)
+  async enableStudentMedia(constraints = { video: false, audio: false }) {
+    try {
+      console.log('🎬 Enabling student media with constraints:', constraints);
+      
+      // Stop existing tracks (placeholder or real)
+      if (this.localStream) {
+        console.log('🛑 Stopping existing tracks before getting new media');
+        this.localStream.getTracks().forEach(track => {
+          console.log(`Stopping ${track.kind} track, enabled: ${track.enabled}`);
+          track.stop();
+        });
+      }
+      
+      // Get fresh media stream
+      this.localStream = await this.getUserMedia(constraints);
+      console.log('✅ Created new stream for student with tracks:', {
+        video: this.localStream.getVideoTracks().length,
+        audio: this.localStream.getAudioTracks().length,
+        videoEnabled: this.localStream.getVideoTracks()[0]?.enabled,
+        audioEnabled: this.localStream.getAudioTracks()[0]?.enabled
+      });
+      
+      // Update all peer connections with the new tracks
+      this.updateLocalStreamTracks();
+      
+      return this.localStream;
+    } catch (error) {
+      console.error('❌ Error enabling student media:', error);
+      throw error;
+    }
+  }
+
+  // Force renegotiation with all peers (useful when student enables media for first time)
+  async forceRenegotiationWithAllPeers() {
+    console.log('🔄 Forcing renegotiation with all peers');
+    
+    for (const [userId, pc] of this.peerConnections) {
+      try {
+        if (pc.signalingState === 'stable' && this.shouldInitiateOffer(userId, false)) {
+          console.log(`🔄 Creating fresh offer for ${userId}`);
+          await this.createOffer(userId);
+        }
+      } catch (error) {
+        console.error(`❌ Error renegotiating with ${userId}:`, error);
+      }
+    }
   }
   
   // Start recording (teacher only)

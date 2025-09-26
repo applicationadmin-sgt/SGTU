@@ -11,10 +11,13 @@ export const formatVideoUrl = (videoUrl) => {
     return videoUrl;
   }
   
+  // Get API base URL from environment variables
+  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+  
   // Otherwise prepend the backend URL
   // Ensure the URL is properly formatted (handle both /uploads/file.mp4 and uploads/file.mp4 formats)
   const formattedUrl = videoUrl.startsWith('/') ? videoUrl : `/${videoUrl}`;
-  return `http://localhost:5000${formattedUrl}`;
+  return `${API_BASE_URL}${formattedUrl}`;
 };
 
 /**

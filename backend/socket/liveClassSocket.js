@@ -15,8 +15,8 @@ function initializeLiveClassSocket(server) {
     cors: {
       origin: [
         process.env.FRONTEND_URL || "http://localhost:3000",
-        "http://10.20.58.236:3000",
-        "https://10.20.58.236:3000", // HTTPS IP address
+        "http://10.20.49.165:3000",
+        "https://10.20.49.165:3000", // HTTPS IP address
         "http://localhost:3000",
         "https://localhost:3000" // HTTPS localhost
       ],
@@ -27,8 +27,8 @@ function initializeLiveClassSocket(server) {
 
   console.log('📋 Socket.IO CORS origins configured:', [
     process.env.FRONTEND_URL || "http://localhost:3000",
-    "http://10.20.58.236:3000",
-    "https://10.20.58.236:3000",
+    "http://10.20.49.164:3000",
+    "https://10.20.49.165:3000",
     "http://localhost:3000",
     "https://localhost:3000"
   ]);
