@@ -2964,3 +2964,46 @@ exports.getUserAssignments = async (req, res) => {
     });
   }
 };
+
+// Get all sections for admin group chat
+exports.getAllSections = async (req, res) => {
+  try {
+    const Section = require('../models/Section');
+    
+    const sections = await Section.find()
+      .populate('students', 'name email')
+      .populate('courses', 'title courseCode')
+      .sort({ name: 1 });
+
+    res.json(sections);
+  } catch (error) {
+    console.error('Error getting all sections:', error);
+    res.status(500).json({ 
+      message: 'Failed to get sections',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+// Get courses for a specific section
+exports.getSectionCourses = async (req, res) => {
+  try {
+    const { sectionId } = req.params;
+    const Section = require('../models/Section');
+    
+    const section = await Section.findById(sectionId)
+      .populate('courses', 'title courseCode _id');
+
+    if (!section) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+
+    res.json(section.courses || []);
+  } catch (error) {
+    console.error('Error getting section courses:', error);
+    res.status(500).json({ 
+      message: 'Failed to get section courses',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};

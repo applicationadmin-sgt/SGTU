@@ -1969,3 +1969,33 @@ exports.getTeacherCourseAssignments = async (req, res) => {
     });
   }
 };
+
+// Get section by ID for group chat
+exports.getSectionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const section = await Section.findById(id)
+      .populate('school', 'name code')
+      .populate('department', 'name code')
+      .populate('courses', 'title courseCode')
+      .populate('teacher', 'name email')
+      .populate('students', 'name email');
+    
+    if (!section) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+    
+    res.json({
+      success: true,
+      section
+    });
+  } catch (error) {
+    console.error('❌ Error getting section by ID:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get section',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};

@@ -1,4 +1,3 @@
-const socketIO = require('socket.io');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const LiveClass = require('../models/LiveClass');
@@ -8,30 +7,10 @@ const rooms = new Map();
 // Map userId to socketId for direct messaging
 const userSocketMap = new Map();
 
-function initializeLiveClassSocket(server) {
-  console.log('🔧 Initializing Socket.IO server...');
+function initializeLiveClassSocket(server, io) {
+  console.log('🔧 Initializing Live Class Socket with shared Socket.IO instance...');
   
-  const io = socketIO(server, {
-    cors: {
-      origin: [
-        process.env.FRONTEND_URL || "http://localhost:3000",
-        "http://10.20.49.165:3000",
-        "https://10.20.49.165:3000", // HTTPS IP address
-        "http://localhost:3000",
-        "https://localhost:3000" // HTTPS localhost
-      ],
-      methods: ["GET", "POST"],
-      credentials: true
-    }
-  });
-
-  console.log('📋 Socket.IO CORS origins configured:', [
-    process.env.FRONTEND_URL || "http://localhost:3000",
-    "http://10.20.49.164:3000",
-    "https://10.20.49.165:3000",
-    "http://localhost:3000",
-    "https://localhost:3000"
-  ]);
+  console.log('📋 Live Class Socket using shared Socket.IO instance');
 
   // Authentication middleware
   io.use(async (socket, next) => {

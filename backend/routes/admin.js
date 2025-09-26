@@ -362,5 +362,9 @@ router.get('/users/:userId/roles', adminController.getUserRoles);
 router.post('/users/:userId/switch-role', adminController.switchUserRole);
 router.patch('/users/:userId/roles', adminController.updateUserRoles);
 
+// Section management routes for admin group chat
+router.get('/sections/all', adminController.getAllSections);
+router.get('/sections/:sectionId/courses', adminController.getSectionCourses);
+
 module.exports = router;
 
