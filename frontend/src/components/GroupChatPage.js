@@ -42,6 +42,7 @@ const GroupChatPage = () => {
   const [sectionInfo, setSectionInfo] = useState(null);
   const [typingUsers, setTypingUsers] = useState([]);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, messageId: null });
+  const [currentUser, setCurrentUser] = useState(null);
   
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -70,8 +71,11 @@ const GroupChatPage = () => {
       return;
     }
 
+    // Load current user info
+    loadCurrentUser();
+
     // Initialize socket connection
-    const newSocket = io('http://localhost:5000/group-chat', {
+    const newSocket = io('https://10.20.50.12:3000/group-chat', {
       auth: { token }
     });
 
@@ -169,6 +173,18 @@ const GroupChatPage = () => {
   useEffect(() => {
     loadCourseAndSectionInfo();
   }, [courseId, sectionId]);
+
+  const loadCurrentUser = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/auth/me', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCurrentUser(response.data);
+    } catch (error) {
+      console.error('Error loading user info:', error);
+    }
+  };
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || sending || !connected) return;
@@ -339,11 +355,26 @@ const GroupChatPage = () => {
                       {formatTime(message.timestamp)}
                     </Typography>
                   </Box>
-                  <Typography variant="body2" sx={{ color: '#333', wordBreak: 'break-word' }}>
+                  <Typography 
+                    variant="body2" 
+                    sx={{ 
+                      color: message.flagged ? '#ff9800' : '#333', 
+                      wordBreak: 'break-word',
+                      fontStyle: message.flagged ? 'italic' : 'normal'
+                    }}
+                  >
                     {message.message}
+                    {message.flagged && (
+                      <Chip 
+                        label="Filtered" 
+                        size="small" 
+                        color="warning" 
+                        sx={{ ml: 1, fontSize: '0.7rem', height: '20px' }}
+                      />
+                    )}
                   </Typography>
                 </Box>
-                {message.canDelete && (
+                {(message.canDelete || message.canShowDelete) && (
                   <IconButton
                     size="small"
                     onClick={() => setDeleteDialog({ open: true, messageId: message._id })}
@@ -351,9 +382,12 @@ const GroupChatPage = () => {
                       position: 'absolute',
                       top: 8,
                       right: 8,
-                      color: colors.text,
-                      '&:hover': { color: '#f44336' }
+                      color: message.canDelete ? '#f44336' : colors.text,
+                      opacity: message.canDelete ? 1 : 0.6,
+                      '&:hover': { color: '#f44336', opacity: 1 }
                     }}
+                    disabled={!message.canDelete}
+                    title={message.canDelete ? 'Delete message' : 'Cannot delete this message'}
                   >
                     <DeleteIcon fontSize="small" />
                   </IconButton>

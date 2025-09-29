@@ -4,7 +4,7 @@ module.exports = function(app) {
   console.log('🔧 Setting up proxy middleware...');
   
   // Get the target URL from environment - always use HTTPS for WebRTC compatibility
-  const target = (process.env.REACT_APP_API_URL || 'https://10.20.49.165:5000').replace('http://', 'https://');
+  const target = (process.env.REACT_APP_API_URL || 'https://10.20.50.12:5000').replace('http://', 'https://');
   console.log('🎯 Proxy target:', target);
   console.log('🔍 REACT_APP_API_URL env var:', process.env.REACT_APP_API_URL);
 
@@ -15,17 +15,14 @@ module.exports = function(app) {
       const path = req.path || req.url || '';
       const originalUrl = req.originalUrl || '';
       
-      // Check for various forms of malformed paths
+      // Check for various forms of malformed paths - but allow root path for React app
       if (!path || 
           path === 'undefined' || 
           path === '/undefined' ||
           path.includes('undefined') ||
           originalUrl.includes('undefined') ||
           path === 'unknown_path' ||
-          originalUrl.includes('unknown_path') ||
-          // Check for empty or null paths that might become 'unknown_path'
-          path === '' ||
-          path === '/' && !req.url.startsWith('/api') && !req.url.startsWith('/socket.io')) {
+          originalUrl.includes('unknown_path')) {
         
         console.error('🚫 Blocking malformed request:', {
           path: path,
@@ -51,19 +48,29 @@ module.exports = function(app) {
     createProxyMiddleware({
       target: target,
       changeOrigin: true,
-      secure: false,
-      ws: true,
-      logLevel: 'info',
+      secure: false, // Allow self-signed certificates
+      ws: true, // Enable WebSocket proxying
+      logLevel: 'warn', // Reduce log noise
+      timeout: 30000, // 30 second timeout
+      proxyTimeout: 30000,
       pathRewrite: {
         '^/socket.io': '/socket.io'
       },
       onProxyReq: (proxyReq, req, res) => {
-        console.log(`🔌 Socket.IO proxy: ${req.method} ${req.path} -> ${target}${req.path}`);
+        const path = req?.path || req?.url || 'unknown_path';
+        console.log(`🔌 Socket.IO proxy: ${req.method} ${path} -> ${target}${path}`);
       },
       onError: (err, req, res) => {
-        console.error('❌ Socket.IO proxy error:', err.message);
-        console.error('   Path:', req.path);
-        console.error('   Target:', target);
+        const path = req?.path || req?.url || req?.originalUrl || 'unknown_path';
+        // Only log significant errors, not every socket hang up
+        if (err.code !== 'ECONNRESET' && !err.message.includes('socket hang up')) {
+          console.error('❌ Socket.IO proxy error:', {
+            error: err.message,
+            code: err.code,
+            path: path,
+            target: target
+          });
+        }
       }
     })
   );

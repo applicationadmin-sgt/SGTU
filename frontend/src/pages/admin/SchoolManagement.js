@@ -109,7 +109,7 @@ const SchoolManagement = () => {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <SchoolIcon /> School Management
+          <SchoolIcon /> School Management &nbsp;&nbsp;&nbsp;
         </Typography>
         <Button
           variant="contained"

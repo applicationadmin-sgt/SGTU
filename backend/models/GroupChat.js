@@ -29,6 +29,10 @@ const groupChatSchema = new mongoose.Schema({
     default: Date.now,
     index: true
   },
+  deleted: { 
+    type: Boolean, 
+    default: false 
+  },
   isDeleted: { 
     type: Boolean, 
     default: false 
@@ -39,44 +43,109 @@ const groupChatSchema = new mongoose.Schema({
   },
   deletedAt: { 
     type: Date 
+  },
+  editedAt: { 
+    type: Date 
+  },
+  flagged: { 
+    type: Boolean, 
+    default: false 
+  },
+  flaggedReason: { 
+    type: String 
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  collection: 'groupchats'
 });
 
-// Compound index for efficient queries by course and section
+// Compound indexes for efficient queries
 groupChatSchema.index({ courseId: 1, sectionId: 1, timestamp: -1 });
+groupChatSchema.index({ senderId: 1, timestamp: -1 });
+groupChatSchema.index({ isDeleted: 1, timestamp: -1 });
 
-// Index for filtering non-deleted messages
-groupChatSchema.index({ isDeleted: 1 });
-
-// Method to check if user can delete this message
+// Method to check if a user can delete this message
 groupChatSchema.methods.canDelete = function(user) {
-  // Admin, Dean, HOD can delete any message
-  if (['admin', 'dean', 'hod', 'superadmin'].some(role => user.roles && user.roles.includes(role))) {
+  if (!user) return false;
+  
+  // Admin, Dean, and HOD can delete any message
+  if (user.roles && (
+    user.roles.includes('admin') || 
+    user.roles.includes('dean') || 
+    user.roles.includes('hod')
+  )) {
     return true;
   }
   
-  // Users can delete their own messages (optional feature)
-  return this.senderId.toString() === user._id.toString();
+  // Users can delete their own messages within 5 minutes
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  if (this.senderId.toString() === user._id.toString() && this.timestamp > fiveMinutesAgo) {
+    return true;
+  }
+  
+  return false;
 };
 
-// Static method to get chat room identifier
-groupChatSchema.statics.getRoomId = function(courseId, sectionId) {
-  return `chat_${courseId}_${sectionId}`;
+// Method to check if user can see delete button
+groupChatSchema.methods.canShowDeleteButton = function(user) {
+  if (!user) return false;
+  
+  // Admin, Dean, and HOD can always see delete button
+  if (user.roles && (
+    user.roles.includes('admin') || 
+    user.roles.includes('dean') || 
+    user.roles.includes('hod')
+  )) {
+    return true;
+  }
+  
+  return false;
 };
 
-// Virtual to populate sender details without password
-groupChatSchema.virtual('senderDetails', {
-  ref: 'User',
-  localField: 'senderId',
-  foreignField: '_id',
-  justOne: true,
-  select: 'name regNo teacherId roles primaryRole -password'
+// Static method for content filtering
+groupChatSchema.statics.filterContent = function(message) {
+  const vulgarWords = [
+    // English vulgar words
+    'fuck', 'shit', 'damn', 'bitch', 'asshole', 'bastard', 'crap', 'piss',
+    'whore', 'slut', 'stupid', 'idiot', 'moron', 'retard', 'gay', 'lesbian',
+    // Bengali vulgar words (common ones)
+    'chuda', 'magir', 'bal', 'khankir', 'tor ma', 'kuttar baccha', 'haramjada',
+    'madarchod', 'bhenchod', 'randi', 'gadha', 'ullu', 'pagol', 'mitchil',
+    // Hindi vulgar words (common ones)  
+    'madarchod', 'behenchod', 'chutiya', 'randi', 'harami', 'kamina', 'gadha',
+    'bakchod', 'gaandu', 'kutte', 'saala', 'bhosadi', 'lauda', 'lund'
+  ];
+
+  let filteredMessage = message.toLowerCase();
+  let flagged = false;
+  let flaggedWords = [];
+
+  vulgarWords.forEach(word => {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    if (regex.test(filteredMessage)) {
+      flagged = true;
+      flaggedWords.push(word);
+      filteredMessage = filteredMessage.replace(regex, '*'.repeat(word.length));
+    }
+  });
+
+  return {
+    original: message,
+    filtered: filteredMessage,
+    flagged: flagged,
+    flaggedWords: flaggedWords
+  };
+};
+
+// Virtual for display name logic (for backward compatibility)
+groupChatSchema.virtual('senderName').get(function() {
+  if (this.senderId && this.senderId.name) {
+    return this.senderId.name;
+  }
+  return 'Unknown User';
 });
 
 // Ensure virtual fields are serialized
 groupChatSchema.set('toJSON', { virtuals: true });
-groupChatSchema.set('toObject', { virtuals: true });
 
 module.exports = mongoose.model('GroupChat', groupChatSchema);

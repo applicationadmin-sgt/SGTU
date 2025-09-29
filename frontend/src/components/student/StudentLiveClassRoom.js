@@ -109,7 +109,7 @@ const StudentLiveClassRoom = ({ token, user }) => {
       
       // Initialize socket connection
   // Force HTTPS for Socket.io connection to fix SSL issues
-  let apiUrl = process.env.REACT_APP_API_URL || 'https://10.20.49.165:5000';
+  let apiUrl = process.env.REACT_APP_API_URL || 'https://10.20.50.12:3000';
   
   // Ensure URL is properly formatted with HTTPS
   if (!apiUrl.startsWith('http')) {

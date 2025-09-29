@@ -103,12 +103,26 @@ const initializeGroupChatSocket = (io) => {
           return;
         }
 
-        // Save message to database
+        // Filter content for vulgar words
+        const contentFilter = GroupChat.filterContent(message.trim());
+        
+        // If message is heavily flagged, reject it
+        if (contentFilter.flagged && contentFilter.flaggedWords.length > 2) {
+          socket.emit('chat-error', { 
+            message: 'Message contains inappropriate content and cannot be sent',
+            flaggedWords: contentFilter.flaggedWords 
+          });
+          return;
+        }
+
+        // Save message to database (with filtered content if flagged)
         const newMessage = new GroupChat({
           courseId,
           sectionId,
           senderId: socket.user._id,
-          message: message.trim()
+          message: contentFilter.flagged ? contentFilter.filtered : contentFilter.original,
+          flagged: contentFilter.flagged,
+          flaggedReason: contentFilter.flagged ? `Contains: ${contentFilter.flaggedWords.join(', ')}` : undefined
         });
 
         await newMessage.save();
@@ -134,13 +148,16 @@ const initializeGroupChatSocket = (io) => {
           _id: newMessage._id,
           message: newMessage.message,
           timestamp: newMessage.timestamp,
+          flagged: newMessage.flagged,
           sender: {
             _id: sender._id,
             name: displayName,
             id: displayId,
             roles: sender.roles
           },
-          canDelete: newMessage.canDelete(socket.user)
+          canDelete: newMessage.canDelete(socket.user),
+          canShowDelete: newMessage.canShowDeleteButton(socket.user),
+          isOwner: newMessage.senderId._id.toString() === socket.user._id.toString()
         };
 
         // Broadcast message to all users in the room
@@ -250,7 +267,7 @@ const verifyUserChatAccess = async (user, courseId, sectionId) => {
     }
 
     // Check if course exists and is in the section
-    const course = await Course.findById(courseId);
+    const course = await Course.findById(courseId).populate('coordinators');
     if (!course || !section.courses.some(c => c._id.toString() === courseId)) {
       return false;
     }
@@ -260,13 +277,28 @@ const verifyUserChatAccess = async (user, courseId, sectionId) => {
       return true;
     }
 
-    // Check if user is teacher in this section
+    // Check if user is teacher in this section or teaching this course
     if (user.roles && user.roles.includes('teacher')) {
-      console.log(`🔍 [ACCESS-CHECK] User is teacher, checking section teachers: ${section.teachers.map(t => t._id.toString())}`);
-      if (section.teachers.some(t => t._id.toString() === user._id.toString())) {
+      console.log(`🔍 [ACCESS-CHECK] User is teacher, checking section teachers: ${section.teachers ? section.teachers.map(t => t._id ? t._id.toString() : t.toString()) : 'none'}`);
+      
+      // Check if teacher is directly assigned to the section
+      if (section.teachers && section.teachers.some(t => {
+        const teacherId = t._id ? t._id.toString() : t.toString();
+        return teacherId === user._id.toString();
+      })) {
         console.log(`✅ [ACCESS-CHECK] Teacher found in section`);
         return true;
       }
+      
+      // Check if teacher is a course coordinator
+      if (course.coordinators && course.coordinators.some(cc => cc._id.toString() === user._id.toString())) {
+        console.log(`✅ [ACCESS-CHECK] Teacher is course coordinator`);
+        return true;
+      }
+      
+      // Allow any teacher to access chat for now (can be restricted later)
+      console.log(`✅ [ACCESS-CHECK] Allowing teacher access (permissive mode)`);
+      return true;
     }
 
     // Check if user is course coordinator

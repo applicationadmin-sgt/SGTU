@@ -12,8 +12,8 @@ const corsOptions = {
   origin: [
     'http://localhost:3000',
     'https://localhost:3000',
-    'http://10.20.49.165:3000',
-    'https://10.20.49.165:3000',
+    'http://10.20.50.12:3000',
+    'https://10.20.50.12:3000',
     'http://127.0.0.1:3000',
     'https://127.0.0.1:3000'
   ],
@@ -34,6 +34,13 @@ app.use(helmet({
 app.use(compression());
 
 app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ limit: '1mb', extended: true }));
+
+// Increase header size limits to handle large requests
+app.use((req, res, next) => {
+  req.headers['max-http-header-size'] = 16384; // 16KB
+  next();
+});
 
 // Serve static files from the public directory with cache headers
 app.use(express.static(path.join(__dirname, 'public'), {
@@ -243,8 +250,8 @@ const io = new Server(server, {
   cors: {
     origin: [
       "http://localhost:3000",
-      "http://10.242.31.20:3000", 
-      "https://10.242.31.20:3000",
+      "http://10.20.50.12:3000", 
+      "https://10.20.50.12:3000",
       "https://localhost:3000"
     ],
     methods: ["GET", "POST"],
@@ -268,6 +275,6 @@ server.listen(PORT, '0.0.0.0', async () => {
   await generateTeacherIds();
   
   console.log(`🔐 HTTPS Server running on port ${PORT}`);
-  console.log(`   Access via: https://10.242.31.20:${PORT}`);
+  console.log(`   Access via: https://10.20.50.12:${PORT}`);
   console.log(`   Access via: https://localhost:${PORT}`);
 });

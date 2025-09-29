@@ -144,14 +144,14 @@ const DepartmentManagement = () => {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <DepartmentIcon /> Department Management
+          <DepartmentIcon /> Department Management&nbsp;&nbsp;&nbsp;
         </Typography>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => setOpen(true)}
         >
-          Add Department
+          Add Department 
         </Button>
       </Box>
 
