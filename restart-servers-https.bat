@@ -17,8 +17,8 @@ start "Frontend HTTPS Server" cmd /k "npm start"
 echo.
 echo ✅ Both servers are starting in HTTPS mode...
 echo.
-echo 🌐 Frontend: https://10.20.50.12:3000
-echo 🌐 Backend:  https://10.20.50.12:5000
+echo 🌐 Frontend: https://192.168.7.20:3000
+echo 🌐 Backend:  https://192.168.7.20:5000
 echo.
 echo 📋 Wait for both servers to fully start, then test the URLs above.
 echo 🔐 Both should now show as SECURE (with lock icon)

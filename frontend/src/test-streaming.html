@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Streaming Test</title>
+    <style>
+        body { margin: 20px; font-family: Arial, sans-serif; }
+        .video-container { margin: 20px 0; }
+        video { width: 300px; height: 200px; border: 1px solid #ccc; margin: 10px; }
+        .controls { margin: 10px 0; }
+        button { padding: 10px; margin: 5px; }
+        .status { margin: 10px 0; padding: 10px; background: #f0f0f0; }
+        .error { background: #ffe6e6; }
+        .success { background: #e6ffe6; }
+    </style>
+</head>
+<body>
+    <h1>Live Streaming Debug Test</h1>
+    
+    <div class="controls">
+        <button onclick="startAsTeacher()">Start as Teacher</button>
+        <button onclick="startAsStudent()">Start as Student</button>
+        <button onclick="disconnect()">Disconnect</button>
+    </div>
+
+    <div id="status" class="status">Not connected</div>
+
+    <div class="video-container">
+        <h3>Local Video (Your Camera)</h3>
+        <video id="localVideo" autoplay muted playsinline></video>
+    </div>
+
+    <div class="video-container">
+        <h3>Remote Video (Other Participant)</h3>
+        <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+
+    <div id="logs" style="background: #f9f9f9; padding: 10px; margin: 20px 0; height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
+
+    <script type="module">
+        import ScalableWebRTCManager from './utils/ScalableWebRTCManager.js';
+
+        let webrtcManager = null;
+        const statusEl = document.getElementById('status');
+        const localVideoEl = document.getElementById('localVideo');
+        const remoteVideoEl = document.getElementById('remoteVideo');
+        const logsEl = document.getElementById('logs');
+
+        // Capture console logs
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        
+        function addLog(level, ...args) {
+            const timestamp = new Date().toLocaleTimeString();
+            const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' ');
+            const logEntry = document.createElement('div');
+            logEntry.style.color = level === 'error' ? 'red' : level === 'warn' ? 'orange' : 'black';
+            logEntry.textContent = `[${timestamp}] ${level.toUpperCase()}: ${message}`;
+            logsEl.appendChild(logEntry);
+            logsEl.scrollTop = logsEl.scrollHeight;
+        }
+        
+        console.log = (...args) => { originalLog(...args); addLog('log', ...args); };
+        console.error = (...args) => { originalError(...args); addLog('error', ...args); };
+        console.warn = (...args) => { originalWarn(...args); addLog('warn', ...args); };
+
+        window.startAsTeacher = async () => {
+            try {
+                statusEl.textContent = 'Connecting as Teacher...';
+                statusEl.className = 'status';
+                
+                webrtcManager = new ScalableWebRTCManager();
+                
+                // Set up callbacks
+                webrtcManager.onLocalStream = (stream) => {
+                    console.log('LOCAL STREAM RECEIVED:', stream);
+                    localVideoEl.srcObject = stream;
+                };
+                
+                webrtcManager.onRemoteStream = (peerId, stream, kind) => {
+                    console.log('REMOTE STREAM RECEIVED:', { peerId, stream, kind });
+                    if (stream) {
+                        remoteVideoEl.srcObject = stream;
+                        statusEl.textContent = `Connected as Teacher - Remote ${kind} from ${peerId}`;
+                        statusEl.className = 'status success';
+                    }
+                };
+
+                await webrtcManager.connect({
+                    serverUrl: 'https://192.168.7.20:5000',
+                    classId: 'test-class-123',
+                    userId: 'teacher-001',
+                    userName: 'Test Teacher',
+                    userRole: 'teacher',
+                    token: 'test-token'
+                });
+                
+                statusEl.textContent = 'Connected as Teacher - Streaming enabled';
+                statusEl.className = 'status success';
+                
+            } catch (error) {
+                console.error('Teacher connection failed:', error);
+                statusEl.textContent = `Teacher connection failed: ${error.message}`;
+                statusEl.className = 'status error';
+            }
+        };
+
+        window.startAsStudent = async () => {
+            try {
+                statusEl.textContent = 'Connecting as Student...';
+                statusEl.className = 'status';
+                
+                webrtcManager = new ScalableWebRTCManager();
+                
+                // Set up callbacks
+                webrtcManager.onLocalStream = (stream) => {
+                    console.log('STUDENT LOCAL STREAM:', stream);
+                    localVideoEl.srcObject = stream;
+                };
+                
+                webrtcManager.onRemoteStream = (peerId, stream, kind) => {
+                    console.log('STUDENT REMOTE STREAM:', { peerId, stream, kind });
+                    if (stream) {
+                        remoteVideoEl.srcObject = stream;
+                        statusEl.textContent = `Connected as Student - Receiving ${kind} from ${peerId}`;
+                        statusEl.className = 'status success';
+                    }
+                };
+
+                await webrtcManager.connect({
+                    serverUrl: 'https://192.168.7.20:5000',
+                    classId: 'test-class-123',
+                    userId: 'student-001',
+                    userName: 'Test Student',
+                    userRole: 'student',
+                    token: 'test-token'
+                });
+                
+                statusEl.textContent = 'Connected as Student - Listening for streams';
+                statusEl.className = 'status success';
+                
+            } catch (error) {
+                console.error('Student connection failed:', error);
+                statusEl.textContent = `Student connection failed: ${error.message}`;
+                statusEl.className = 'status error';
+            }
+        };
+
+        window.disconnect = () => {
+            if (webrtcManager) {
+                webrtcManager.disconnect();
+                webrtcManager = null;
+            }
+            localVideoEl.srcObject = null;
+            remoteVideoEl.srcObject = null;
+            statusEl.textContent = 'Disconnected';
+            statusEl.className = 'status';
+        };
+
+    </script>
+</body>
+</html>

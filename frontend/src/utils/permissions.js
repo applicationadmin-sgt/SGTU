@@ -2,6 +2,8 @@
  * Utility functions for handling permissions across the application
  */
 
+import { hasRole } from './roleUtils';
+
 /**
  * Checks if a user has a specific permission
  * Handles both formats: snake_case (manage_videos) and Title Case (Manage Videos)
@@ -15,8 +17,8 @@ export function hasPermission(user, permission) {
     return false;
   }
   
-  // Admin has all permissions
-  if (user.role === 'admin') {
+  // Admin has all permissions (supports multi-role)
+  if (hasRole(user, 'admin')) {
     return true;
   }
   

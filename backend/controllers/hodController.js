@@ -320,10 +320,20 @@ const getDepartmentTeachers = async (req, res) => {
         name: a.section.name
       }));
       
-      const coursesAssigned = assignments.map(a => ({
+      const coursesFromSections = assignments.map(a => ({
         _id: a.course._id,
         title: a.course.title,
-        courseCode: a.course.courseCode
+        courseCode: a.course.courseCode,
+        section: a.section.name
+      }));
+
+      // Create section-course assignments for the frontend
+      const sectionCourseAssignments = assignments.map(a => ({
+        sectionId: a.section._id,
+        sectionName: a.section.name,
+        courseId: a.course._id,
+        courseCode: a.course.courseCode,
+        courseTitle: a.course.title
       }));
 
       return {
@@ -332,7 +342,8 @@ const getDepartmentTeachers = async (req, res) => {
         email: teacher.email,
         teacherId: teacher.teacherId,
         assignedSections: assignedSections,
-        coursesAssigned: coursesAssigned,
+        coursesFromSections: coursesFromSections, // Changed from coursesAssigned
+        sectionCourseAssignments: sectionCourseAssignments,
         totalAssignments: assignments.length
       };
     }));
@@ -344,15 +355,15 @@ const getDepartmentTeachers = async (req, res) => {
   }
 };
 
-// Assign a course to a teacher (HOD scope)
-const assignCourseToTeacher = async (req, res) => {
+// HOD can modify teacher assignments in sections for their department courses
+const assignTeacherToSectionCourse = async (req, res) => {
   try {
     const hodId = req.user.id;
-    const { teacherId, courseId } = req.params;
+    const { teacherId, sectionId, courseId } = req.body;
 
     // Validate inputs
-    if (!teacherId || !courseId) {
-      return res.status(400).json({ message: 'teacherId and courseId are required' });
+    if (!teacherId || !sectionId || !courseId) {
+      return res.status(400).json({ message: 'teacherId, sectionId, and courseId are required' });
     }
 
     // Get HOD's department
@@ -361,14 +372,14 @@ const assignCourseToTeacher = async (req, res) => {
       return res.status(404).json({ message: 'HOD department not found' });
     }
 
-    // Verify teacher exists and is in same department (support multi-role users)
+    // Verify teacher exists and is in same department
     const teacher = await User.findById(teacherId);
     const hasTeacherRole = teacher && (
       teacher.role === 'teacher' || 
       (teacher.roles && teacher.roles.includes('teacher'))
     );
     if (!teacher || !hasTeacherRole || teacher.department?.toString() !== hod.department._id.toString()) {
-      return res.status(403).json({ message: 'Teacher must be in your department' });
+      return res.status(403).json({ message: 'Teacher must be in your department with teacher role' });
     }
 
     // Verify course exists and is in same department
@@ -377,86 +388,102 @@ const assignCourseToTeacher = async (req, res) => {
       return res.status(403).json({ message: 'Course must be in your department' });
     }
 
-    // Add relation (legacy coursesAssigned for permissions)
-    await User.findByIdAndUpdate(teacherId, { $addToSet: { coursesAssigned: courseId } });
-
-    // Audit log
-    try {
-      const AuditLog = require('../models/AuditLog');
-      await AuditLog.create({
-        action: 'hod_assign_course_to_teacher',
-        performedBy: hodId,
-        targetUser: teacherId,
-        details: { course: courseId }
-      });
-    } catch (e) {
-      console.warn('Audit log failed for assignCourseToTeacher:', e.message);
+    // Verify section exists and contains this course
+    const section = await Section.findById(sectionId).populate('courses');
+    if (!section) {
+      return res.status(404).json({ message: 'Section not found' });
     }
 
-    // Return updated teacher snapshot
-    const updated = await User.findById(teacherId)
-      .select('name email teacherId coursesAssigned assignedSections')
-      .populate('coursesAssigned', 'title courseCode')
-      .populate('assignedSections', 'name');
+    const courseInSection = section.courses.some(c => c._id.toString() === courseId);
+    if (!courseInSection) {
+      return res.status(400).json({ message: 'Course is not assigned to this section' });
+    }
 
-    return res.json({ message: 'Course assigned to teacher', teacher: updated });
+    // Check for existing assignment
+    const existingAssignment = await SectionCourseTeacher.findOne({
+      section: sectionId,
+      course: courseId,
+      isActive: true
+    });
+
+    let assignment;
+    if (existingAssignment) {
+      // Update existing assignment
+      existingAssignment.teacher = teacherId;
+      existingAssignment.assignedBy = hodId;
+      existingAssignment.assignedAt = new Date();
+      assignment = await existingAssignment.save();
+    } else {
+      // Create new assignment
+      assignment = new SectionCourseTeacher({
+        section: sectionId,
+        course: courseId,
+        teacher: teacherId,
+        assignedBy: hodId,
+        academicYear: section.academicYear,
+        semester: section.semester
+      });
+      await assignment.save();
+    }
+
+    // Populate for response
+    const populatedAssignment = await SectionCourseTeacher.findById(assignment._id)
+      .populate('teacher', 'name email teacherId')
+      .populate('course', 'title courseCode')
+      .populate('section', 'name');
+
+    res.json({ 
+      message: 'Teacher assigned to section course successfully', 
+      assignment: populatedAssignment
+    });
   } catch (error) {
-    console.error('Error assigning course to teacher:', error);
+    console.error('Error in HOD teacher assignment:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
 
-// Remove a course from a teacher (HOD scope)
-const removeCourseFromTeacher = async (req, res) => {
+// HOD can remove teacher assignments from section courses in their department
+const removeTeacherFromSectionCourse = async (req, res) => {
   try {
     const hodId = req.user.id;
-    const { teacherId, courseId } = req.params;
+    const { sectionId, courseId } = req.body;
 
-    if (!teacherId || !courseId) {
-      return res.status(400).json({ message: 'teacherId and courseId are required' });
+    if (!sectionId || !courseId) {
+      return res.status(400).json({ message: 'sectionId and courseId are required' });
     }
 
+    // Get HOD's department
     const hod = await User.findById(hodId).populate('department');
     if (!hod || !hod.department) {
       return res.status(404).json({ message: 'HOD department not found' });
     }
 
-    const teacher = await User.findById(teacherId);
-    const hasTeacherRole = teacher && (
-      teacher.role === 'teacher' || 
-      (teacher.roles && teacher.roles.includes('teacher'))
-    );
-    if (!teacher || !hasTeacherRole || teacher.department?.toString() !== hod.department._id.toString()) {
-      return res.status(403).json({ message: 'Teacher must be in your department' });
-    }
-
+    // Verify course is in HOD's department
     const course = await Course.findById(courseId);
     if (!course || course.department.toString() !== hod.department._id.toString()) {
       return res.status(403).json({ message: 'Course must be in your department' });
     }
 
-    await User.findByIdAndUpdate(teacherId, { $pull: { coursesAssigned: courseId } });
+    // Find and deactivate the assignment
+    const assignment = await SectionCourseTeacher.findOne({
+      section: sectionId,
+      course: courseId,
+      isActive: true
+    });
 
-    try {
-      const AuditLog = require('../models/AuditLog');
-      await AuditLog.create({
-        action: 'hod_remove_course_from_teacher',
-        performedBy: hodId,
-        targetUser: teacherId,
-        details: { course: courseId }
-      });
-    } catch (e) {
-      console.warn('Audit log failed for removeCourseFromTeacher:', e.message);
+    if (!assignment) {
+      return res.status(404).json({ message: 'Assignment not found' });
     }
 
-    const updated = await User.findById(teacherId)
-      .select('name email teacherId coursesAssigned assignedSections')
-      .populate('coursesAssigned', 'title courseCode')
-      .populate('assignedSections', 'name');
+    // Soft delete
+    assignment.isActive = false;
+    assignment.removedAt = new Date();
+    assignment.removedBy = hodId;
+    await assignment.save();
 
-    return res.json({ message: 'Course removed from teacher', teacher: updated });
+    res.json({ message: 'Teacher assignment removed successfully' });
   } catch (error) {
-    console.error('Error removing course from teacher:', error);
+    console.error('Error in HOD teacher removal:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
@@ -523,8 +550,7 @@ const changeTeacherSection = async (req, res) => {
     }
 
     const updated = await User.findById(teacherId)
-      .select('name email teacherId coursesAssigned assignedSections')
-      .populate('coursesAssigned', 'title courseCode')
+      .select('name email teacherId assignedSections')
       .populate('assignedSections', 'name');
 
     return res.json({ message: 'Teacher section updated', teacher: updated });
@@ -1138,20 +1164,19 @@ const getCourseRelations = async (req, res) => {
       .populate('teacher', 'name email teacherId')
       .select('_id name teacher students');
 
-    // Teachers from sections + legacy assignments
+    // Teachers from sections and SectionCourseTeacher assignments only
     const sectionTeachers = courseSections.map(s => s.teacher).filter(Boolean);
-    const legacyTeachers = await User.find({ 
-      $or: [
-        { role: 'teacher' },
-        { roles: { $in: ['teacher'] } }
-      ], 
-      department: hod.department._id, 
-      coursesAssigned: { $in: [course._id] }, 
-      isActive: { $ne: false } 
-    })
-      .select('_id name email teacherId');
+    
+    // Get teachers from SectionCourseTeacher assignments
+    const courseAssignments = await SectionCourseTeacher.find({
+      course: courseId,
+      isActive: true
+    }).populate('teacher', 'name email teacherId');
+    
+    const assignedTeachers = courseAssignments.map(a => a.teacher).filter(Boolean);
+    
     const teacherMap = new Map();
-    [...sectionTeachers, ...legacyTeachers].forEach(t => { if (t) teacherMap.set(t._id.toString(), t); });
+    [...sectionTeachers, ...assignedTeachers].forEach(t => { if (t) teacherMap.set(t._id.toString(), t); });
     const teachers = Array.from(teacherMap.values());
 
     // Students from sections
@@ -2004,6 +2029,99 @@ function getHODApprovalHistory(req, res) {
   })();
 }
 
+// Get section-courses for HOD's department
+const getSectionCourses = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const hodUser = await User.findById(userId).populate('department');
+    
+    if (!hodUser || hodUser.role !== 'hod') {
+      return res.status(403).json({ message: 'Access denied. HOD role required.' });
+    }
+    
+    // Find all sections in HOD's department
+    const sections = await Section.find({ department: hodUser.department._id })
+      .populate({
+        path: 'courses.course',
+        populate: {
+          path: 'department',
+          select: 'name'
+        }
+      });
+    
+    // Extract section-course combinations
+    const sectionCourses = [];
+    sections.forEach(section => {
+      if (section.courses && section.courses.length > 0) {
+        section.courses.forEach(courseData => {
+          if (courseData.course && courseData.course.department._id.toString() === hodUser.department._id.toString()) {
+            sectionCourses.push({
+              _id: `${section._id}_${courseData.course._id}`,
+              section: {
+                _id: section._id,
+                name: section.name,
+                code: section.code
+              },
+              course: {
+                _id: courseData.course._id,
+                title: courseData.course.title,
+                courseCode: courseData.course.courseCode,
+                department: courseData.course.department
+              }
+            });
+          }
+        });
+      }
+    });
+    
+    res.json({ sectionCourses });
+  } catch (error) {
+    console.error('Get section courses error:', error);
+    res.status(500).json({ 
+      message: 'Failed to get section courses',
+      error: error.message 
+    });
+  }
+};
+
+// Get available teachers for a course in HOD's department
+const getAvailableTeachersForCourse = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { courseId } = req.params;
+    
+    const hodUser = await User.findById(userId).populate('department');
+    
+    if (!hodUser || hodUser.role !== 'hod') {
+      return res.status(403).json({ message: 'Access denied. HOD role required.' });
+    }
+    
+    // Verify course belongs to HOD's department
+    const course = await Course.findById(courseId);
+    if (!course || course.department.toString() !== hodUser.department._id.toString()) {
+      return res.status(403).json({ message: 'Course not found in your department' });
+    }
+    
+    // Get teachers in the same department as the course
+    const teachers = await User.find({
+      department: course.department,
+      $or: [
+        { role: 'teacher' },
+        { roles: { $in: ['teacher'] } }
+      ],
+      isActive: { $ne: false }
+    }).select('name email teacherId');
+    
+    res.json({ teachers });
+  } catch (error) {
+    console.error('Get available teachers error:', error);
+    res.status(500).json({ 
+      message: 'Failed to get available teachers',
+      error: error.message 
+    });
+  }
+};
+
 module.exports = {
   getHODDashboard,
   getPendingAnnouncements,
@@ -2022,10 +2140,12 @@ module.exports = {
   getStudentDetailedAnalytics,
   getCourseRelations,
   getCourseSections,
-  assignCourseToTeacher,
-  removeCourseFromTeacher,
+  assignTeacherToSectionCourse,
+  removeTeacherFromSectionCourse,
   changeTeacherSection,
   getAvailableSectionsForTeacherCourse,
+  assignTeacherToSectionCourse,
+  removeTeacherFromSectionCourse,
   // CC related (defined below)
   assignCourseCoordinator,
   removeCourseCoordinator,
@@ -2037,6 +2157,8 @@ module.exports = {
   updateQuizQuestion,
   deleteQuizQuestion,
   createQuizQuestion,
+  getSectionCourses,
+  getAvailableTeachersForCourse,
   getHODAnnouncementHistory,
   getHODApprovalHistory
 };
@@ -2463,4 +2585,6 @@ async function createQuizQuestion(req, res) {
     return res.status(500).json({ message: 'Internal server error' });
   }
 }
+
+
 

@@ -17,8 +17,10 @@ import TeacherStudents from '../pages/teacher/TeacherStudents';
 import TeacherEnhancedAnalytics from '../pages/teacher/TeacherEnhancedAnalytics';
 import TeacherAnalyticsFixed from '../components/teacher/TeacherAnalyticsFixed';
 import TeacherProfile from '../components/TeacherProfile';
+// Import the restored teacher live class dashboard
 import TeacherLiveClassDashboard from '../components/teacher/TeacherLiveClassDashboard';
-import LiveClassRoom from '../components/teacher/LiveClassRoom';
+import SimpleTeacherLiveClassDashboard from '../components/teacher/SimpleTeacherLiveClassDashboard';
+import SgtLmsLiveClass from '../components/liveclass/CodeTantraLiveClass';
 import TestLiveClassPage from '../components/teacher/TestLiveClassPage';
 import TeacherSections from '../components/teacher/TeacherSections';
 import TeacherSectionAnalytics from '../components/teacher/TeacherSectionAnalytics';
@@ -34,7 +36,11 @@ const TeacherRoutes = () => {
   const user = contextUser || currentUser;
   const token = localStorage.getItem('token');
 
-  if (!user || (user.role !== 'teacher' && user.role !== 'cc' && user.role !== 'admin' && user.role !== 'superadmin')) {
+  const hasRequiredRole = user && (user.roles 
+    ? user.roles.some(role => ['teacher', 'cc', 'admin', 'superadmin'].includes(role))
+    : ['teacher', 'cc', 'admin', 'superadmin'].includes(user.role));
+  
+  if (!hasRequiredRole) {
     return <Navigate to="/login" replace />;
   }
 
@@ -82,7 +88,8 @@ const TeacherRoutes = () => {
         
         {/* Live Classes routes */}
         <Route path="/live-classes" element={<TeacherLiveClassDashboard token={token} user={user} />} />
-        <Route path="/live-class/:classId" element={<LiveClassRoom token={token} user={user} />} />
+        <Route path="/live-class/:classId" element={<SgtLmsLiveClass token={token} user={user} />} />
+        <Route path="/scalable-classroom/:classId" element={<SgtLmsLiveClass token={token} user={user} />} />
         
         {/* Sections routes */}
         <Route path="/sections" element={<TeacherSections token={token} user={user} />} />

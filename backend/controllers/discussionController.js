@@ -4,12 +4,14 @@ const User = require('../models/User');
 const path = require('path');
 const fs = require('fs');
 const Notification = require('../models/Notification');
+const { hasRole, hasAnyRole } = require('../utils/roleUtils');
+const { hasAccessToCourse, getUserAccessibleCourses } = require('../utils/courseAccess');
 
 // Get all discussions for admin
 exports.getAllDiscussions = async (req, res) => {
   try {
     // Only allow admins to access this endpoint
-    if (req.user.role !== 'admin') {
+    if (!hasRole(req.user, 'admin')) {
       return res.status(403).json({ message: 'Unauthorized access' });
     }
     
@@ -89,9 +91,10 @@ exports.getUnansweredDiscussions = async (req, res) => {
       ]
     };
     
-    // If student, only show discussions from their assigned courses
-    if (req.user.role === 'student') {
-      query.course = { $in: req.user.coursesAssigned || [] };
+    // Filter by user's accessible courses (through sections only)
+    if (!hasRole(req.user, 'admin')) {
+      const accessibleCourses = await getUserAccessibleCourses(req.user);
+      query.course = { $in: accessibleCourses };
     }
     
     // Count total unanswered discussions

@@ -3,7 +3,7 @@ const io = require('socket.io-client');
 console.log('🔍 Testing Socket.IO connection to backend...');
 
 // Test connection to the new IP
-const socket = io('https://10.20.50.12:5000', {
+const socket = io('https://192.168.7.20:5000', {
   rejectUnauthorized: false, // Accept self-signed certificates
   transports: ['websocket', 'polling']
 });

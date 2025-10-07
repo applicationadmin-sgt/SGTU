@@ -49,12 +49,8 @@ export const deleteCourse = async (id, token) => {
   return res.data;
 };
 
-export const assignCourseToTeacher = async (courseId, teacherId, token) => {
-  const res = await axios.post(`/api/admin/course/${courseId}/assign-teacher`, { teacherId }, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  return res.data;
-};
+// REMOVED: Direct course-teacher assignment - teachers are only connected through sections
+// Use teacherAssignmentApi.assignTeacherToCourses instead
 
 export const bulkAssignCourses = async (file, token) => {
   const formData = new FormData();

@@ -28,9 +28,17 @@ router.get('/sections', hodController.getDepartmentSections);
 // Get department courses
 router.get('/courses', hodController.getDepartmentCourses);
 
-// HOD direct management: teacher-course and section operations
-router.post('/teachers/:teacherId/courses/:courseId', hodController.assignCourseToTeacher);
-router.delete('/teachers/:teacherId/courses/:courseId', hodController.removeCourseFromTeacher);
+// Get section-courses for HOD's department
+router.get('/section-courses', hodController.getSectionCourses);
+
+// Get available teachers for a course
+router.get('/teachers/available/:courseId', hodController.getAvailableTeachersForCourse);
+
+// HOD teacher-section-course management (section-based assignments only)
+router.post('/assign-teacher-to-section-course', hodController.assignTeacherToSectionCourse);
+router.post('/remove-teacher-from-section-course', hodController.removeTeacherFromSectionCourse);
+router.post('/sections/assign-teacher-course', hodController.assignTeacherToSectionCourse);
+router.post('/sections/remove-teacher-course', hodController.removeTeacherFromSectionCourse);
 router.patch('/teachers/:teacherId/section', hodController.changeTeacherSection);
 
 // Get available sections for teacher-course assignment (smart selection)

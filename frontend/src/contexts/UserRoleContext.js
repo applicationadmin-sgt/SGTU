@@ -13,6 +13,7 @@ export const useUserRole = () => {
 
 export const UserRoleProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
   const [activeRole, setActiveRole] = useState(null);
   const [availableRoles, setAvailableRoles] = useState([]);
   const [roleAssignments, setRoleAssignments] = useState([]);
@@ -36,10 +37,11 @@ export const UserRoleProvider = ({ children }) => {
 
   // Initialize user data from token
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
+    const storedToken = localStorage.getItem('token');
+    if (storedToken) {
+      setToken(storedToken);
       try {
-        const userData = parseJwt(token);
+        const userData = parseJwt(storedToken);
         setUser(userData);
         
         // Get available roles (support both legacy and new multi-role system)
@@ -216,6 +218,7 @@ export const UserRoleProvider = ({ children }) => {
 
   const contextValue = {
     user,
+    token,
     activeRole,
     availableRoles,
     roleAssignments,

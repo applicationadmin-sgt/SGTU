@@ -86,28 +86,9 @@ exports.changeOwnPassword = async (req, res) => {
 
 // Bulk assign courses via CSV (students or teachers)
 exports.bulkAssignCourses = async (req, res) => {
-  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-  const results = [];
-  fs.createReadStream(req.file.path)
-    .pipe(csv())
-    .on('data', (data) => results.push(data))
-    .on('end', async () => {
-      try {
-        for (const row of results) {
-          // CSV: { userType: 'student'|'teacher', userId, courseId }
-          const { userType, userId, courseId } = row;
-          if (userType === 'student') {
-            await require('../models/User').findByIdAndUpdate(userId, { $addToSet: { coursesAssigned: courseId } });
-          } else if (userType === 'teacher') {
-            await require('../models/Course').findByIdAndUpdate(courseId, { teacher: userId });
-          }
-        }
-        fs.unlinkSync(req.file.path);
-        res.json({ message: 'Bulk course assignment successful' });
-      } catch (err) {
-        res.status(500).json({ message: err.message });
-      }
-    });
+  return res.status(400).json({ 
+    message: 'Direct course assignment is no longer supported. Please assign teachers through sections in the HOD dashboard.' 
+  });
 };
 // Get all courses
 exports.getAllCourses = async (req, res) => {
@@ -150,7 +131,7 @@ exports.getAllStudents = async (req, res) => {
       ]
     })
       .populate('school', 'name code')
-      .populate('coursesAssigned', 'title courseCode');
+      .populate('assignedSections', 'name code');
     res.json(students);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -164,8 +145,7 @@ exports.getAllTeachers = async (req, res) => {
         { role: 'teacher' },
         { roles: { $in: ['teacher'] } }
       ]
-    })
-      .populate('coursesAssigned', 'title courseCode description');
+    });
     
     // For each teacher, get their section-course assignments
     
@@ -194,15 +174,10 @@ exports.getAllTeachers = async (req, res) => {
           }
         });
         
-        // Combine direct course assignments with section-based assignments
-        const allCourses = [
-          ...(teacher.coursesAssigned || []),
-          ...sectionAssignedCourses
-        ];
-        
+        // Only show section-based course assignments (no more direct assignments)
         return {
           ...teacher.toObject(),
-          coursesAssigned: allCourses,
+          coursesFromSections: sectionAssignedCourses, // Changed from coursesAssigned
           sectionCourseAssignments: sectionCourseAssignments.map(assignment => ({
             section: assignment.section.name,
             course: assignment.course.title,
@@ -560,7 +535,7 @@ async function resolveCourseIdentifiers(identifiers) {
 // Add a teacher manually
 exports.addTeacher = async (req, res) => {
   try {
-    const { name, email, password, permissions, school, department, coursesAssigned, sectionsAssigned, roles } = req.body;
+    const { name, email, password, permissions, school, department, sectionsAssigned, roles } = req.body;
     
     // Validate required fields (department is now optional)
     if (!name || !email || !password || !school) {
@@ -623,7 +598,7 @@ exports.addTeacher = async (req, res) => {
       permissions,
       school,
       department: departmentId,
-      coursesAssigned: coursesAssigned || [],
+
       teacherId: null // Will be auto-generated in the pre-save hook
     });
     
@@ -731,7 +706,7 @@ exports.createMultiRoleUser = async (req, res) => {
       school, 
       department, 
       section,
-      coursesAssigned, 
+ 
       sectionsAssigned 
     } = req.body;
     
@@ -842,8 +817,7 @@ exports.createMultiRoleUser = async (req, res) => {
       primaryRole: userPrimaryRole,
       permissions: permissions || [],
       school: schoolId,
-      department: departmentId,
-      coursesAssigned: coursesAssigned || []
+      department: departmentId
     };
     
     // Add role-specific fields
@@ -926,7 +900,7 @@ exports.createMultiRoleUser = async (req, res) => {
       department: savedUser.department,
       regNo: savedUser.regNo,
       teacherId: savedUser.teacherId,
-      coursesAssigned: savedUser.coursesAssigned
+      assignedSections: savedUser.assignedSections
     });
   } catch (err) {
     console.error('Error creating multi-role user:', err);
@@ -1315,7 +1289,7 @@ exports.createStudent = async (req, res) => {
     }
     
     console.log('Creating student with data:', req.body);
-    const { name, email, password, regNo, school, department, section, coursesAssigned, roles } = req.body;
+    const { name, email, password, regNo, school, department, section, roles } = req.body;
     
     // Validate required fields
     if (!school) {
@@ -1406,44 +1380,6 @@ exports.createStudent = async (req, res) => {
     }
     
     // Create the student
-    // Normalize incoming coursesAssigned (may arrive as string like "C000001" or "['C000001']")
-    let normalizedCourseInputs = [];
-    if (coursesAssigned) {
-      if (Array.isArray(coursesAssigned)) {
-        normalizedCourseInputs = coursesAssigned;
-      } else if (typeof coursesAssigned === 'string') {
-        let raw = coursesAssigned.trim();
-        // Attempt to parse bracketed list
-        if (raw.startsWith('[') && raw.endsWith(']')) {
-          try {
-            const jsonish = raw.replace(/'/g, '"');
-            const parsed = JSON.parse(jsonish);
-            if (Array.isArray(parsed)) normalizedCourseInputs = parsed.map(v => String(v).trim());
-            else normalizedCourseInputs = [String(parsed).trim()];
-          } catch (parseErr) {
-            console.warn('Failed to parse coursesAssigned string list, using raw value:', parseErr.message);
-            // Fallback: strip brackets and split by comma
-            raw = raw.slice(1, -1); // remove [ ]
-            normalizedCourseInputs = raw.split(',').map(s => s.replace(/['"\s]/g, '')).filter(Boolean);
-          }
-        } else {
-          normalizedCourseInputs = [raw];
-        }
-      }
-    }
-
-    // Resolve provided course identifiers (could be course codes or ObjectIds)
-    let resolvedCourses = [];
-    if (normalizedCourseInputs.length > 0) {
-      const { ids, notFound } = await resolveCourseIdentifiers(normalizedCourseInputs);
-      resolvedCourses = ids;
-      if (notFound.length === normalizedCourseInputs.length && ids.length === 0) {
-        return res.status(400).json({ message: 'None of the provided course identifiers were found', notFound });
-      }
-      if (notFound.length > 0) {
-        console.warn('Some course identifiers not found while creating student:', notFound);
-      }
-    }
 
     // Handle multi-role assignment (default to student if no roles provided)
     let userRoles = ['student'];
@@ -1463,8 +1399,7 @@ exports.createStudent = async (req, res) => {
       primaryRole: primaryRole,
       regNo: studentRegNo,
       school: school, // Add school reference
-      department: department || null, // Add department reference
-      coursesAssigned: resolvedCourses
+      department: department || null // Add department reference
     });
     
     console.log('Saving student:', student);
@@ -1500,29 +1435,12 @@ exports.createStudent = async (req, res) => {
       details: { name, email: normalizedEmail, regNo: studentRegNo, school: schoolExists.name }
     });
     
-    // Unlock the first video for each assigned course
-    const StudentProgress = require('../models/StudentProgress');
-    const Video = require('../models/Video');
-    if (Array.isArray(savedStudent.coursesAssigned)) {
-      for (const courseId of savedStudent.coursesAssigned) {
-        // Find the first video in the course
-        const firstVideo = await Video.findOne({ course: courseId }).sort({ createdAt: 1 });
-        if (firstVideo) {
-          await StudentProgress.findOneAndUpdate(
-            { student: savedStudent._id, course: courseId },
-            { $addToSet: { unlockedVideos: firstVideo._id } },
-            { upsert: true }
-          );
-        }
-      }
-    }
-
     res.status(201).json({
-      _id: student._id,
-      name: student.name,
-      email: student.email,
-      regNo: student.regNo,
-      coursesAssigned: student.coursesAssigned
+      _id: savedStudent._id,
+      name: savedStudent.name,
+      email: savedStudent.email,
+      regNo: savedStudent.regNo,
+      assignedSections: savedStudent.assignedSections || []
     });
   } catch (err) {
     console.error('Error creating student:', err);
@@ -3003,6 +2921,124 @@ exports.getSectionCourses = async (req, res) => {
     console.error('Error getting section courses:', error);
     res.status(500).json({ 
       message: 'Failed to get section courses',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+// Admin-specific teacher-section-course assignment (bypasses HOD role requirement)
+exports.adminAssignTeacherToSectionCourse = async (req, res) => {
+  try {
+    const { teacherId, sectionId, courseId } = req.body;
+
+    // Validate inputs
+    if (!teacherId || !sectionId || !courseId) {
+      return res.status(400).json({ message: 'teacherId, sectionId, and courseId are required' });
+    }
+
+    const SectionCourseTeacher = require('../models/SectionCourseTeacher');
+    const User = require('../models/User');
+    const Course = require('../models/Course');
+    const Section = require('../models/Section');
+
+    // Verify teacher exists and has teacher role
+    const teacher = await User.findById(teacherId);
+    const hasTeacherRole = teacher && (
+      teacher.role === 'teacher' || 
+      (teacher.roles && teacher.roles.includes('teacher'))
+    );
+    if (!teacher || !hasTeacherRole) {
+      return res.status(403).json({ message: 'User must have teacher role' });
+    }
+
+    // Verify course and section exist
+    const [course, section] = await Promise.all([
+      Course.findById(courseId),
+      Section.findById(sectionId)
+    ]);
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+    if (!section) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+
+    // Check if assignment already exists
+    const existingAssignment = await SectionCourseTeacher.findOne({
+      section: sectionId,
+      course: courseId,
+      teacher: teacherId
+    });
+
+    if (existingAssignment) {
+      return res.status(409).json({ message: 'Teacher is already assigned to this course in this section' });
+    }
+
+    // Create new assignment
+    const assignment = new SectionCourseTeacher({
+      section: sectionId,
+      course: courseId,
+      teacher: teacherId,
+      assignedBy: req.user.id,
+      assignedAt: new Date()
+    });
+
+    await assignment.save();
+
+    // Update teacher's assigned sections
+    if (!teacher.assignedSections.includes(sectionId)) {
+      teacher.assignedSections.push(sectionId);
+      await teacher.save();
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Teacher assigned to course in section successfully',
+      assignment: assignment
+    });
+
+  } catch (error) {
+    console.error('Error in admin teacher assignment:', error);
+    res.status(500).json({ 
+      message: 'Failed to assign teacher to course in section',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+// Admin-specific teacher-section-course removal
+exports.adminRemoveTeacherFromSectionCourse = async (req, res) => {
+  try {
+    const { teacherId, sectionId, courseId } = req.body;
+
+    // Validate inputs
+    if (!teacherId || !sectionId || !courseId) {
+      return res.status(400).json({ message: 'teacherId, sectionId, and courseId are required' });
+    }
+
+    const SectionCourseTeacher = require('../models/SectionCourseTeacher');
+
+    // Find and remove assignment
+    const assignment = await SectionCourseTeacher.findOneAndDelete({
+      section: sectionId,
+      course: courseId,
+      teacher: teacherId
+    });
+
+    if (!assignment) {
+      return res.status(404).json({ message: 'Assignment not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Teacher removed from course in section successfully'
+    });
+
+  } catch (error) {
+    console.error('Error in admin teacher removal:', error);
+    res.status(500).json({ 
+      message: 'Failed to remove teacher from course in section',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }

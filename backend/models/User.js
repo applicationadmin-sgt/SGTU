@@ -72,8 +72,7 @@ const userSchema = new mongoose.Schema({
     index: true
   }],
   
-  // Legacy field - courses are now assigned through sections
-  coursesAssigned: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Course', index: true }],
+  // REMOVED: coursesAssigned - teachers are only connected to courses through sections
   
   // Section assignments (students and teachers get courses through sections)
   assignedSections: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Section', index: true }],
@@ -98,6 +97,7 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ regNo: 1, email: 1 });
 userSchema.index({ role: 1, school: 1 });
 userSchema.index({ role: 1, department: 1 });
+// REMOVED: coursesAssigned index - no longer supporting direct course assignments
 
 // Virtual to get courses through sections
 userSchema.virtual('coursesFromSections', {

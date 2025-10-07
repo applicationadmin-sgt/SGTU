@@ -96,6 +96,72 @@ exports.createSection = async (req, res) => {
   }
 };
 
+// Get section details with course assignments
+exports.getSectionDetails = async (req, res) => {
+  try {
+    const { sectionId } = req.params;
+    
+    // Get section with populated data
+    const section = await Section.findById(sectionId)
+      .populate('school', 'name code')
+      .populate('department', 'name code')
+      .populate({
+        path: 'courses',
+        populate: {
+          path: 'department',
+          select: 'name code'
+        }
+      })
+      .populate('teacher', 'name email teacherId')
+      .populate('students', 'name email regNo');
+    
+    if (!section) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+    
+    // Get course-teacher assignments for this section
+    const assignments = await SectionCourseTeacher.find({
+      section: sectionId,
+      isActive: true
+    })
+    .populate('teacher', 'name email teacherId department')
+    .populate('course', 'title courseCode department')
+    .populate('assignedBy', 'name email');
+    
+    // Map courses with their assigned teachers
+    const coursesWithTeachers = section.courses.map(course => {
+      const assignment = assignments.find(a => 
+        a.course && a.course._id.toString() === course._id.toString()
+      );
+      
+      return {
+        ...course.toObject(),
+        assignedTeacher: assignment ? {
+          _id: assignment.teacher._id,
+          name: assignment.teacher.name,
+          email: assignment.teacher.email,
+          teacherId: assignment.teacher.teacherId,
+          assignedAt: assignment.assignedAt,
+          assignedBy: assignment.assignedBy
+        } : null
+      };
+    });
+    
+    res.json({
+      ...section.toObject(),
+      coursesWithAssignments: coursesWithTeachers,
+      totalAssignments: assignments.length,
+      unassignedCourses: coursesWithTeachers.filter(c => !c.assignedTeacher).length
+    });
+  } catch (error) {
+    console.error('Error getting section details:', error);
+    res.status(500).json({ 
+      message: 'Failed to get section details',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
 // Get all sections
 exports.getAllSections = async (req, res) => {
   try {
@@ -104,11 +170,36 @@ exports.getAllSections = async (req, res) => {
     const sections = await Section.find()
       .populate('school', 'name code')
       .populate('department', 'name code')
-      .populate('courses', 'title courseCode') // Changed from 'course' to 'courses' to match schema
+      .populate({
+        path: 'courses',
+        select: 'title courseCode department',
+        populate: {
+          path: 'department',
+          select: 'name code _id'
+        }
+      })
       .populate('teacher', 'name email teacherId')
       .populate('students', 'name email regNo');
     
     console.log(`Successfully fetched ${sections.length} sections`);
+    
+    // Fetch teacher assignments for each course in each section
+    const SectionCourseTeacher = require('../models/SectionCourseTeacher');
+    
+    for (const section of sections) {
+      if (section.courses && section.courses.length > 0) {
+        // For each course in the section, get assigned teachers
+        for (const course of section.courses) {
+          const assignments = await SectionCourseTeacher.find({
+            section: section._id,
+            course: course._id
+          }).populate('teacher', 'name email teacherId');
+          
+          // Add assigned teachers to the course object
+          course._doc.assignedTeachers = assignments.map(assignment => assignment.teacher);
+        }
+      }
+    }
     
     // Filter out sections with missing critical references
     const validSections = sections.filter(section => {
@@ -196,54 +287,15 @@ exports.updateSection = async (req, res) => {
     res.status(500).json({ message: 'Failed to update section', error: error.message });
   }
 };
-// Assign a teacher to a section
+// DEPRECATED: Use enhanced teacher assignment system at /api/teacher-assignments
+// This endpoint redirects to the new system for compatibility
 exports.assignTeacher = async (req, res) => {
-  try {
-    const { sectionId, teacherId } = req.body;
-    
-    console.log(`Assigning teacher ${teacherId} to section ${sectionId}`);
-    
-    // Validate inputs
-    if (!sectionId) {
-      return res.status(400).json({ message: 'Section ID is required' });
-    }
-    
-    const section = await Section.findById(sectionId);
-    if (!section) return res.status(404).json({ message: 'Section not found' });
-    
-    // If teacherId is null/empty, remove teacher assignment
-    if (!teacherId) {
-      section.teacher = null;
-    } else {
-      // Validate teacher exists and has correct role (teacher, hod, or dean)
-      const teacher = await User.findById(teacherId);
-      if (!teacher || !['teacher', 'hod', 'dean'].includes(teacher.role)) {
-        return res.status(404).json({ message: 'Valid teacher not found. Only teachers, HODs, and deans can be assigned.' });
-      }
-      section.teacher = teacherId;
-    }
-    
-    await section.save();
-    
-    // Return updated section with populated data
-    const updatedSection = await Section.findById(sectionId)
-      .populate('school', 'name code')
-      .populate('department', 'name code')
-      .populate('courses', 'title courseCode')
-      .populate('teacher', 'name email teacherId')
-      .populate('students', 'name email regNo');
-    
-    res.json({
-      message: teacherId ? 'Teacher assigned successfully' : 'Teacher removed successfully',
-      section: updatedSection
-    });
-  } catch (error) {
-    console.error('Error assigning teacher to section:', error);
-    res.status(500).json({ 
-      message: 'Failed to assign teacher to section',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
+  return res.status(410).json({
+    success: false,
+    message: 'This endpoint has been deprecated. Please use the enhanced teacher assignment system.',
+    newEndpoint: '/api/teacher-assignments/assign',
+    documentation: 'Use POST /api/teacher-assignments/assign with { teacherId, assignments: [{ sectionId, courseId }] }'
+  });
 };
 
 // Assign students to a section
@@ -344,9 +396,10 @@ exports.getTeacherStudentConnections = async (req, res) => {
     console.log(`[getTeacherStudentConnections] Request user:`, req.user);
     
     // Allow admin to access any teacher's sections, but teachers can only access their own
+    const { hasRole, hasAnyRole } = require('../utils/roleUtils');
     const userRoles = req.user.roles || [req.user.role];
-    const isTeacher = userRoles.includes('teacher');
-    const isAdmin = userRoles.includes('admin');
+    const isTeacher = hasRole(req.user, 'teacher');
+    const isAdmin = hasRole(req.user, 'admin');
     
     if (isTeacher && !isAdmin && req.user._id.toString() !== teacherId) {
       console.log(`[getTeacherStudentConnections] Teacher ${req.user._id} trying to access ${teacherId} - unauthorized`);
@@ -937,55 +990,14 @@ exports.assignCoursesToSection = async (req, res) => {
   }
 };
 
-// Assign teacher to a section
+// DEPRECATED: Use enhanced teacher assignment system
 exports.assignTeacherToSection = async (req, res) => {
-  try {
-    const { sectionId, teacherId } = req.body;
-    
-    console.log(`Assigning teacher ${teacherId} to section ${sectionId}`);
-    
-    // Validate inputs
-    if (!sectionId || !teacherId) {
-      return res.status(400).json({ message: 'Section ID and Teacher ID are required' });
-    }
-    
-    // Check if section exists
-    const section = await Section.findById(sectionId);
-    if (!section) {
-      return res.status(404).json({ message: 'Section not found' });
-    }
-    
-    // Check if teacher exists
-    const teacher = await User.findById(teacherId);
-    if (!teacher || teacher.role !== 'teacher') {
-      return res.status(404).json({ message: 'Teacher not found' });
-    }
-    
-    // Assign teacher to section
-    section.teacher = teacherId;
-    await section.save();
-    
-    console.log(`Teacher ${teacherId} successfully assigned to section ${sectionId}`);
-    
-    // Return updated section with populated data
-    const updatedSection = await Section.findById(sectionId)
-      .populate('school', 'name code')
-      .populate('department', 'name code')
-      .populate('courses', 'title courseCode')
-      .populate('teacher', 'name email teacherId')
-      .populate('students', 'name email regNo');
-    
-    res.json({
-      message: 'Teacher assigned successfully',
-      section: updatedSection
-    });
-  } catch (error) {
-    console.error('Error assigning teacher to section:', error);
-    res.status(500).json({ 
-      message: 'Failed to assign teacher to section',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
+  return res.status(410).json({
+    success: false,
+    message: 'This endpoint has been deprecated. Please use the enhanced teacher assignment system.',
+    newEndpoint: '/api/teacher-assignments/assign',
+    documentation: 'Use POST /api/teacher-assignments/assign with { teacherId, assignments: [{ sectionId, courseId }] }'
+  });
 };
 
 // Remove teacher from a section
@@ -1708,263 +1720,128 @@ exports.getDetailedSectionAnalytics = async (req, res) => {
 
 // ============ NEW COURSE-TEACHER ASSIGNMENT FUNCTIONS ============
 
-// Get unassigned courses for a section
+// DEPRECATED: Use enhanced teacher assignment system
 exports.getUnassignedCourses = async (req, res) => {
-  try {
-    const { sectionId } = req.params;
-    
-    console.log('🔍 Getting unassigned courses for section:', sectionId);
-    
-    const unassignedCourses = await SectionCourseTeacher.getUnassignedCourses(sectionId);
-    
-    console.log('✅ Found unassigned courses:', unassignedCourses.length);
-    
-    res.json({
-      success: true,
-      unassignedCourses
-    });
-  } catch (error) {
-    console.error('❌ Error getting unassigned courses:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get unassigned courses',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
+  return res.status(410).json({
+    success: false,
+    message: 'This endpoint has been deprecated. Please use the enhanced teacher assignment system.',
+    newEndpoint: '/api/teacher-assignments/teachers',
+    documentation: 'Use GET /api/teacher-assignments/teachers to get available teachers for assignments'
+  });
 };
 
-// Assign teacher to a course in a section
+// DEPRECATED: Use enhanced teacher assignment system
 exports.assignCourseTeacher = async (req, res) => {
-  try {
-    const { sectionId } = req.params;
-    const { courseId, teacherId } = req.body;
-    const assignedBy = req.user._id;
-    
-    console.log('🎯 Assigning teacher to course:', { sectionId, courseId, teacherId });
-    
-    // Validate inputs
-    if (!courseId || !teacherId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Course ID and Teacher ID are required'
-      });
-    }
-    
-    // Check if section exists
-    const section = await Section.findById(sectionId);
-    if (!section) {
-      return res.status(404).json({
-        success: false,
-        message: 'Section not found'
-      });
-    }
-    
-    // Check if course exists and belongs to section
-    if (!section.courses.includes(courseId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Course is not assigned to this section'
-      });
-    }
-    
-    // Check if teacher exists and has correct role (teacher, hod, or dean can teach)
-    const teacher = await User.findById(teacherId);
-    if (!teacher || !['teacher', 'hod', 'dean'].includes(teacher.role)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid teacher selected. Only teachers, HODs, and deans can be assigned to courses.'
-      });
-    }
-    
-    // Get course details to check department
-    const course = await Course.findById(courseId);
-    if (!course) {
-      return res.status(400).json({
-        success: false,
-        message: 'Course not found'
-      });
-    }
-    
-    // DEPARTMENT VALIDATION: Check if teacher's department matches course's department
-    if (!teacher.department || !course.department) {
-      return res.status(400).json({
-        success: false,
-        message: 'Teacher or course department information is missing'
-      });
-    }
-    
-    if (teacher.department.toString() !== course.department.toString()) {
-      // Get department names for better error message
-      const teacherDept = await mongoose.model('Department').findById(teacher.department).select('name');
-      const courseDept = await mongoose.model('Department').findById(course.department).select('name');
-      
-      return res.status(400).json({
-        success: false,
-        message: `Department mismatch: Teacher is from ${teacherDept?.name || 'Unknown'} department but course belongs to ${courseDept?.name || 'Unknown'} department. Teachers can only be assigned to courses from their own department.`
-      });
-    }
-    
-    // Check if course already has any assignment (active or inactive)
-    const existingAssignment = await SectionCourseTeacher.findOne({
-      section: sectionId,
-      course: courseId
-    });
-    
-    if (existingAssignment) {
-      if (existingAssignment.isActive) {
-        return res.status(400).json({
-          success: false,
-          message: 'This course already has an active teacher assignment'
-        });
-      } else {
-        // Reactivate and update the existing inactive assignment
-        existingAssignment.teacher = teacherId;
-        existingAssignment.assignedBy = assignedBy;
-        existingAssignment.isActive = true;
-        existingAssignment.assignedAt = new Date();
-        existingAssignment.academicYear = section.academicYear;
-        existingAssignment.semester = section.semester;
-        
-        await existingAssignment.save();
-        
-        // Populate the assignment for response
-        await existingAssignment.populate([
-          { path: 'course', select: 'title courseCode' },
-          { path: 'teacher', select: 'name email' },
-          { path: 'assignedBy', select: 'name email' }
-        ]);
-        
-        console.log('✅ Existing assignment reactivated with new teacher');
-        
-        return res.json({
-          success: true,
-          message: 'Teacher assigned to course successfully (updated existing assignment)',
-          assignment: existingAssignment
-        });
+  return res.status(410).json({
+    success: false,
+    message: 'This endpoint has been deprecated. Please use the enhanced teacher assignment system.',
+    newEndpoint: '/api/teacher-assignments/assign',
+    documentation: 'Use POST /api/teacher-assignments/assign with { teacherId, assignments: [{ sectionId, courseId }] }',
+    migration: {
+      old: `POST /api/sections/${req.params.sectionId}/assign-course-teacher`,
+      new: 'POST /api/teacher-assignments/assign',
+      payload: {
+        teacherId: 'TEACHER_ID',
+        assignments: [{
+          sectionId: req.params.sectionId || 'SECTION_ID',
+          courseId: 'COURSE_ID'
+        }]
       }
     }
-    
-    // Create new assignment
-    const assignment = new SectionCourseTeacher({
-      section: sectionId,
-      course: courseId,
-      teacher: teacherId,
-      assignedBy,
-      academicYear: section.academicYear,
-      semester: section.semester
-    });
-    
-    await assignment.save();
-    
-    // Populate the assignment for response
-    await assignment.populate([
-      { path: 'course', select: 'title courseCode' },
-      { path: 'teacher', select: 'name email' },
-      { path: 'assignedBy', select: 'name email' }
-    ]);
-    
-    console.log('✅ Teacher assigned successfully');
-    
-    res.json({
-      success: true,
-      message: 'Teacher assigned to course successfully',
-      assignment
-    });
-  } catch (error) {
-    console.error('❌ Error assigning course teacher:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to assign teacher to course',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
+  });
 };
 
-// Get all course-teacher assignments for a section
+// DEPRECATED: Use enhanced teacher assignment system
 exports.getSectionCourseTeachers = async (req, res) => {
-  try {
-    const { sectionId } = req.params;
-    
-    console.log('🔍 Getting course-teacher assignments for section:', sectionId);
-    
-    const assignments = await SectionCourseTeacher.getSectionCourseTeachers(sectionId);
-    
-    console.log('✅ Found assignments:', assignments.length);
-    
-    res.json({
-      success: true,
-      assignments
-    });
-  } catch (error) {
-    console.error('❌ Error getting section course teachers:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get course-teacher assignments',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
+  return res.status(410).json({
+    success: false,
+    message: 'This endpoint has been deprecated. Please use the enhanced teacher assignment system.',
+    newEndpoint: '/api/teacher-assignments/section/' + req.params.sectionId,
+    documentation: 'Use GET /api/teacher-assignments/section/:sectionId to get assignments for a section'
+  });
 };
 
-// Remove teacher assignment from a course
+// DEPRECATED: Use enhanced teacher assignment system
 exports.removeCourseTeacher = async (req, res) => {
-  try {
-    const { sectionId, courseId } = req.params;
-    
-    console.log('🗑️ Removing teacher assignment:', { sectionId, courseId });
-    
-    const assignment = await SectionCourseTeacher.findOne({
-      section: sectionId,
-      course: courseId,
-      isActive: true
-    });
-    
-    if (!assignment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Teacher assignment not found'
-      });
-    }
-    
-    // Soft delete - set isActive to false
-    assignment.isActive = false;
-    await assignment.save();
-    
-    console.log('✅ Teacher assignment removed');
-    
-    res.json({
-      success: true,
-      message: 'Teacher assignment removed successfully'
-    });
-  } catch (error) {
-    console.error('❌ Error removing course teacher:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to remove teacher assignment',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
+  return res.status(410).json({
+    success: false,
+    message: 'This endpoint has been deprecated. Please use the enhanced teacher assignment system.',
+    newEndpoint: '/api/teacher-assignments/remove',
+    documentation: 'Use POST /api/teacher-assignments/remove with assignment details'
+  });
 };
 
-// Get teacher's course assignments
+// DEPRECATED: Use enhanced teacher assignment system
 exports.getTeacherCourseAssignments = async (req, res) => {
+  return res.status(410).json({
+    success: false,
+    message: 'This endpoint has been deprecated. Please use the enhanced teacher assignment system.',
+    newEndpoint: '/api/teacher-assignments/teacher/' + req.params.teacherId,
+    documentation: 'Use GET /api/teacher-assignments/teacher/:teacherId to get teacher assignments'
+  });
+};
+
+// Get available sections for enhanced live class scheduling
+exports.getAvailableSections = async (req, res) => {
   try {
-    const { teacherId } = req.params;
+    console.log('🔍 Enhanced: Getting available sections for live class scheduling');
+    const user = req.user;
     
-    console.log('🔍 Getting course assignments for teacher:', teacherId);
+    // Determine which sections to fetch based on user role
+    let sectionQuery = {};
     
-    const assignments = await SectionCourseTeacher.getTeacherAssignments(teacherId);
-    
-    console.log('✅ Found teacher assignments:', assignments.length);
+    if (user.role === 'teacher') {
+      // Teachers can see sections they are assigned to
+      const SectionCourseTeacher = require('../models/SectionCourseTeacher');
+      const assignments = await SectionCourseTeacher.find({ 
+        teacher: user._id, 
+        isActive: true 
+      }).distinct('section');
+      
+      sectionQuery = { _id: { $in: assignments } };
+    } else if (user.role === 'hod') {
+      // HODs can see sections in their department
+      sectionQuery = { department: user.department };
+    } else if (user.role === 'dean') {
+      // Deans can see all sections in their school's departments
+      const Department = require('../models/Department');
+      const departments = await Department.find({ school: user.school }).select('_id');
+      const departmentIds = departments.map(d => d._id);
+      sectionQuery = { department: { $in: departmentIds } };
+    } else if (user.role === 'admin') {
+      // Admins can see all sections
+      sectionQuery = {};
+    }
+
+    const sections = await Section.find(sectionQuery)
+      .populate('school', 'name code')
+      .populate('department', 'name code')
+      .populate('courses', 'title courseCode')
+      .populate('students', 'name email')
+      .select('name school department courses students capacity academicYear semester')
+      .sort({ name: 1 });
+
+    console.log(`✅ Found ${sections.length} available sections for user role: ${user.role}`);
     
     res.json({
       success: true,
-      assignments
+      sections: sections.map(section => ({
+        _id: section._id,
+        name: section.name,
+        school: section.school,
+        department: section.department,
+        courses: section.courses,
+        studentCount: section.students?.length || 0,
+        capacity: section.capacity,
+        academicYear: section.academicYear,
+        semester: section.semester
+      }))
     });
   } catch (error) {
-    console.error('❌ Error getting teacher course assignments:', error);
+    console.error('❌ Error getting available sections:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get teacher course assignments',
+      message: 'Failed to get available sections',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }

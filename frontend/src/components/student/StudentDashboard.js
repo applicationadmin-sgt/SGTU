@@ -11,6 +11,8 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import WarningIcon from '@mui/icons-material/Warning';
 import ScheduleIcon from '@mui/icons-material/Schedule';
+import LiveTvIcon from '@mui/icons-material/LiveTv';
+import VideoCallIcon from '@mui/icons-material/VideoCall';
 import { getStudentQuizResults, getAllDeadlineWarnings } from '../../api/studentVideoApi';
 
 const StudentDashboard = ({ user }) => {
@@ -291,6 +293,34 @@ const StudentDashboard = ({ user }) => {
                     startIcon={<VideoLibraryIcon />}
                   >
                     View Courses
+                  </Button>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Live Classes Card */}
+          <Grid item xs={12} md={6}>
+            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flexGrow: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <LiveTvIcon color="error" sx={{ fontSize: 40, mr: 2 }} />
+                  <Typography variant="h5" component="div">
+                    Live Classes
+                  </Typography>
+                </Box>
+                <Typography variant="body1" color="text.secondary" paragraph>
+                  Join live video classes, view recordings, and track your attendance across all courses.
+                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                  <Button
+                    variant="contained"
+                    color="error"
+                    component={Link}
+                    to="/student/live-classes"
+                    startIcon={<VideoCallIcon />}
+                  >
+                    View Live Classes
                   </Button>
                 </Box>
               </CardContent>

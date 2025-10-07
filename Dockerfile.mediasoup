@@ -1,0 +1,64 @@
+# 🐳 Mediasoup SFU Service Dockerfile
+# Optimized for production scaling with 10,000+ concurrent users
+
+FROM node:18-alpine AS base
+
+# Install system dependencies for Mediasoup
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    gcc \
+    libc6-compat \
+    linux-headers
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY backend/package*.json ./
+COPY backend/yarn.lock ./
+
+# Install dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy application code
+COPY backend/ ./
+
+# Create logs directory
+RUN mkdir -p logs
+
+# Production stage
+FROM node:18-alpine AS production
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    dumb-init \
+    curl
+
+# Create app user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S mediasoup -u 1001
+
+# Set working directory
+WORKDIR /app
+
+# Copy from base stage
+COPY --from=base --chown=mediasoup:nodejs /app ./
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Switch to non-root user
+USER mediasoup
+
+# Expose ports (main + RTC range)
+EXPOSE 3000
+EXPOSE 10000-10100/udp
+
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start the application
+CMD ["node", "server.js"]

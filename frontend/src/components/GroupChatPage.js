@@ -75,7 +75,7 @@ const GroupChatPage = () => {
     loadCurrentUser();
 
     // Initialize socket connection
-    const newSocket = io('https://10.20.50.12:3000/group-chat', {
+    const newSocket = io('https://192.168.7.20:3000/group-chat', {
       auth: { token }
     });
 

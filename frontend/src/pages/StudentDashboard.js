@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Box,
   Typography,
@@ -34,8 +34,8 @@ import StudentForumPage from './student/StudentForumPage';
 import StudentForumDetailPage from './student/StudentForumDetailPage';
 import StudentUnansweredForumsPage from './student/StudentUnansweredForumsPage';
 import StudentSection from '../components/student/StudentSection';
+// import StudentLiveClasses from './student/StudentLiveClasses'; // Moved to LEGACY_BACKUP
 import StudentLiveClassDashboard from '../components/student/StudentLiveClassDashboard';
-import StudentLiveClassRoom from '../components/student/StudentLiveClassRoom';
 import QuizResults from '../components/student/QuizResults';
 import RecentVideos from '../components/student/RecentVideos';
 import StudentProfile from '../components/StudentProfile';
@@ -43,12 +43,16 @@ import WatchHistory from '../components/student/WatchHistory';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const token = localStorage.getItem('token');
   const currentUser = getCurrentUser();
   const { user: contextUser, switchRole, availableRoles, activeRole } = useUserRole();
   
   // Use context user if available, fallback to parsed JWT
   const user = contextUser || currentUser;
+  
+  // Check if we're on a live class route
+  const isOnLiveClass = location.pathname.includes('/live-class');
 
   // Profile menu state
   const [profileAnchorEl, setProfileAnchorEl] = useState(null);
@@ -107,24 +111,25 @@ const StudentDashboard = () => {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      {/* Professional Header - Full Width Fixed */}
-      <Box 
-        sx={{ 
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: '64px',
-          background: 'linear-gradient(135deg, #005b96 0%, #03396c 100%)',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          px: 3,
-          boxShadow: '0 2px 8px rgba(0, 91, 150, 0.15)',
-          zIndex: 1300
-        }}
-      >
+      {/* Professional Header - Full Width Fixed - Hidden on live class */}
+      {!isOnLiveClass && (
+        <Box 
+          sx={{ 
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: '64px',
+            background: 'linear-gradient(135deg, #005b96 0%, #03396c 100%)',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: 3,
+            boxShadow: '0 2px 8px rgba(0, 91, 150, 0.15)',
+            zIndex: 1300
+          }}
+        >
         {/* Left side - SGT Logo */}
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           <img 
@@ -320,26 +325,40 @@ const StudentDashboard = () => {
           </Menu>
         </Box>
       </Box>
+      )}
 
-      {/* Sidebar with top margin for fixed header */}
-      <Box sx={{ mt: '64px', width: '280px', flexShrink: 0 }}>
-        <Sidebar currentUser={currentUser} />
-      </Box>
+      {/* Sidebar with top margin for fixed header - Hidden on live class */}
+      {!isOnLiveClass && (
+        <Box sx={{ mt: '64px', width: '280px', flexShrink: 0 }}>
+          <Sidebar currentUser={currentUser} />
+        </Box>
+      )}
       
       {/* Main Content Area with margin for sidebar and header */}
-      <Box sx={{ flexGrow: 1, mt: '64px', ml: 0 }}>
+      <Box sx={{ 
+        flexGrow: 1, 
+        mt: isOnLiveClass ? 0 : '64px', 
+        ml: 0,
+        width: isOnLiveClass ? '100vw' : 'auto',
+        position: isOnLiveClass ? 'fixed' : 'relative',
+        top: isOnLiveClass ? 0 : 'auto',
+        left: isOnLiveClass ? 0 : 'auto',
+        height: isOnLiveClass ? '100vh' : 'auto',
+        zIndex: isOnLiveClass ? 1400 : 'auto'
+      }}>
         <Box 
           component="main" 
           sx={{ 
-            minHeight: 'calc(100vh - 64px)',
+            minHeight: isOnLiveClass ? '100vh' : 'calc(100vh - 64px)',
             // Lighter blue gradient background to match reference image
-            background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 30%, #cbd5e1 70%, #94a3b8 100%)',
+            background: isOnLiveClass ? '#000' : 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 30%, #cbd5e1 70%, #94a3b8 100%)',
           }}
         >
           <Box sx={{ 
             flex: 1, 
-            p: { xs: 2, md: 3 },
-            backgroundColor: 'transparent'
+            p: isOnLiveClass ? 0 : { xs: 2, md: 3 },
+            backgroundColor: 'transparent',
+            height: isOnLiveClass ? '100vh' : 'auto'
           }}>
             {/* Routes */}
             <Routes>
@@ -349,7 +368,6 @@ const StudentDashboard = () => {
             <Route path="/courses" element={<StudentCoursesPage />} />
             <Route path="/section" element={<StudentSection user={currentUser} token={token} />} />
             <Route path="/live-classes" element={<StudentLiveClassDashboard token={token} user={currentUser} />} />
-            <Route path="/live-class/:classId" element={<StudentLiveClassRoom token={token} user={currentUser} />} />
             <Route path="/videos" element={<RecentVideos />} />
             <Route path="/watch-history" element={<WatchHistory />} />
             <Route path="/course/:courseId" element={<StudentCourseUnits />} />

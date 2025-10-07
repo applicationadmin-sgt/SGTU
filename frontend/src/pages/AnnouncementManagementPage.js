@@ -26,8 +26,8 @@ const AnnouncementManagementPage = ({ currentRole }) => {
   const user = parseJwt(token);
   const [activeTab, setActiveTab] = useState(0);
 
-  const canManagePermissions = user.role === 'hod' || user.role === 'admin';
-  const canApproveAnnouncements = user.role === 'hod' || user.role === 'admin';
+  const canManagePermissions = (user.roles ? user.roles.some(role => ['hod', 'admin'].includes(role)) : ['hod', 'admin'].includes(user.role));
+  const canApproveAnnouncements = (user.roles ? user.roles.some(role => ['hod', 'admin'].includes(role)) : ['hod', 'admin'].includes(user.role));
   const canViewApprovalHistory = canApproveAnnouncements; // same roles
 
   const renderTabContent = () => {
@@ -73,16 +73,16 @@ const AnnouncementManagementPage = ({ currentRole }) => {
       {/* Role-based info */}
       <Paper sx={{ p: 2, mb: 3, bgcolor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
         <Typography variant="body1" color="primary.main">
-          <strong>Your Role: {user.role?.toUpperCase()}</strong>
+          <strong>Your Role: {(user.primaryRole || user.role || (user.roles && user.roles[0]))?.toUpperCase()}</strong>
         </Typography>
         <Typography variant="body2" color="text.secondary" mt={1}>
-          {user.role === 'admin' || user.role === 'superadmin' 
+          {(user.roles ? user.roles.includes('admin') : user.role === 'admin') || (user.roles ? user.roles.includes('superadmin') : user.role === 'superadmin')
             ? 'You can create announcements for all users and manage all permissions.'
-            : user.role === 'dean'
+            : (user.roles ? user.roles.includes('dean') : user.role === 'dean')
             ? 'You can create announcements for your school, departments, and manage HODs.'
-            : user.role === 'hod'
+            : (user.roles ? user.roles.includes('hod') : user.role === 'hod')
             ? 'You can create announcements for your department, approve teacher announcements, and manage teacher permissions.'
-            : user.role === 'teacher'
+            : (user.roles ? user.roles.includes('teacher') : user.role === 'teacher')
             ? 'You can create announcements for your assigned sections (requires HOD approval).'
             : 'You can view announcements targeted to you.'
           }

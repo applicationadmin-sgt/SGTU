@@ -137,3 +137,21 @@ export const getTeacherCourseAssignments = async (teacherId) => {
   const response = await axios.get(`/api/sections/teacher/${teacherId}/course-assignments`);
   return response.data;
 };
+
+// Get section details with populated courses and assignments
+export const getSectionWithAssignments = async (sectionId, token) => {
+  const response = await axios.get(`/api/sections/${sectionId}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  return response.data;
+};
+
+// Enhanced teacher assignment for sections
+export const getAvailableTeachersForSectionCourse = async (courseId, sectionId, token) => {
+  const params = sectionId ? { sectionId } : {};
+  const response = await axios.get(`/api/teacher-assignments/teachers/course/${courseId}`, {
+    params,
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  return response.data;
+};

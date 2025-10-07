@@ -4,7 +4,7 @@ module.exports = function(app) {
   console.log('🔧 Setting up proxy middleware...');
   
   // Get the target URL from environment - always use HTTPS for WebRTC compatibility
-  const target = (process.env.REACT_APP_API_URL || 'https://10.20.50.12:5000').replace('http://', 'https://');
+  const target = (process.env.REACT_APP_API_URL || 'https://192.168.7.20:5000').replace('http://', 'https://');
   console.log('🎯 Proxy target:', target);
   console.log('🔍 REACT_APP_API_URL env var:', process.env.REACT_APP_API_URL);
 

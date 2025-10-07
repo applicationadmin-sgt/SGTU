@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Paper, Typography, Snackbar, Alert, CircularProgress } from '@mui/material';
-import { getTeachers, addTeacher, bulkUploadTeachers, resetTeacherPassword, deactivateTeacher, assignCourseToTeacher } from '../../api/teacherApi';
+import { getTeachers, addTeacher, bulkUploadTeachers, resetTeacherPassword, deactivateTeacher } from '../../api/teacherApi';
 import { TeacherPerformance, ExportAnalyticsButtons } from '../../components/admin/AnalyticsWidgets';
 import AddTeacherForm from '../../components/admin/AddTeacherForm';
 import BulkUploadTeachers from '../../components/admin/BulkUploadTeachers';
@@ -100,18 +100,8 @@ const TeacherManagement = ({ currentUser }) => {
   };
 
   const handleAssignCourseSubmit = async (courseId) => {
-    try {
-      if (!assignCourseDialog.teacher || !assignCourseDialog.teacher.teacherId) {
-        throw new Error('Teacher information is missing');
-      }
-      
-      await assignCourseToTeacher(courseId, assignCourseDialog.teacher.teacherId, token);
-      setSnackbar('Course assigned successfully');
-      setAssignCourseDialog({ open: false, teacher: null });
-      fetchTeachers();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to assign course');
-    }
+    setError('Direct course assignment has been deprecated. Teachers are now only connected to courses through sections. Please use Section Management to assign teachers to specific courses within sections.');
+    setAssignCourseDialog({ open: false, teacher: null });
   };
 
   if (!hasPermission(currentUser, 'manage_teachers')) {

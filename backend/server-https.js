@@ -131,9 +131,28 @@ const sslOptions = {
 
 // Initialize Socket.IO for live classes BEFORE starting the server
 const server = https.createServer(sslOptions, app);
-const initializeLiveClassSocket = require('./socket/liveClassSocket');
-initializeLiveClassSocket(server);
-console.log('✅ Live Class Socket.IO server initialized (HTTPS)');
+const { Server } = require('socket.io');
+const io = new Server(server, {
+  cors: {
+    origin: ["https://localhost:3000", "https://192.168.1.100:3000"],
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
+
+// Initialize Scalable Services
+try {
+  const ScalableSocketService = require('./services/ScalableSocketService');
+  const MediasoupService = require('./services/MediasoupService');
+  
+  // Initialize services globally
+  global.mediasoupService = new MediasoupService();
+  global.scalableSocketService = new ScalableSocketService(io);
+  
+  console.log('✅ Scalable Live Class services initialized (HTTPS)');
+} catch (error) {
+  console.warn('⚠️ Scalable services not available:', error.message);
+}
 
 server.listen(PORT, '0.0.0.0', async () => {
   await createAdmin();

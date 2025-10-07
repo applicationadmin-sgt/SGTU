@@ -6,6 +6,7 @@ const User = require('../models/User');
 const Course = require('../models/Course');
 const School = require('../models/School');
 const Department = require('../models/Department');
+const { hasRole, createRoleQuery } = require('./utils/roleUtils');
 const SectionCourseTeacher = require('../models/SectionCourseTeacher');
 const fs = require('fs');
 const csv = require('csv-parser');
@@ -17,8 +18,8 @@ exports.bulkMessage = async (req, res) => {
   try {
     const { target, type, subject, message } = req.body; // target: 'students'|'teachers', type: 'email'|'notification'
     let users = [];
-    if (target === 'students') users = await User.find({ role: 'student', isActive: true });
-    else if (target === 'teachers') users = await User.find({ role: 'teacher', isActive: true });
+    if (target === 'students') users = await User.find({ ...createRoleQuery('student'), isActive: true });
+    else if (target === 'teachers') users = await User.find({ ...createRoleQuery('teacher'), isActive: true });
     else return res.status(400).json({ message: 'Invalid target' });
 
     if (type === 'email') {
@@ -210,7 +211,7 @@ exports.getAllTeachers = async (req, res) => {
 exports.getTeachersByDepartment = async (req, res) => {
   try {
     const userId = req.user._id;
-    const userRole = req.user.role;
+    const userRole = req.user.primaryRole || req.user.role || (req.user.roles && req.user.roles[0]);
     
     let departmentId;
     

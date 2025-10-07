@@ -14,8 +14,9 @@ import StudentCourseVideos from './student/StudentCourseVideos';
 import StudentCourseProgress from './student/StudentCourseProgress';
 import StudentQuizPage from './student/StudentQuizPage';
 import StudentSection from '../components/student/StudentSection';
-import StudentLiveClassDashboard from '../components/student/StudentLiveClassDashboard';
-import StudentLiveClassRoom from '../components/student/StudentLiveClassRoom';
+// import StudentLiveClassDashboard from '../components/student/StudentLiveClassDashboard';
+import SgtLmsLiveClass from '../components/liveclass/CodeTantraLiveClass';
+import EnhancedLiveClassRoom from '../components/enhanced/EnhancedLiveClassRoom';
 import QuizResults from '../components/student/QuizResults';
 
 const StudentDashboard = () => {
@@ -52,8 +53,8 @@ const StudentDashboard = () => {
             <Route path="/dashboard" element={<StudentHomeDashboard />} />
             <Route path="/courses" element={<StudentCoursesPage />} />
             <Route path="/section" element={<StudentSection user={currentUser} token={token} />} />
-            <Route path="/live-classes" element={<StudentLiveClassDashboard token={token} user={currentUser} />} />
-            <Route path="/live-class/:classId" element={<StudentLiveClassRoom token={token} user={currentUser} />} />
+            <Route path="/live-classes" element={<SgtLmsLiveClass token={token} user={currentUser} />} />
+            <Route path="/live-class/:classId" element={<EnhancedLiveClassRoom />} />
             <Route path="/course/:courseId/videos" element={<StudentCourseVideos />} />
             <Route path="/course/:courseId/video/:videoId" element={<StudentCourseVideos />} />
             <Route path="/course/:courseId/progress" element={<StudentCourseProgress />} />

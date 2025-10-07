@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Box, 
@@ -51,8 +51,9 @@ import TeacherCCManagement from './teacher/TeacherCCManagement';
 import QuizUnlockDashboard from '../components/teacher/QuizUnlockDashboard';
 import VideoUnlockDashboard from '../components/teacher/VideoUnlockDashboard';
 import UnauthorizedPage from './UnauthorizedPage';
-import TeacherLiveClassDashboard from '../components/teacher/TeacherLiveClassDashboard';
-import LiveClassRoom from '../components/teacher/LiveClassRoom';
+// Lazy load components to avoid circular dependencies
+const TeacherLiveClassDashboard = React.lazy(() => import('../components/teacher/TeacherLiveClassDashboard'));
+const SgtLmsLiveClass = React.lazy(() => import('../components/liveclass/CodeTantraLiveClass'));
 
 const TeacherDashboard = () => {
   const navigate = useNavigate();
@@ -157,11 +158,8 @@ const TeacherDashboard = () => {
         setNotifications(notificationsRes.data.notifications || []);
         setNotificationsLoading(false);
 
-        // Load recent activity
-        const activityRes = await axios.get('/api/admin/audit-logs/recent', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setRecentActivity(activityRes.data.logs || []);
+        // Teachers don't have access to audit logs - skip recent activity loading
+        setRecentActivity([]);
         setActivityLoading(false);
 
         // Load teaching statistics
@@ -689,8 +687,21 @@ const TeacherDashboard = () => {
                 <Route path="/courses" element={<TeacherCourses />} />
                 <Route path="/sections" element={<TeacherSections />} />
                 <Route path="/section-analytics" element={<TeacherSectionAnalytics user={currentUser} token={token} />} />
-                <Route path="/live-classes" element={<TeacherLiveClassDashboard user={currentUser} token={token} />} />
-                <Route path="/live-class/:classId" element={<LiveClassRoom role="teacher" user={currentUser} token={token} />} />
+                <Route path="/live-classes" element={
+                  <Suspense fallback={<div>Loading Live Classes...</div>}>
+                    <TeacherLiveClassDashboard token={token} user={user} />
+                  </Suspense>
+                } />
+                <Route path="/live-class/:classId" element={
+                  <Suspense fallback={<div>Loading Live Class Room...</div>}>
+                    <SgtLmsLiveClass token={token} user={user} />
+                  </Suspense>
+                } />
+                <Route path="/live-class/room/:classId" element={
+                  <Suspense fallback={<div>Loading Live Class Room...</div>}>
+                    <SgtLmsLiveClass token={token} user={user} />
+                  </Suspense>
+                } />
                 <Route path="/course/:courseId" element={<TeacherCourseDetail />} />
                 <Route path="/videos" element={<PermissionRoute element={<TeacherVideos />} permission="manage_videos" />} />
                 <Route path="/students" element={<PermissionRoute element={<TeacherStudents />} permission="manage_students" />} />

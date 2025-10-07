@@ -145,6 +145,30 @@ function App() {
             </PrivateRoute>
           } 
         />
+        <Route 
+          path="/live-class/room/:classId" 
+          element={
+            <PrivateRoute allowedRoles={['student', 'teacher', 'hod', 'dean', 'admin']}>
+              {React.createElement(React.lazy(() => import('./components/enhanced/EnhancedLiveClassRoom')))}
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/live-class/join/:token" 
+          element={
+            <PrivateRoute allowedRoles={['student', 'teacher', 'hod', 'dean', 'admin']}>
+              {React.createElement(React.lazy(() => import('./components/enhanced/EnhancedLiveClassRoom')))}
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/live-class/monitor/:classId" 
+          element={
+            <PrivateRoute allowedRoles={['hod', 'dean', 'admin']}>
+              {React.createElement(React.lazy(() => import('./components/LiveClassMonitor')))}
+            </PrivateRoute>
+          } 
+        />
         <Route path="/dashboard" element={<RoleBasedRedirect />} />
         <Route path="/" element={<RoleBasedRedirect />} />
         <Route path="*" element={<Navigate to="/login" />} />

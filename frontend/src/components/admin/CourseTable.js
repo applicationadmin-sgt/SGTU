@@ -20,7 +20,7 @@ import {
 import SearchIcon from '@mui/icons-material/Search';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 
-const CourseTable = ({ courses, onEdit, onDelete, onAssignTeacher, onViewDetails }) => {
+const CourseTable = ({ courses, onEdit, onDelete, onViewDetails }) => {
   const [search, setSearch] = useState('');
 
   const formatTeachers = (teachers) => {
@@ -142,15 +142,7 @@ const CourseTable = ({ courses, onEdit, onDelete, onAssignTeacher, onViewDetails
                   >
                     Delete
                   </Button>
-                  <Button 
-                    size="small" 
-                    variant="outlined"
-                    color="secondary"
-                    onClick={() => onAssignTeacher(course._id)}
-                    sx={{ mt: 1 }}
-                  >
-                    Assign Teacher
-                  </Button>
+
                 </TableCell>
               </TableRow>
             ))}

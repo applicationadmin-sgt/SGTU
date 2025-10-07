@@ -18,16 +18,16 @@ const LoginPage = () => {
     if (isAuthenticated()) {
       const user = getCurrentUser();
       if (user) {
-        // Redirect based on user role
-        if (user.role === 'admin') {
+        // Redirect based on user role (supports multi-role)
+        if (user.roles ? user.roles.includes('admin') : user.role === 'admin') {
           navigate('/admin');
-        } else if (user.role === 'dean') {
+        } else if (user.roles ? user.roles.includes('dean') : user.role === 'dean') {
           navigate('/dean');
-        } else if (user.role === 'hod') {
+        } else if (user.roles ? user.roles.includes('hod') : user.role === 'hod') {
           navigate('/hod');
-        } else if (user.role === 'teacher') {
+        } else if (user.roles ? user.roles.includes('teacher') : user.role === 'teacher') {
           navigate('/teacher');
-        } else if (user.role === 'student') {
+        } else if (user.roles ? user.roles.includes('student') : user.role === 'student') {
           navigate('/student');
         }
       }
@@ -60,16 +60,16 @@ const LoginPage = () => {
       
       const user = result.user;
       
-      // Redirect based on user role
-      if (user.role === 'admin') {
+      // Redirect based on user role (supports multi-role)
+      if (user.roles ? user.roles.includes('admin') : user.role === 'admin') {
         navigate('/admin');
-      } else if (user.role === 'dean') {
+      } else if (user.roles ? user.roles.includes('dean') : user.role === 'dean') {
         navigate('/dean');
-      } else if (user.role === 'hod') {
+      } else if (user.roles ? user.roles.includes('hod') : user.role === 'hod') {
         navigate('/hod');
-      } else if (user.role === 'teacher') {
+      } else if (user.roles ? user.roles.includes('teacher') : user.role === 'teacher') {
         navigate('/teacher');
-      } else if (user.role === 'student') {
+      } else if (user.roles ? user.roles.includes('student') : user.role === 'student') {
         navigate('/student');
       } else {
         setError('Unknown user role');

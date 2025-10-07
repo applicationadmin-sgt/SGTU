@@ -37,12 +37,8 @@ export const deactivateTeacher = async (teacherId, token) => {
   return res.data;
 };
 
-export const assignCourseToTeacher = async (courseId, teacherId, token) => {
-  const res = await axios.post(`/api/admin/course/${courseId}/assign-teacher`, { teacherId }, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  return res.data;
-};
+// REMOVED: Direct course-teacher assignment - teachers are only connected through sections
+// Use teacherAssignmentApi.assignTeacherToCourses instead
 
 // Teacher dashboard API functions
 export const getTeacherCourses = async (token) => {

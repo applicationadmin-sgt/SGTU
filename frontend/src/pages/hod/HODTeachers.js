@@ -33,12 +33,12 @@ const HODTeachers = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [department, setDepartment] = useState(null);
-  const [deptCourses, setDeptCourses] = useState([]);
   const [deptSections, setDeptSections] = useState([]);
+  const [sectionCourses, setSectionCourses] = useState([]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [sectionOpen, setSectionOpen] = useState(false);
   const [actingTeacher, setActingTeacher] = useState(null);
-  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [selectedSectionCourse, setSelectedSectionCourse] = useState(null);
   const [selectedSection, setSelectedSection] = useState(null);
   const [busy, setBusy] = useState(false);
   const [snack, setSnack] = useState({ open: false, severity: 'success', message: '' });
@@ -67,17 +67,21 @@ const HODTeachers = () => {
         // If dashboard fails, continue; teachers list may still load
         console.warn('HOD dashboard fetch failed (continuing):', e.response?.data?.message || e.message);
       }
-      // Preload department courses and sections if department known (non-fatal)
+      // Preload department sections and section-courses if department known (non-fatal)
       if (departmentId) {
         try {
-          const [coursesRes, sectionsRes] = await Promise.all([
-            axios.get(`/api/courses/department/${departmentId}`, { headers: { Authorization: `Bearer ${token}` } }),
-            axios.get(`/api/hod/sections`, { headers: { Authorization: `Bearer ${token}` } })
-          ]);
-          setDeptCourses(coursesRes.data || []);
-          setDeptSections(sectionsRes.data || []);
+          const sectionsRes = await axios.get(`/api/hod/sections`, { 
+            headers: { Authorization: `Bearer ${token}` } 
+          });
+          setDeptSections(sectionsRes.data?.sections || []);
+          
+          // Load section-courses for assignment
+          const sectionCoursesRes = await axios.get(`/api/hod/section-courses`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setSectionCourses(sectionCoursesRes.data?.sectionCourses || []);
         } catch (e) {
-          console.warn('Preloading dept courses/sections failed (non-fatal):', e.response?.data?.message || e.message);
+          console.warn('Preloading dept sections/courses failed (non-fatal):', e.response?.data?.message || e.message);
         }
       }
       // Use HOD endpoint for teachers (includes populated sections/courses)
@@ -96,37 +100,45 @@ const HODTeachers = () => {
 
   const openAssignDialog = (teacher) => {
     setActingTeacher(teacher);
-    setSelectedCourse(null);
+    setSelectedSectionCourse(null);
     setAssignOpen(true);
   };
 
-  const confirmAssignCourse = async () => {
-    if (!actingTeacher || !selectedCourse) return;
+  const confirmAssignTeacher = async () => {
+    if (!actingTeacher || !selectedSectionCourse) return;
     setBusy(true);
     try {
-      await axios.post(`/api/hod/teachers/${actingTeacher._id}/courses/${selectedCourse._id}`, {}, {
+      await axios.post(`/api/hod/assign-teacher-to-section-course`, {
+        sectionId: selectedSectionCourse.section._id,
+        courseId: selectedSectionCourse.course._id,
+        teacherId: actingTeacher._id
+      }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setSnack({ open: true, severity: 'success', message: 'Course assigned to teacher' });
+      setSnack({ open: true, severity: 'success', message: 'Teacher assigned to section course' });
       setAssignOpen(false);
       await fetchTeachers();
     } catch (e) {
-      setSnack({ open: true, severity: 'error', message: e.response?.data?.message || 'Failed to assign course' });
+      setSnack({ open: true, severity: 'error', message: e.response?.data?.message || 'Failed to assign teacher' });
     } finally {
       setBusy(false);
     }
   };
 
-  const removeCourse = async (teacherId, courseId) => {
+  const removeSectionCourse = async (teacherId, sectionId, courseId) => {
     try {
-      if (!window.confirm('Remove this course from the teacher?')) return;
-      await axios.delete(`/api/hod/teachers/${teacherId}/courses/${courseId}`, {
+      if (!window.confirm('Remove this teacher from the section course?')) return;
+      await axios.post(`/api/hod/remove-teacher-from-section-course`, {
+        sectionId,
+        courseId,
+        teacherId
+      }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setSnack({ open: true, severity: 'success', message: 'Course removed from teacher' });
+      setSnack({ open: true, severity: 'success', message: 'Teacher removed from section course' });
       await fetchTeachers();
     } catch (e) {
-      setSnack({ open: true, severity: 'error', message: e.response?.data?.message || 'Failed to remove course' });
+      setSnack({ open: true, severity: 'error', message: e.response?.data?.message || 'Failed to remove teacher' });
     }
   };
 
@@ -201,8 +213,7 @@ const HODTeachers = () => {
                     <TableCell><strong>Teacher</strong></TableCell>
                     <TableCell><strong>UID</strong></TableCell>
                     <TableCell><strong>Contact</strong></TableCell>
-                    <TableCell><strong>Assigned Sections</strong></TableCell>
-                    <TableCell><strong>Courses Assigned</strong></TableCell>
+                    <TableCell><strong>Section-Course Assignments</strong></TableCell>
                     <TableCell><strong>Actions</strong></TableCell>
                   </TableRow>
                 </TableHead>
@@ -232,31 +243,44 @@ const HODTeachers = () => {
                         <Typography variant="caption" color="textSecondary">{teacher.email}</Typography>
                       </TableCell>
                       <TableCell>
-                        <Stack direction="row" spacing={1} flexWrap="wrap">
-                          {(teacher.assignedSections || []).length === 0 ? (
-                            <Typography variant="body2" color="textSecondary">None</Typography>
+                        <Stack direction="column" spacing={1}>
+                          {(teacher.sectionCourseAssignments || []).length === 0 ? (
+                            <Typography variant="body2" color="textSecondary">No assignments</Typography>
                           ) : (
-                            (teacher.assignedSections || []).map(s => (
-                              <Chip key={s._id || s} label={s.name || s} size="small" />
-                            ))
-                          )}
-                        </Stack>
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="row" spacing={1} flexWrap="wrap">
-                          {(teacher.coursesAssigned || []).length === 0 ? (
-                            <Typography variant="body2" color="textSecondary">None</Typography>
-                          ) : (
-                            (teacher.coursesAssigned || []).map(c => (
-                              <Chip key={c._id || c} label={`${c.courseCode || ''} ${c.title || ''}`.trim()} size="small" onDelete={() => removeCourse(teacher._id, c._id || c)} />
+                            (teacher.sectionCourseAssignments || []).map(assignment => (
+                              <Card key={`${assignment.sectionId}-${assignment.courseId}`} variant="outlined" sx={{ p: 1, minWidth: 200 }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Box>
+                                    <Typography variant="caption" color="primary" sx={{ fontWeight: 'bold' }}>
+                                      {assignment.sectionName}
+                                    </Typography>
+                                    <Typography variant="body2">
+                                      {assignment.courseCode} - {assignment.courseTitle}
+                                    </Typography>
+                                  </Box>
+                                  <Button
+                                    size="small"
+                                    color="error"
+                                    variant="outlined"
+                                    onClick={() => removeSectionCourse(teacher._id, assignment.sectionId, assignment.courseId)}
+                                    sx={{ minWidth: 'auto', p: 0.5 }}
+                                  >
+                                    ✕
+                                  </Button>
+                                </Box>
+                              </Card>
                             ))
                           )}
                         </Stack>
                       </TableCell>
                       <TableCell>
                         <Stack direction="row" spacing={1}>
-                          <Button size="small" variant="outlined" onClick={() => openAssignDialog(teacher)}>Assign Course</Button>
-                          <Button size="small" variant="outlined" onClick={() => openSectionDialog(teacher)}>Change Section</Button>
+                          <Button size="small" variant="outlined" onClick={() => openAssignDialog(teacher)}>
+                            Assign to Section Course
+                          </Button>
+                          <Button size="small" variant="outlined" onClick={() => openSectionDialog(teacher)}>
+                            Change Section
+                          </Button>
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -268,23 +292,37 @@ const HODTeachers = () => {
         </CardContent>
       </Card>
 
-    {/* Assign Course Dialog */}
+    {/* Assign Teacher to Section Course Dialog */}
     <Dialog open={assignOpen} onClose={() => !busy && setAssignOpen(false)} fullWidth maxWidth="sm">
-      <DialogTitle>Assign Course</DialogTitle>
+      <DialogTitle>Assign Teacher to Section Course</DialogTitle>
       <DialogContent>
         <Typography variant="body2" sx={{ mb: 2 }}>
           {actingTeacher ? `Teacher: ${actingTeacher.name || actingTeacher.email}` : ''}
         </Typography>
         <Autocomplete
-          options={deptCourses}
-          getOptionLabel={(opt) => `${opt.courseCode || ''} ${opt.title || ''}`.trim()}
-          onChange={(_, val) => setSelectedCourse(val)}
-          renderInput={(params) => <TextField {...params} label="Select Course" placeholder="Search courses" />}
+          options={sectionCourses}
+          getOptionLabel={(opt) => `${opt.section?.name || 'Section'} - ${opt.course?.courseCode || ''} ${opt.course?.title || ''}`.trim()}
+          onChange={(_, val) => setSelectedSectionCourse(val)}
+          renderInput={(params) => <TextField {...params} label="Select Section Course" placeholder="Search section courses" />}
+          renderOption={(props, option) => (
+            <Box component="li" {...props}>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                  {option.section?.name || 'Unknown Section'}
+                </Typography>
+                <Typography variant="caption" color="textSecondary">
+                  {option.course?.courseCode || ''} - {option.course?.title || ''}
+                </Typography>
+              </Box>
+            </Box>
+          )}
         />
       </DialogContent>
       <DialogActions>
         <Button onClick={() => setAssignOpen(false)} disabled={busy}>Cancel</Button>
-        <Button onClick={confirmAssignCourse} disabled={!selectedCourse || busy} variant="contained">Assign</Button>
+        <Button onClick={confirmAssignTeacher} disabled={!selectedSectionCourse || busy} variant="contained">
+          Assign Teacher
+        </Button>
       </DialogActions>
     </Dialog>
 

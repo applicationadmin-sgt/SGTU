@@ -18,11 +18,9 @@ import {
   Select,
   MenuItem
 } from '@mui/material';
-import { getTeachersBySearch } from '../../api/courseApi';
 import axios from 'axios';
 import ClearIcon from '@mui/icons-material/Clear';
 import SaveIcon from '@mui/icons-material/Save';
-import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import TitleIcon from '@mui/icons-material/Title';
 import DescriptionIcon from '@mui/icons-material/Description';
 import CodeIcon from '@mui/icons-material/Code';
@@ -31,14 +29,10 @@ const CourseForm = ({ onSubmit, initial, submitLabel }) => {
   const [form, setForm] = useState(initial || { 
     title: '', 
     description: '', 
-    teacherIds: [], 
     school: '', 
     department: '' 
   });
   const [error, setError] = useState('');
-  const [teacherSearch, setTeacherSearch] = useState('');
-  const [teacherOptions, setTeacherOptions] = useState([]);
-  const [selectedTeachers, setSelectedTeachers] = useState([]);
   const [schools, setSchools] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [filteredDepartments, setFilteredDepartments] = useState([]);
@@ -61,16 +55,6 @@ const CourseForm = ({ onSubmit, initial, submitLabel }) => {
     };
     
     fetchData();
-    
-    // If initial includes teachers, set them as selected
-    if (initial && initial.teachers && Array.isArray(initial.teachers)) {
-      setSelectedTeachers(initial.teachers.map(teacher => ({
-        _id: teacher._id,
-        name: teacher.name,
-        teacherId: teacher.teacherId || '',
-        email: teacher.email || ''
-      })));
-    }
     
     // Set initial school and department if editing
     if (initial) {
@@ -103,25 +87,28 @@ const CourseForm = ({ onSubmit, initial, submitLabel }) => {
   const handleChange = e => setForm({ ...form, [e.target.name]: e.target.value });
 
   const resetForm = () => {
-    setForm({ title: '', description: '', teacherIds: [], school: '', department: '' });
-    setSelectedTeachers([]);
+    setForm({ title: '', description: '', school: '', department: '' });
+
     setError('');
   };
 
   const handleSubmit = e => {
     e.preventDefault();
     setError('');
-    if (!form.title) return setError('Title required');
-    if (!form.school) return setError('School is required');
-    if (!form.department) return setError('Department is required');
+    if (!form.title || !form.description) {
+      setError('Please fill in all required fields');
+      return;
+    }
+    if (!form.school) {
+      setError('School is required');
+      return;
+    }
+    if (!form.department) {
+      setError('Department is required');  
+      return;
+    }
     
-    // Add the selected teacher IDs to the form
-    const teacherIds = selectedTeachers.map(teacher => teacher.teacherId);
-    
-    onSubmit({
-      ...form,
-      teacherIds
-    });
+    onSubmit(form);
     
     // Only reset if not editing an existing course
     if (!initial) {
@@ -129,28 +116,9 @@ const CourseForm = ({ onSubmit, initial, submitLabel }) => {
     }
   };
 
-  const searchTeachers = async (query) => {
-    if (!query || query.length < 2) return;
-    
-    setLoading(true);
-    try {
-      const teachers = await getTeachersBySearch(query, token);
-      setTeacherOptions(teachers);
-    } catch (err) {
-      console.error('Error searching teachers:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  useEffect(() => {
-    if (teacherSearch.length >= 2) {
-      const timer = setTimeout(() => {
-        searchTeachers(teacherSearch);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [teacherSearch]);
+
+
 
   return (
     <Paper elevation={3} sx={{ p: 3, mb: 3, borderRadius: 2 }}>
@@ -261,73 +229,13 @@ const CourseForm = ({ onSubmit, initial, submitLabel }) => {
           </Grid>
           
           <Grid item xs={12}>
-            <Autocomplete
-              multiple
-              options={teacherOptions}
-              getOptionLabel={(option) => `${option.teacherId || ''} - ${option.name} (${option.email})`}
-              value={selectedTeachers}
-              onChange={(event, newValue) => {
-                setSelectedTeachers(newValue);
-              }}
-              onInputChange={(event, newInputValue) => {
-                setTeacherSearch(newInputValue);
-              }}
-              renderTags={(value, getTagProps) =>
-                value.map((option, index) => {
-                  const { key, ...tagProps } = getTagProps({ index });
-                  return (
-                    <Chip
-                      key={option._id || index}
-                      label={`${option.teacherId || ''} - ${option.name}`}
-                      {...tagProps}
-                      color="primary"
-                      variant="outlined"
-                      sx={{ 
-                        m: 0.5,
-                        '& .MuiChip-deleteIcon': {
-                          color: 'error.light',
-                          '&:hover': { color: 'error.main' }
-                        }
-                      }}
-                    />
-                  );
-                })
-              }
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Assign Teachers"
-                  placeholder="Search by ID, name or email"
-                  margin="normal"
-                  fullWidth
-                  helperText="Select one or more teachers to assign to this course"
-                  InputProps={{
-                    ...params.InputProps,
-                    startAdornment: (
-                      <>
-                        <PersonAddIcon color="action" sx={{ mr: 1 }} />
-                        {params.InputProps.startAdornment}
-                      </>
-                    ),
-                    endAdornment: (
-                      <>
-                        {loading ? <CircularProgress color="inherit" size={20} /> : null}
-                        {params.InputProps.endAdornment}
-                      </>
-                    ),
-                  }}
-                />
-              )}
-              loading={loading}
-              loadingText="Searching for teachers..."
-              filterOptions={(x) => x} // Disable the built-in filtering
-              filterSelectedOptions
-              noOptionsText={
-                teacherSearch.length < 2 
-                  ? "Type at least 2 characters to search" 
-                  : "No matching teachers found"
-              }
-            />
+            <Alert severity="info" sx={{ mt: 2 }}>
+              <Typography variant="body2">
+                <strong>Teacher Assignment:</strong> Teachers are no longer assigned directly to courses. 
+                Instead, use <strong>Section Management</strong> to assign courses to sections, then assign 
+                teachers to specific section-course combinations.
+              </Typography>
+            </Alert>
           </Grid>
         </Grid>
         

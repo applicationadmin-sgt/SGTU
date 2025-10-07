@@ -3,6 +3,9 @@ const router = express.Router();
 const sectionController = require('../controllers/sectionController');
 const { auth, authorizeRoles } = require('../middleware/auth');
 
+// NOTICE: Teacher assignment functionality has been moved to /api/teacher-assignments
+// Use the enhanced teacher assignment system for better role validation and department matching
+
 // Debug route to check section count (remove in production) - unprotected for testing
 router.get('/debug/count', async (req, res) => {
   try {
@@ -47,13 +50,19 @@ router.get('/debug/teacher/:teacherId', async (req, res) => {
 // Protect all section routes - require authentication and admin role for management operations
 router.use(auth);
 
+// Enhanced: Get available sections for live class scheduling
+router.get('/available', 
+  authorizeRoles('teacher', 'admin', 'hod', 'dean'),
+  sectionController.getAvailableSections
+);
+
 // Create a section (admin only)
 router.post('/create', authorizeRoles('admin'), sectionController.createSection);
 // Get all sections (admin, teacher can view their sections)
 router.get('/', authorizeRoles('admin', 'teacher', 'student'), sectionController.getAllSections);
 // Update a section (admin only)
 router.put('/:id', authorizeRoles('admin'), sectionController.updateSection);
-// Assign a teacher (admin only)
+// DEPRECATED: Use enhanced teacher assignment system at /api/teacher-assignments
 router.post('/assign-teacher', authorizeRoles('admin'), sectionController.assignTeacher);
 // Assign students (admin only)
 router.post('/assign-students', authorizeRoles('admin'), sectionController.assignStudents);
@@ -66,24 +75,28 @@ router.get('/teacher/:teacherId', authorizeRoles('admin', 'teacher'), sectionCon
 // Get student's section (student, admin, teacher)
 router.get('/student/:studentId', auth, authorizeRoles('admin', 'teacher', 'student'), sectionController.getStudentSection);
 
+// Get section details with course assignments
+router.get('/:sectionId/details', authorizeRoles('admin', 'hod', 'teacher'), sectionController.getSectionDetails);
+
 // Analytics routes (admin, teacher)
 router.get('/analytics/teacher/:teacherId/overview', authorizeRoles('admin', 'teacher'), sectionController.getTeacherAnalyticsOverview);
 
-// ============ NEW COURSE-TEACHER ASSIGNMENT ROUTES ============
+// ============ DEPRECATED COURSE-TEACHER ASSIGNMENT ROUTES ============
+// Use enhanced teacher assignment system at /api/teacher-assignments instead
 
-// Get unassigned courses for a section (admin only)
+// DEPRECATED: Use /api/teacher-assignments/teachers endpoint
 router.get('/:sectionId/unassigned-courses', authorizeRoles('admin'), sectionController.getUnassignedCourses);
 
-// Assign teacher to a course in a section (admin only)
+// DEPRECATED: Use /api/teacher-assignments/assign endpoint  
 router.post('/:sectionId/assign-course-teacher', authorizeRoles('admin'), sectionController.assignCourseTeacher);
 
-// Get all course-teacher assignments for a section (admin, teacher)
+// DEPRECATED: Use /api/teacher-assignments/section/:sectionId endpoint
 router.get('/:sectionId/course-teachers', authorizeRoles('admin', 'teacher'), sectionController.getSectionCourseTeachers);
 
-// Remove teacher assignment from a course (admin only)
+// DEPRECATED: Use /api/teacher-assignments/remove endpoint
 router.delete('/:sectionId/course/:courseId/teacher', authorizeRoles('admin'), sectionController.removeCourseTeacher);
 
-// Get teacher's course assignments (admin, teacher)
+// DEPRECATED: Use /api/teacher-assignments/teacher/:teacherId endpoint
 router.get('/teacher/:teacherId/course-assignments', authorizeRoles('admin', 'teacher'), sectionController.getTeacherCourseAssignments);
 
 router.get('/analytics/:sectionId', authorizeRoles('admin', 'teacher'), sectionController.getSectionAnalytics);
@@ -96,7 +109,7 @@ router.post('/remove-student', authorizeRoles('admin'), sectionController.remove
 router.post('/assign-courses', authorizeRoles('admin'), sectionController.assignCoursesToSection);
 router.post('/remove-courses', authorizeRoles('admin'), sectionController.removeCoursesFromSection);
 
-// Teacher assignment routes (admin only)
+// DEPRECATED: Use enhanced teacher assignment system at /api/teacher-assignments
 router.post('/assign-teacher-to-section', authorizeRoles('admin'), sectionController.assignTeacherToSection);
 router.post('/remove-teacher', authorizeRoles('admin'), sectionController.removeTeacherFromSection);
 

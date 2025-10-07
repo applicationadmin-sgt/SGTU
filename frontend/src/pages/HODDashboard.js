@@ -48,6 +48,8 @@ import HODCCManagement from './hod/HODCCManagement';
 import HODVideoUnlockApproval from './hod/HODVideoUnlockApproval';
 import HODQuizUnlockDashboard from '../components/hod/HODQuizUnlockDashboard';
 import HODProfile from '../components/HODProfile';
+// import HODLiveClasses from './hod/HODLiveClasses'; // Moved to LEGACY_BACKUP
+import SgtLmsLiveClass from '../components/liveclass/CodeTantraLiveClass';
 
 const HODDashboard = () => {
   const navigate = useNavigate();
@@ -58,6 +60,9 @@ const HODDashboard = () => {
   
   // Use context user if available, fallback to parsed JWT
   const user = contextUser || currentUser;
+  
+  // Check if we're on a live class route
+  const isOnLiveClass = location.pathname.includes('/live-class');
 
   // Profile menu state
   const [profileAnchorEl, setProfileAnchorEl] = useState(null);
@@ -254,16 +259,17 @@ const HODDashboard = () => {
   return (
     <DashboardRoleGuard requiredRole="hod">
       <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-        {/* Professional Header - Full Width Fixed */}
-        <Box 
-          sx={{ 
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            height: '64px',
-            background: 'linear-gradient(135deg, #005b96 0%, #03396c 100%)',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        {/* Professional Header - Full Width Fixed - Hidden on live class */}
+        {!isOnLiveClass && (
+          <Box 
+            sx={{ 
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '64px',
+              background: 'linear-gradient(135deg, #005b96 0%, #03396c 100%)',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -467,26 +473,40 @@ const HODDashboard = () => {
             </Menu>
           </Box>
         </Box>
+        )}
 
-        {/* Sidebar with top margin for fixed header */}
-        <Box sx={{ mt: '64px', width: '280px', flexShrink: 0 }}>
-          <Sidebar currentUser={currentUser} />
-        </Box>
+        {/* Sidebar with top margin for fixed header - Hidden on live class */}
+        {!isOnLiveClass && (
+          <Box sx={{ mt: '64px', width: '280px', flexShrink: 0 }}>
+            <Sidebar currentUser={currentUser} />
+          </Box>
+        )}
         
         {/* Main Content Area with margin for sidebar and header */}
-        <Box sx={{ flexGrow: 1, mt: '64px', ml: 0 }}>
+        <Box sx={{ 
+          flexGrow: 1, 
+          mt: isOnLiveClass ? 0 : '64px', 
+          ml: 0,
+          width: isOnLiveClass ? '100vw' : 'auto',
+          position: isOnLiveClass ? 'fixed' : 'relative',
+          top: isOnLiveClass ? 0 : 'auto',
+          left: isOnLiveClass ? 0 : 'auto',
+          height: isOnLiveClass ? '100vh' : 'auto',
+          zIndex: isOnLiveClass ? 1400 : 'auto'
+        }}>
           <Box 
             component="main" 
             sx={{ 
-              minHeight: 'calc(100vh - 64px)',
+              minHeight: isOnLiveClass ? '100vh' : 'calc(100vh - 64px)',
               // Lighter blue gradient background to match reference image
-              background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 30%, #cbd5e1 70%, #94a3b8 100%)',
+              background: isOnLiveClass ? '#000' : 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 30%, #cbd5e1 70%, #94a3b8 100%)',
             }}
           >
             <Box sx={{ 
               flex: 1, 
-              p: { xs: 2, md: 3 },
-              backgroundColor: 'transparent'
+              p: isOnLiveClass ? 0 : { xs: 2, md: 3 },
+              backgroundColor: 'transparent',
+              height: isOnLiveClass ? '100vh' : 'auto'
             }}>
               {isOnMainDashboard && (
                 <>
@@ -824,6 +844,7 @@ const HODDashboard = () => {
               <Route path="/teaching-sections" element={<MyTeachingSections />} />
               <Route path="/video-unlock-requests" element={<HODVideoUnlockApproval token={token} user={currentUser} />} />
               <Route path="/quiz-unlock-requests" element={<HODQuizUnlockDashboard />} />
+              <Route path="/live-classes" element={<SgtLmsLiveClass token={token} user={currentUser} />} />
               <Route path="*" element={<Navigate to="/hod/dashboard" replace />} />
             </Routes>
             </Box>

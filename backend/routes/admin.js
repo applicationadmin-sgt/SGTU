@@ -18,11 +18,11 @@ router.get('/debug/videos', adminController.debugVideos);
 // All routes protected by admin role
 router.use(auth, authorizeRoles('admin'));
 
-// Bulk messaging (email or notification)
-router.post('/bulk-message', authorizeRoles('admin'), adminController.bulkMessage);
-
 // Dashboard activity feed
 router.get('/audit-logs/recent', adminController.getRecentAuditLogs);
+
+// Bulk messaging (email or notification)
+router.post('/bulk-message', authorizeRoles('admin'), adminController.bulkMessage);
 // Student & Teacher analytics
 router.get('/analytics/student/:studentId/heatmap', analyticsController.studentHeatmap);
 router.get('/analytics/teacher/:teacherId/performance', analyticsController.teacherPerformance);
@@ -119,37 +119,39 @@ router.get('/course/:id/videos', adminController.getCourseVideos);
 router.get('/course/:id/students', adminController.getCourseStudents);
 router.get('/video/:id/analytics', videoController.getVideoAnalytics);
 
-// Assign course to teacher
+// REMOVED: Direct course-teacher assignment - teachers are only connected through sections
 router.post('/course/:id/assign-teacher', async (req, res) => {
+	return res.status(410).json({
+		success: false,
+		message: 'Direct course-teacher assignment has been deprecated. Teachers are now only connected to courses through sections.',
+		newEndpoint: '/api/teacher-assignments/assign',
+		documentation: 'Use the enhanced teacher assignment system that connects teachers to courses through sections only.'
+	});
+});
+
+// Get available courses for section assignment
+router.get('/courses/available', async (req, res) => {
 	try {
-		const { teacherId } = req.body;
-		// Find the teacher's User ID from teacherId
-		const teacher = await require('../models/User').findOne({ teacherId, role: 'teacher' });
-		if (!teacher) {
-			return res.status(400).json({ message: `Teacher with ID ${teacherId} not found` });
+		const { schoolId, departmentId } = req.query;
+		
+		if (!schoolId) {
+			return res.status(400).json({ message: 'School ID is required' });
 		}
 		
-		// Add the teacher to the course's teachers array
-		await require('../models/Course').findByIdAndUpdate(req.params.id, { 
-			$addToSet: { teachers: teacher._id } 
-		});
+		const query = { school: schoolId };
+		if (departmentId) {
+			query.department = departmentId;
+		}
 		
-		// Also add the course to the teacher's coursesAssigned array for two-way relationship
-		await require('../models/User').findByIdAndUpdate(teacher._id, {
-			$addToSet: { coursesAssigned: req.params.id }
-		});
-		
-		// Log the action
-		await require('../models/AuditLog').create({
-			action: 'assign_teacher_to_course',
-			performedBy: req.user._id,
-			targetUser: teacher._id,
-			details: { courseId: req.params.id, teacherId }
-		});
-		
-		res.json({ message: 'Teacher assigned to course' });
-	} catch (err) {
-		res.status(400).json({ message: err.message });
+		const courses = await require('../models/Course').find(query)
+			.populate('department', 'name code')
+			.populate('school', 'name code')
+			.sort({ title: 1 });
+			
+		res.json(courses);
+	} catch (error) {
+		console.error('Error getting available courses:', error);
+		res.status(500).json({ message: 'Failed to get available courses' });
 	}
 });
 
@@ -365,6 +367,10 @@ router.patch('/users/:userId/roles', adminController.updateUserRoles);
 // Section management routes for admin group chat
 router.get('/sections/all', adminController.getAllSections);
 router.get('/sections/:sectionId/courses', adminController.getSectionCourses);
+
+// Admin teacher-section-course assignment (bypasses HOD role requirement)
+router.post('/assign-teacher-to-section-course', adminController.adminAssignTeacherToSectionCourse);
+router.post('/remove-teacher-from-section-course', adminController.adminRemoveTeacherFromSectionCourse);
 
 module.exports = router;
 

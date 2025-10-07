@@ -142,6 +142,7 @@ const Sidebar = ({ currentUser, mobileOpen = false, handleDrawerToggle = () => {
   // Dean menu
   const deanMenu = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: 'dashboard', color: theme.palette.primary.main },
+    { text: 'Live Classes', icon: <VideoCallIcon />, path: 'live-classes', color: theme.palette.status?.success, isNew: true },
     { text: 'Announcements', icon: <NotificationsActiveIcon />, path: 'announcements', color: theme.palette.primary.dark },
     { text: 'Announcement History', icon: <HistoryIcon />, path: 'announcements/history', color: theme.palette.status?.warning },
     { text: 'Unlock Requests', icon: <LockOpenIcon />, path: 'unlock-requests', color: theme.palette.status?.error},
@@ -156,6 +157,7 @@ const Sidebar = ({ currentUser, mobileOpen = false, handleDrawerToggle = () => {
   // HOD menu
   const hodMenu = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: 'dashboard', color: theme.palette.primary.main },
+    { text: 'Live Classes', icon: <VideoCallIcon />, path: 'live-classes', color: theme.palette.status?.success, isNew: true },
     { text: 'Announcements', icon: <NotificationsActiveIcon />, path: 'announcements', color: theme.palette.primary.dark },
     { text: 'Announcement Approvals', icon: <AssignmentIcon />, path: 'announcement-approvals', color: theme.palette.status?.warning},
     { text: 'Announcement History', icon: <HistoryIcon />, path: 'announcements/history', color: theme.palette.status?.warning },

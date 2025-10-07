@@ -22,7 +22,6 @@ import {
 import CourseForm from '../../components/admin/CourseForm';
 import CourseTable from '../../components/admin/CourseTable';
 import CourseDetails from '../../components/admin/CourseDetails';
-import AssignTeacherDialog from '../../components/admin/AssignTeacherDialog';
 import VideoTable from '../../components/admin/VideoTable';
 import VideoUploadDialog from '../../components/admin/VideoUploadDialog';
 import BulkAssignCourses from '../../components/admin/BulkAssignCourses';
@@ -32,7 +31,7 @@ import {
   createCourse,
   editCourse,
   deleteCourse,
-  assignCourseToTeacher,
+  // assignCourseToTeacher, // REMOVED: Use section-based assignment
   bulkAssignCourses,
   bulkUploadCourses
 } from '../../api/courseApi';
@@ -72,7 +71,6 @@ const CourseManagement = () => {
   const [error, setError] = useState('');
   const [snackbar, setSnackbar] = useState('');
   const [editCourseId, setEditCourseId] = useState(null);
-  const [assignDialog, setAssignDialog] = useState({ open: false, courseId: null });
   const [videos, setVideos] = useState([]); // For demo, videos can be fetched per course if needed
   const [uploadDialog, setUploadDialog] = useState(false);
   const [tabValue, setTabValue] = useState(0);
@@ -129,20 +127,7 @@ const CourseManagement = () => {
     }
   };
 
-  const handleAssignTeacher = (courseId) => {
-    setAssignDialog({ open: true, courseId });
-  };
 
-  const handleAssignTeacherSubmit = async (teacherId) => {
-    try {
-      await assignCourseToTeacher(assignDialog.courseId, teacherId, token);
-      setSnackbar('Teacher assigned successfully');
-      setAssignDialog({ open: false, courseId: null });
-      fetchCourses();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to assign teacher');
-    }
-  };
 
   const handleBulkAssign = async (file) => {
     try {
@@ -298,7 +283,7 @@ const CourseManagement = () => {
               Create New Course
             </Typography>
             <Typography variant="body2" gutterBottom sx={{ mb: 3 }}>
-              Add a new course to the system by providing the details below. You can also assign teachers to the course.
+              Add a new course to the system by providing the details below. Teachers will be assigned to courses through sections.
             </Typography>
             <CourseForm onSubmit={handleCreateCourse} submitLabel="Create Course" />
           </Box>
@@ -325,16 +310,9 @@ const CourseManagement = () => {
                   setTabValue(0); // Switch to create/edit tab
                 }}
                 onDelete={handleDeleteCourse}
-                onAssignTeacher={handleAssignTeacher}
                 onViewDetails={handleViewCourseDetails}
               />
             )}
-            
-            <AssignTeacherDialog
-              open={assignDialog.open}
-              onClose={() => setAssignDialog({ open: false, courseId: null })}
-              onSubmit={handleAssignTeacherSubmit}
-            />
           </Box>
         </TabPanel>
 

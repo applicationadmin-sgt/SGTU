@@ -40,6 +40,7 @@ import {
   Chat as ChatIcon
 } from '@mui/icons-material';
 import * as sectionApi from '../../api/sectionApi';
+import { teacherAssignmentApi } from '../../api/teacherAssignmentApi';
 import { 
   getAllSchools,
   getDepartmentsBySchool,
@@ -98,6 +99,21 @@ const SectionManagement = ({ user, token }) => {
     semester: 'Fall',
     year: new Date().getFullYear()
   });
+
+  // Helper function to count teachers in a section
+  const getSectionTeachersCount = (section) => {
+    if (!section || !section.courses) return 0;
+    // Count unique teachers across all courses in this section
+    const teacherIds = new Set();
+    section.courses.forEach(course => {
+      if (course.assignedTeachers && course.assignedTeachers.length > 0) {
+        course.assignedTeachers.forEach(teacher => {
+          teacherIds.add(teacher._id);
+        });
+      }
+    });
+    return teacherIds.size;
+  };
 
   // Fetch initial data
   useEffect(() => {
@@ -201,11 +217,31 @@ const SectionManagement = ({ user, token }) => {
     try {
       if (!departmentId) return;
       
-      const teachers = await getTeachersByDepartment(departmentId);
-      setAvailableTeachers(teachers);
+      // Use new teacher assignment API to get teachers with proper role validation
+      const response = await teacherAssignmentApi.getAvailableTeachers(departmentId);
+      if (response.success) {
+        setAvailableTeachers(response.teachers || []);
+      } else {
+        // Fallback to old method if new API is not available
+        const teachers = await getTeachersByDepartment(departmentId);
+        // Filter only teachers with 'teacher' role
+        const validTeachers = teachers.filter(teacher => {
+          return (teacher.roles && teacher.roles.includes('teacher')) || teacher.role === 'teacher';
+        });
+        setAvailableTeachers(validTeachers);
+      }
     } catch (err) {
       console.error('Error fetching available teachers:', err);
-      setError('Failed to fetch available teachers: ' + (err.response?.data?.message || err.message));
+      // Fallback to old method
+      try {
+        const teachers = await getTeachersByDepartment(departmentId);
+        const validTeachers = teachers.filter(teacher => {
+          return (teacher.roles && teacher.roles.includes('teacher')) || teacher.role === 'teacher';
+        });
+        setAvailableTeachers(validTeachers);
+      } catch (fallbackErr) {
+        setError('Failed to fetch available teachers: ' + (err.response?.data?.message || err.message));
+      }
     }
   };
 
@@ -514,10 +550,15 @@ const SectionManagement = ({ user, token }) => {
   // Fetch course-teacher assignments for a section
   const fetchCourseTeacherAssignments = async (sectionId) => {
     try {
-      const response = await sectionApi.getSectionCourseTeachers(sectionId);
+      // Use new teacher assignment API
+      const response = await teacherAssignmentApi.getSectionAssignments(sectionId);
       setCourseTeacherAssignments(response.assignments || []);
     } catch (err) {
       console.error('Failed to fetch course-teacher assignments:', err);
+      // If new API fails, try to show helpful message about migration
+      if (err.response?.status === 410) {
+        setError('Teacher assignment system has been updated. Please refresh the page.');
+      }
       setCourseTeacherAssignments([]);
     }
   };
@@ -525,10 +566,26 @@ const SectionManagement = ({ user, token }) => {
   // Fetch unassigned courses for a section
   const fetchUnassignedCourses = async (sectionId) => {
     try {
-      const response = await sectionApi.getUnassignedCourses(sectionId);
-      setUnassignedCourses(response.unassignedCourses || []);
+      // Get section details to find unassigned courses
+      const section = allSections.find(s => s._id === sectionId);
+      if (!section) return;
+      
+      // Get assignments for this section
+      const assignmentsResponse = await teacherAssignmentApi.getSectionAssignments(sectionId);
+      const assignedCourseIds = (assignmentsResponse.assignments || []).map(a => a.course?._id).filter(Boolean);
+      
+      // Filter section courses to find unassigned ones
+      const unassigned = (section.courses || []).filter(course => 
+        !assignedCourseIds.includes(course._id)
+      );
+      
+      console.log('Unassigned courses with department info:', unassigned);
+      setUnassignedCourses(unassigned);
     } catch (err) {
       console.error('Failed to fetch unassigned courses:', err);
+      if (err.response?.status === 410) {
+        setError('Teacher assignment system has been updated. Please refresh the page.');
+      }
       setUnassignedCourses([]);
     }
   };
@@ -550,28 +607,36 @@ const SectionManagement = ({ user, token }) => {
     setOpenCourseTeacherDialog(true);
   };
 
-  // Load teachers when a course is selected
+  // Load teachers when a course is selected (enhanced with section context)
   useEffect(() => {
     const loadTeachersForSelectedCourse = async () => {
-      if (!selectedCourseForTeacher || !unassignedCourses.length) return;
+      if (!selectedCourseForTeacher || !unassignedCourses.length || !selectedSection) return;
       
-      // Find the selected course to get its department
-      const selectedCourse = unassignedCourses.find(course => course._id === selectedCourseForTeacher);
-      console.log('Selected course:', selectedCourse);
-      console.log('Available unassigned courses:', unassignedCourses);
-      
-      if (selectedCourse?.department?._id) {
-        console.log(`Loading teachers for course ${selectedCourse.title} from department ${selectedCourse.department.name} (${selectedCourse.department._id})`);
-        setAvailableTeachers([]); // Clear previous teachers
-        await fetchAvailableTeachers(selectedCourse.department._id);
-      } else {
-        console.log('No department found for selected course');
+      try {
+        // Use enhanced API that filters by department and excludes already assigned teachers
+        const response = await sectionApi.getAvailableTeachersForSectionCourse(
+          selectedCourseForTeacher, 
+          selectedSection._id,
+          localStorage.getItem('token')
+        );
+        
+        console.log(`Loaded ${response.teachers.length} available teachers from ${response.course.department?.name} department`);
+        setAvailableTeachers(response.teachers || []);
+        
+        // Show department info to user
+        const selectedCourse = unassignedCourses.find(course => course._id === selectedCourseForTeacher);
+        if (selectedCourse && response.course.department) {
+          console.log(`Course: ${response.course.title}, Department: ${response.course.department.name}`);
+        }
+      } catch (err) {
+        console.error('Failed to load teachers for course:', err);
+        setError(`Failed to load teachers: ${err.response?.data?.message || err.message}`);
         setAvailableTeachers([]);
       }
     };
     
     loadTeachersForSelectedCourse();
-  }, [selectedCourseForTeacher, unassignedCourses]);
+  }, [selectedCourseForTeacher, unassignedCourses, selectedSection]);
 
   // Handle course-teacher assignment
   const handleCourseTeacherAssignment = async () => {
@@ -584,26 +649,36 @@ const SectionManagement = ({ user, token }) => {
         return;
       }
       
-      await sectionApi.assignCourseTeacher(
-        selectedSection._id, 
-        selectedCourseForTeacher, 
+      // Use HOD section-course assignment API
+      const response = await teacherAssignmentApi.assignTeacherToSectionCourse(
+        selectedSection._id,
+        selectedCourseForTeacher,
         selectedTeacherForCourse
       );
       
-      setSuccess('Teacher assigned to course successfully!');
-      
-      // Refresh the assignments and unassigned courses
-      await Promise.all([
-        fetchCourseTeacherAssignments(selectedSection._id),
-        fetchUnassignedCourses(selectedSection._id)
-      ]);
-      
-      // Reset form
-      setSelectedCourseForTeacher('');
-      setSelectedTeacherForCourse('');
+      if (response.success) {
+        setSuccess('Teacher assigned to course successfully!');
+        
+        // Refresh the assignments and unassigned courses
+        await Promise.all([
+          fetchCourseTeacherAssignments(selectedSection._id),
+          fetchUnassignedCourses(selectedSection._id)
+        ]);
+        
+        // Reset form
+        setSelectedCourseForTeacher('');
+        setSelectedTeacherForCourse('');
+      } else {
+        setError(response.message || 'Failed to assign teacher to course');
+      }
       
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Failed to assign teacher to course');
+      console.error('Assignment error:', err);
+      if (err.response?.status === 410) {
+        setError('Teacher assignment system has been updated. The old method is no longer available. Please refresh the page to use the new system.');
+      } else {
+        setError(err.response?.data?.message || err.message || 'Failed to assign teacher to course');
+      }
     } finally {
       setLoading(false);
     }
@@ -615,17 +690,42 @@ const SectionManagement = ({ user, token }) => {
       setLoading(true);
       setError('');
       
-      await sectionApi.removeCourseTeacher(selectedSection._id, courseId);
-      setSuccess('Teacher assignment removed successfully!');
+      // Find the assignment to remove
+      const assignmentToRemove = courseTeacherAssignments.find(
+        assignment => assignment.course?._id === courseId
+      );
       
-      // Refresh the assignments and unassigned courses
-      await Promise.all([
-        fetchCourseTeacherAssignments(selectedSection._id),
-        fetchUnassignedCourses(selectedSection._id)
-      ]);
+      if (!assignmentToRemove) {
+        setError('Assignment not found');
+        return;
+      }
+      
+      // Use new teacher assignment API
+      const response = await teacherAssignmentApi.removeAssignment({
+        teacherId: assignmentToRemove.teacher._id,
+        sectionId: selectedSection._id,
+        courseId: courseId
+      });
+      
+      if (response.success) {
+        setSuccess('Teacher assignment removed successfully!');
+        
+        // Refresh the assignments and unassigned courses
+        await Promise.all([
+          fetchCourseTeacherAssignments(selectedSection._id),
+          fetchUnassignedCourses(selectedSection._id)
+        ]);
+      } else {
+        setError(response.message || 'Failed to remove teacher assignment');
+      }
       
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Failed to remove teacher assignment');
+      console.error('Remove assignment error:', err);
+      if (err.response?.status === 410) {
+        setError('Teacher assignment system has been updated. Please refresh the page to use the new system.');
+      } else {
+        setError(err.response?.data?.message || err.message || 'Failed to remove teacher assignment');
+      }
     } finally {
       setLoading(false);
     }
@@ -738,7 +838,7 @@ const SectionManagement = ({ user, token }) => {
                       Department: {section.department?.name || 'School-wide'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" gutterBottom>
-                      Teacher: {section.teacher?.name || 'Not assigned'}
+                      Teachers: {getSectionTeachersCount(section)} assigned
                     </Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                       <PeopleIcon sx={{ mr: 1, fontSize: 16 }} />
@@ -872,17 +972,7 @@ const SectionManagement = ({ user, token }) => {
                           <Box display="flex" alignItems="center" mb={1}>
                             <SchoolIcon sx={{ mr: 1 }} />
                             <Typography>
-                              <strong>Teacher:</strong> {selectedSection.teacher?.name || 'Not assigned'}
-                              {selectedSection.teacher && (
-                                <IconButton 
-                                  size="small" 
-                                  onClick={() => handleRemoveTeacher()}
-                                  color="error"
-                                  sx={{ ml: 1 }}
-                                >
-                                  <CloseIcon fontSize="small" />
-                                </IconButton>
-                              )}
+                              <strong>Course Assignments:</strong> See "Course Teachers" tab for details
                             </Typography>
                           </Box>
                         </Paper>
@@ -1013,7 +1103,7 @@ const SectionManagement = ({ user, token }) => {
                     </Box>
                     
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      Assign different teachers to different courses within this section
+                      Assign different teachers to different courses within this section. Now uses enhanced teacher assignment system with role validation.
                     </Typography>
 
                     {/* Current Assignments */}

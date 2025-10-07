@@ -19,7 +19,7 @@ app.get('/test', (req, res) => {
 // Try to start HTTP first to test basic functionality
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Test HTTP server running on port ${PORT}`);
-  console.log(`   Test URL: http://10.20.50.12:${PORT}/test`);
+  console.log(`   Test URL: http://192.168.7.20:${PORT}/test`);
   console.log(`   Test URL: http://localhost:${PORT}/test`);
 });
 

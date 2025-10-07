@@ -184,6 +184,19 @@ export const getCoursesByDepartment = async (departmentId) => {
   }
 };
 
+// Get courses available for section assignment
+export const getAvailableCoursesForSection = async (schoolId, departmentId = null) => {
+  try {
+    const params = { schoolId };
+    if (departmentId) params.departmentId = departmentId;
+    
+    const response = await axios.get('/api/hierarchy/courses', { params });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
 // Schools and Departments APIs (for dropdown population)
 export const getAllSchools = async () => {
   try {

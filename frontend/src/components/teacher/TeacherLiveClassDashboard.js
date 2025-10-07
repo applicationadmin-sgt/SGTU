@@ -46,6 +46,9 @@ import ScheduleLiveClassDialog from './ScheduleLiveClassDialog';
 import liveClassAPI from '../../api/liveClassApi';
 
 const TeacherLiveClassDashboard = ({ token, user }) => {
+  console.log('🚨 TEACHER LIVE CLASS DASHBOARD COMPONENT LOADED!!! 🚨');
+  console.log('🎓 Props received:', { token: !!token, user: user?.name, role: user?.role });
+  
   // Get token from props or localStorage as fallback
   const authToken = token || localStorage.getItem('token');
   const navigate = useNavigate();
@@ -85,10 +88,12 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
   // Load teacher's classes
   const loadClasses = async () => {
     try {
+      console.log('📚 Loading classes with token:', !!authToken);
       setLoading(true);
       setError('');
       
       const response = await liveClassAPI.getTeacherClasses({}, authToken);
+      console.log('📚 Classes API response:', response);
       setClasses(response.classes || []);
       
       // Calculate stats
@@ -98,9 +103,11 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
         live: response.classes?.filter(cls => cls.status === 'live').length || 0,
         completed: response.classes?.filter(cls => cls.status === 'completed').length || 0
       };
+      console.log('📊 Stats calculated:', newStats);
       setStats(newStats);
       
     } catch (err) {
+      console.error('❌ Error loading classes:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -123,7 +130,7 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
     }));
   };
 
-  // Start a class
+  // Start a class - Navigate to ScalableLiveClassRoom
   const handleStartClass = async (classItem) => {
     try {
       await liveClassAPI.startClass(classItem._id, authToken);
@@ -141,12 +148,17 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
         live: prev.live + 1
       }));
       
-      // Navigate to live class room in the same tab
+      // Navigate to scalable live class room
       navigate(`/teacher/live-class/${classItem._id}`);
       
     } catch (err) {
       setError(err.message);
     }
+  };
+
+  // Join live class - Navigate to ScalableLiveClassRoom
+  const handleJoinClass = (classItem) => {
+    navigate(`/teacher/live-class/${classItem._id}`);
   };
 
   // End a class
@@ -239,7 +251,7 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
   const handleDownloadRecording = (classItem) => {
     if (classItem.recordingUrl) {
       const link = document.createElement('a');
-  link.href = `${process.env.REACT_APP_API_URL || 'https://10.20.50.12:3000'}${classItem.recordingUrl}`;
+      link.href = `${process.env.REACT_APP_API_URL || 'https://192.168.7.20:5000'}${classItem.recordingUrl}`;
       link.download = `${classItem.title}-recording.webm`;
       document.body.appendChild(link);
       link.click();
@@ -249,115 +261,132 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
 
   // Format recording duration
   const formatDuration = (seconds) => {
-    if (!seconds) return 'Unknown';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
+    if (!seconds) return '0:00';
+    const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   // Format file size
   const formatFileSize = (bytes) => {
-    if (!bytes) return 'Unknown';
-    const mb = bytes / (1024 * 1024);
-    return `${mb.toFixed(1)} MB`;
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
-
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <CircularProgress />
-        <Typography variant="body1" sx={{ ml: 2 }}>
-          Loading live classes...
-        </Typography>
-      </Box>
-    );
-  }
 
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" fontWeight="bold">
-          Live Classes
-        </Typography>
+        <Box>
+          <Typography variant="h4" gutterBottom>
+            Live Classes Dashboard
+          </Typography>
+          <Typography variant="subtitle1" color="text.secondary">
+            Manage your live classes with 10,000+ student capacity using enhanced WebRTC technology
+          </Typography>
+        </Box>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => setScheduleDialogOpen(true)}
+          size="large"
         >
-          Schedule New Class
+          Schedule Class
         </Button>
       </Box>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
-      )}
-
-      {/* Stats Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
+      {/* Statistics Cards */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={3}>
           <Card>
             <CardContent>
-              <Typography variant="h6" color="primary">
-                {stats.total}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Total Classes
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box>
+                  <Typography color="text.secondary" gutterBottom>
+                    Total Classes
+                  </Typography>
+                  <Typography variant="h4">
+                    {stats.total}
+                  </Typography>
+                </Box>
+                <ScheduleIcon sx={{ fontSize: 40, color: 'primary.main' }} />
+              </Box>
             </CardContent>
           </Card>
         </Grid>
+        
         <Grid item xs={12} sm={6} md={3}>
           <Card>
             <CardContent>
-              <Typography variant="h6" color="primary">
-                {stats.upcoming}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Upcoming
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box>
+                  <Typography color="text.secondary" gutterBottom>
+                    Upcoming
+                  </Typography>
+                  <Typography variant="h4" color="primary">
+                    {stats.upcoming}
+                  </Typography>
+                </Box>
+                <ScheduleIcon sx={{ fontSize: 40, color: 'primary.main' }} />
+              </Box>
             </CardContent>
           </Card>
         </Grid>
+        
         <Grid item xs={12} sm={6} md={3}>
           <Card>
             <CardContent>
-              <Typography variant="h6" color="success.main">
-                {stats.live}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Live Now
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box>
+                  <Typography color="text.secondary" gutterBottom>
+                    Live Now
+                  </Typography>
+                  <Typography variant="h4" color="success.main">
+                    {stats.live}
+                  </Typography>
+                </Box>
+                <VideoCallIcon sx={{ fontSize: 40, color: 'success.main' }} />
+              </Box>
             </CardContent>
           </Card>
         </Grid>
+        
         <Grid item xs={12} sm={6} md={3}>
           <Card>
             <CardContent>
-              <Typography variant="h6" color="text.secondary">
-                {stats.completed}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Completed
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box>
+                  <Typography color="text.secondary" gutterBottom>
+                    Completed
+                  </Typography>
+                  <Typography variant="h4">
+                    {stats.completed}
+                  </Typography>
+                </Box>
+                <CheckCircleIcon sx={{ fontSize: 40, color: 'text.secondary' }} />
+              </Box>
             </CardContent>
           </Card>
         </Grid>
       </Grid>
 
+      {/* Error Display */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       {/* Tabs */}
-      <Paper sx={{ mb: 3 }}>
+      <Paper sx={{ mb: 2 }}>
         <Tabs
           value={currentTab}
-          onChange={(e, newValue) => setCurrentTab(newValue)}
-          variant="fullWidth"
+          onChange={(event, newValue) => setCurrentTab(newValue)}
+          indicatorColor="primary"
+          textColor="primary"
         >
           <Tab label={`All (${stats.total})`} />
           <Tab label={`Upcoming (${stats.upcoming})`} />
@@ -371,9 +400,9 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Title</TableCell>
-              <TableCell>Section & Course</TableCell>
-              <TableCell>Scheduled Time</TableCell>
+              <TableCell>Class Details</TableCell>
+              <TableCell>Section/Course</TableCell>
+              <TableCell>Date & Time</TableCell>
               <TableCell>Duration</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Participants</TableCell>
@@ -382,14 +411,20 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {getFilteredClasses().length === 0 ? (
+            {loading ? (
               <TableRow>
                 <TableCell colSpan={8} align="center">
-                  <Typography variant="body1" color="text.secondary" sx={{ py: 4 }}>
-                    {currentTab === 0 
-                      ? 'No live classes scheduled yet. Click "Schedule New Class" to get started.'
-                      : `No ${['', 'upcoming', 'live', 'completed'][currentTab]} classes.`
-                    }
+                  <CircularProgress />
+                </TableCell>
+              </TableRow>
+            ) : getFilteredClasses().length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center">
+                  <Typography variant="body2" color="text.secondary">
+                    {currentTab === 0 ? 'No classes scheduled yet' :
+                     currentTab === 1 ? 'No upcoming classes' :
+                     currentTab === 2 ? 'No live classes' :
+                     'No completed classes'}
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -477,7 +512,7 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
                   <TableCell>
                     <Box sx={{ display: 'flex', gap: 1 }}>
                       {classItem.status === 'scheduled' && (
-                        <Tooltip title="Start Class">
+                        <Tooltip title="Start Class (Enhanced Interface)">
                           <IconButton
                             size="small"
                             color="success"
@@ -490,11 +525,11 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
                       
                       {classItem.status === 'live' && (
                         <>
-                          <Tooltip title="Join Class">
+                          <Tooltip title="Join Class (Enhanced Interface)">
                             <IconButton
                               size="small"
                               color="primary"
-                              onClick={() => navigate(`/teacher/live-class/${classItem._id}`)}
+                              onClick={() => handleJoinClass(classItem)}
                             >
                               <VideoCallIcon />
                             </IconButton>
@@ -598,16 +633,9 @@ const TeacherLiveClassDashboard = ({ token, user }) => {
               <video
                 controls
                 width="100%"
-                style={{ maxHeight: '400px' }}
-                preload="metadata"
-              >
-                <source 
-                  src={`${process.env.REACT_APP_API_URL || 'https://10.20.50.12:3000'}${selectedRecording.recordingUrl}`} 
-                  type="video/webm"
-                />
-                Your browser does not support the video tag.
-              </video>
-              
+                height="400px"
+                src={`${process.env.REACT_APP_API_URL || 'https://192.168.7.20:5000'}${selectedRecording.recordingUrl}`}
+              />
               <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Box>
                   <Typography variant="body2" color="text.secondary">
