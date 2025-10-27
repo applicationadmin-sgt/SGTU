@@ -12,8 +12,8 @@ const socketConfig = {
   // CORS configuration for production
   cors: {
     origin: process.env.NODE_ENV === 'production' 
-      ? ["https://your-domain.com", "https://www.your-domain.com"]
-      : ["http://localhost:3000", "https://192.168.7.20:3000"],
+      ? [process.env.FRONTEND_URL]
+      : ["http://localhost:3000", process.env.FRONTEND_URL],
     methods: ["GET", "POST"],
     allowedHeaders: ["Authorization"],
     credentials: true

@@ -360,8 +360,7 @@ const Sidebar = ({ currentUser, mobileOpen = false, handleDrawerToggle = () => {
       items: [
         { text: 'School Management', icon: <SupervisorAccountIcon />, path: 'school-management', color: theme.palette.secondary.main },
         { text: 'Departments', icon: <BusinessIcon />, path: 'departments', color: theme.palette.secondary.main },
-        { text: 'Teachers', icon: <PeopleIcon />, path: 'teachers', color: theme.palette.secondary.main },
-        { text: 'My Teaching Sections', icon: <SchoolIcon />, path: 'teaching-sections', color: theme.palette.status?.success }
+        { text: 'Teachers', icon: <PeopleIcon />, path: 'teachers', color: theme.palette.secondary.main }
       ]
     },
     {
@@ -418,7 +417,6 @@ const Sidebar = ({ currentUser, mobileOpen = false, handleDrawerToggle = () => {
       color: theme.palette.secondary.main,
       items: [
         { text: 'Sections', icon: <GroupsIcon />, path: 'sections', color: theme.palette.primary.light },
-        { text: 'My Teaching Sections', icon: <SchoolIcon />, path: 'teaching-sections', color: theme.palette.status?.success },
         { text: 'Teachers', icon: <PeopleIcon />, path: 'teachers', color: theme.palette.secondary.main },
         { text: 'Courses', icon: <MdClass />, path: 'courses', color: theme.palette.secondary.light },
         { text: 'CC Management', icon: <SupervisorAccountIcon />, path: 'cc-management', color: theme.palette.secondary.main, isNew: true }

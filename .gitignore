@@ -83,40 +83,24 @@ Thumbs.db
 /backend/uploads/*
 !/backend/uploads/.gitkeep
 
-# Optional: keep specific upload directories but ignore their contents
-# /backend/uploads/videos/.gitkeep
-# /backend/uploads/videos/*
-# /backend/uploads/images/.gitkeep
-# /backend/uploads/images/*
-
 # Database dumps
 *.sql
 *.sqlite
 *.sqlite3
-
-# For MongoDB compass, etc
 *.mongodb
 
 # Debug files
 *.debug
-
-# Package-lock files (optional - you may want to keep these)
-# package-lock.json
-# yarn.lock
 
 # Misc
 .cache/
 .temp/
 .tmp/
 
-# Documentation files (MD files) - Remove from version control
+# Documentation files - Keep only essential ones
 *.md
 !README.md
 !LICENSE.md
-!CONTRIBUTING.md
-!CODE_OF_CONDUCT.md
-!SECURITY.md
-!CHANGELOG.md
 
 # Backup files
 *.backup
@@ -128,4 +112,26 @@ Thumbs.db
 .aws/
 .azure/
 .gcloud/
-*.pem.pub
+
+# Archive folders
+__archived_*
+**/archived_*
+**/__archive__
+
+# Deployment artifacts
+deployment-*.zip
+*.zip
+
+# PowerShell scripts (keep in repo but document)
+# *.ps1
+
+# Test and debug scripts
+test-*.js
+debug-*.js
+check-*.js
+verify-*.js
+fix-*.js
+
+# Temporary admin scripts
+temp-*.js
+temp_*.js

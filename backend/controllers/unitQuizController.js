@@ -1003,7 +1003,7 @@ exports.submitUnitQuiz = async (req, res) => {
             .digest('hex');
           
           // Regenerate verification URL
-          existingCertificate.verificationUrl = `${process.env.FRONTEND_URL || 'https://192.168.7.20:3000'}/verify-certificate/${existingCertificate.verificationHash}`;
+          existingCertificate.verificationUrl = `${process.env.FRONTEND_URL}/verify-certificate/${existingCertificate.verificationHash}`;
           
           // Regenerate QR code
           try {

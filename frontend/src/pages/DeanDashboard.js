@@ -43,7 +43,6 @@ import DeanSectionAnalytics from './dean/DeanSectionAnalytics';
 import DeanQuizUnlockDashboard from '../components/dean/DeanQuizUnlockDashboard';
 import DeanAnnouncements from './dean/DeanAnnouncements';
 import DeanAnnouncementHistory from './dean/DeanAnnouncementHistory';
-import MyTeachingSections from '../components/common/MyTeachingSections';
 import DeanProfile from '../components/DeanProfile';
 import ChatDashboard from '../components/ChatDashboard';
 import DeanCertificates from './dean/DeanCertificates';
@@ -866,7 +865,6 @@ const DeanDashboard = () => {
                 <Route path="/announcements/history" element={<DeanAnnouncementHistory />} />
                 <Route path="/unlock-requests" element={<DeanQuizUnlockDashboard />} />
                 <Route path="/certificates" element={<DeanCertificates />} />
-                <Route path="/teaching-sections" element={<MyTeachingSections />} />
                 {/* Live class routes moved to independent video-call-module */}
                 {/* <Route path="/live-classes" element={<DeanLiveClasses />} /> */}
                 <Route path="*" element={<Navigate to="/dean/dashboard" replace />} />

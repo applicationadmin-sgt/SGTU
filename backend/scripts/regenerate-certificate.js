@@ -152,7 +152,7 @@ async function regenerateCertificate(studentEmail, courseCode, sectionName) {
     certificateData.verificationHash = verificationHash;
 
     // Generate verification URL
-    const baseUrl = process.env.FRONTEND_URL || 'https://192.168.7.20:3000';
+    const baseUrl = process.env.FRONTEND_URL;
     const verificationUrl = `${baseUrl}/verify-certificate/${verificationHash}`;
     certificateData.verificationUrl = verificationUrl;
 

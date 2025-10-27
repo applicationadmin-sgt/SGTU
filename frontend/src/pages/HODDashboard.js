@@ -40,7 +40,6 @@ import HODSections from './hod/HODSections';
 import HODAnalytics from './hod/HODAnalytics';
 import HODAnnouncements from './hod/HODAnnouncements';
 import HODAnnouncementHistory from './hod/HODAnnouncementHistory';
-import MyTeachingSections from '../components/common/MyTeachingSections';
 
 import HODAnnouncementApproval from '../components/hod/HODAnnouncementApproval';
 import HODQuizManagement from './hod/HODQuizManagement';
@@ -843,7 +842,6 @@ const HODDashboard = () => {
               <Route path="/quiz-management" element={<HODQuizManagement />} />
               <Route path="/cc-management" element={<HODCCManagement />} />
               <Route path="/certificates" element={<HODCertificates />} />
-              <Route path="/teaching-sections" element={<MyTeachingSections />} />
               <Route path="/video-unlock-requests" element={<HODVideoUnlockApproval token={token} user={currentUser} />} />
               <Route path="/quiz-unlock-requests" element={<HODQuizUnlockDashboard />} />
               {/* Live class routes moved to independent video-call-module */}

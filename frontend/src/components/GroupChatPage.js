@@ -159,7 +159,7 @@ const GroupChatPage = () => {
     loadCurrentUser();
 
     // Initialize socket connection with better configuration
-    const newSocket = io('https://192.168.7.20:3000/group-chat', {
+    const newSocket = io(process.env.REACT_APP_BACKEND_URL + '/group-chat', {
       auth: { token },
       transports: ['websocket', 'polling'],
       timeout: 20000,

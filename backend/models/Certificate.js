@@ -124,7 +124,7 @@ certificateSchema.pre('save', async function(next) {
       .digest('hex');
     
     // Create verification URL
-    this.verificationUrl = `https://192.168.7.20:3000/verify-certificate/${this.verificationHash}`;
+    this.verificationUrl = `${process.env.FRONTEND_URL}/verify-certificate/${this.verificationHash}`;
   }
   next();
 });

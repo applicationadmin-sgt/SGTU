@@ -7,15 +7,12 @@ const helmet = require('helmet');
 const app = express();
 require('dotenv').config();
 
-// Enhanced CORS configuration for HTTPS frontend
+// HTTP-only CORS configuration
 const corsOptions = {
   origin: [
     'http://localhost:3000',
-    'https://localhost:3000',
-    'http://192.168.7.20:3000',
-    'https://192.168.7.20:3000',
-    'http://127.0.0.1:3000',
-    'https://127.0.0.1:3000'
+    process.env.FRONTEND_URL,
+    'http://127.0.0.1:3000'
   ],
   credentials: true,
   optionsSuccessStatus: 200,
@@ -301,33 +298,17 @@ const fs = require('fs');
 // Set PORT
 const PORT = process.env.PORT || 5000;
 
-// Always use HTTPS for better WebRTC and live class compatibility
-let server;
-try {
-  // SSL certificate options
-  const sslOptions = {
-    key: fs.readFileSync(path.join(__dirname, 'localhost+3-key.pem')),
-    cert: fs.readFileSync(path.join(__dirname, 'localhost+3.pem'))
-  };
-  
-  // Create HTTPS server
-  server = https.createServer(sslOptions, app);
-  console.log('🔐 HTTPS server created with SSL certificates');
-} catch (error) {
-  console.error('❌ SSL certificate error:', error.message);
-  console.error('Please ensure localhost+3.pem and localhost+3-key.pem files exist in the backend directory');
-  process.exit(1);
-}
+// Use HTTP server (HTTPS support removed)
+const server = http.createServer(app);
+console.log('🌐 HTTP server created');
 
-// Create a single Socket.IO instance for both live classes and group chat
+// Create a single Socket.IO instance for group chat
 const { Server } = require('socket.io');
 const io = new Server(server, {
   cors: {
     origin: [
       "http://localhost:3000",
-      "http://192.168.7.20:3000", 
-      "https://192.168.7.20:3000",
-      "https://localhost:3000"
+      process.env.FRONTEND_URL
     ],
     methods: ["GET", "POST"],
     credentials: true
@@ -352,8 +333,8 @@ server.listen(PORT, '0.0.0.0', async () => {
   // Initialize basic services (group chat only)
   initializeBasicServices();
   
-  console.log(`🔐 HTTPS Server running on port ${PORT}`);
-  console.log(`   Access via: https://192.168.7.20:${PORT}`);
-  console.log(`   Access via: https://localhost:${PORT}`);
-  console.log(`🎯 SGT-LMS Backend Ready - Live classes moved to independent video call module`);
+  console.log(`🌐 HTTP Server running on port ${PORT}`);
+  console.log(`   Access via: http://${process.env.HOST}:${PORT}`);
+  console.log(`   Access via: http://localhost:${PORT}`);
+  console.log(`🎯 SGT-LMS Backend Ready - Group chat with Socket.IO enabled`);
 });

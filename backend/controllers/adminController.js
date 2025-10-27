@@ -549,7 +549,9 @@ exports.getAllTeachers = async (req, res) => {
         { role: 'teacher' },
         { roles: { $in: ['teacher'] } }
       ]
-    });
+    })
+    .populate('school', 'name code')
+    .populate('department', 'name code');
     
     // For each teacher, get their section-course assignments
     
@@ -567,7 +569,12 @@ exports.getAllTeachers = async (req, res) => {
         const sectionAssignedCourses = [];
         const seenCourseIds = new Set();
         
+        // Extract unique sections
+        const uniqueSections = [];
+        const seenSectionIds = new Set();
+        
         sectionCourseAssignments.forEach(assignment => {
+          // Collect unique courses
           if (assignment.course && !seenCourseIds.has(assignment.course._id.toString())) {
             seenCourseIds.add(assignment.course._id.toString());
             sectionAssignedCourses.push({
@@ -576,12 +583,20 @@ exports.getAllTeachers = async (req, res) => {
               assignmentType: 'section-based'
             });
           }
+          
+          // Collect unique sections
+          if (assignment.section && !seenSectionIds.has(assignment.section._id.toString())) {
+            seenSectionIds.add(assignment.section._id.toString());
+            uniqueSections.push(assignment.section);
+          }
         });
         
         // Only show section-based course assignments (no more direct assignments)
         return {
           ...teacher.toObject(),
-          coursesFromSections: sectionAssignedCourses, // Changed from coursesAssigned
+          sections: uniqueSections, // Add sections array for display
+          coursesAssigned: sectionAssignedCourses, // For frontend compatibility
+          coursesFromSections: sectionAssignedCourses,
           sectionCourseAssignments: sectionCourseAssignments.map(assignment => ({
             section: assignment.section.name,
             course: assignment.course.title,
