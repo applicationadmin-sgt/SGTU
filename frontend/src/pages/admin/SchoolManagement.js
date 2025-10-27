@@ -27,6 +27,7 @@ import {
   School as SchoolIcon
 } from '@mui/icons-material';
 import axios from 'axios';
+import BulkUploadSchools from '../../components/admin/BulkUploadSchools';
 
 const SchoolManagement = () => {
   const [schools, setSchools] = useState([]);
@@ -105,11 +106,31 @@ const SchoolManagement = () => {
     setSnackbar({ open: true, message, severity });
   };
 
+  const handleBulkSchoolUpload = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await axios.post(
+      '/api/admin/schools/bulk-upload',
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    
+    // Refresh schools
+    await fetchSchools();
+    return response.data;
+  };
+
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <SchoolIcon /> School Management &nbsp;&nbsp;&nbsp;
+          <SchoolIcon /> School Management
         </Typography>
         <Button
           variant="contained"
@@ -118,6 +139,17 @@ const SchoolManagement = () => {
         >
           Add School
         </Button>
+      </Box>
+
+      {/* Bulk Upload Schools */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+          Bulk School Creation
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Create multiple schools at once using CSV file
+        </Typography>
+        <BulkUploadSchools onUpload={handleBulkSchoolUpload} />
       </Box>
 
       <TableContainer component={Paper}>

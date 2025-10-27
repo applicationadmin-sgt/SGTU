@@ -13,8 +13,7 @@ import StudentUnitVideo from '../pages/student/StudentUnitVideo';
 import StudentQuizPage from '../pages/student/StudentQuizPage';
 import QuizLauncher from '../pages/student/QuizLauncher';
 import SecureQuizPage from '../pages/student/SecureQuizPage';
-import StudentLiveClassDashboard from '../components/student/StudentLiveClassDashboard';
-import SgtLmsLiveClass from '../components/liveclass/CodeTantraLiveClass';
+// Live class imports removed - moved to independent video call module
 import NotFound from '../components/common/NotFound';
 
 const StudentRoutes = ({ user, token }) => {
@@ -29,9 +28,7 @@ const StudentRoutes = ({ user, token }) => {
         <Route path="/watch-history" element={<WatchHistory token={token} />} />
         <Route path="/recent-videos" element={<RecentVideos token={token} />} />
         <Route path="/courses" element={<CourseList token={token} />} />
-        <Route path="/live-classes" element={<StudentLiveClassDashboard token={token} user={user} />} />
-        <Route path="/live-class/:classId" element={<SgtLmsLiveClass token={token} user={user} />} />
-        <Route path="/scalable-classroom/:classId" element={<SgtLmsLiveClass token={token} user={user} />} />
+        {/* Live class routes removed - moved to independent video call module */}
         <Route path="/course/:courseId/progress" element={<CourseProgress token={token} />} />
         
   {/* Units and videos routes */}

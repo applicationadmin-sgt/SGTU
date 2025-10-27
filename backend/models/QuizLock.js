@@ -148,7 +148,7 @@ const quizLockSchema = new mongoose.Schema({
   // Current authorization level required for unlock
   unlockAuthorizationLevel: {
     type: String,
-    enum: ['TEACHER', 'HOD', 'DEAN'],
+    enum: ['TEACHER', 'HOD', 'DEAN', 'ADMIN'],
     default: 'TEACHER'
   },
   
@@ -200,6 +200,11 @@ quizLockSchema.virtual('remainingHodUnlocks').get(function() {
   return Math.max(0, 3 - this.hodUnlockCount);
 });
 
+// Virtual for remaining Dean unlocks
+quizLockSchema.virtual('remainingDeanUnlocks').get(function() {
+  return Math.max(0, 3 - this.deanUnlockCount);
+});
+
 // Virtual for whether teacher can still unlock
 quizLockSchema.virtual('canTeacherUnlock').get(function() {
   return this.isLocked && this.unlockAuthorizationLevel === 'TEACHER' && this.teacherUnlockCount < 3;
@@ -208,6 +213,11 @@ quizLockSchema.virtual('canTeacherUnlock').get(function() {
 // Virtual for whether HOD can still unlock
 quizLockSchema.virtual('canHodUnlock').get(function() {
   return this.isLocked && this.unlockAuthorizationLevel === 'HOD' && this.hodUnlockCount < 3;
+});
+
+// Virtual for whether Dean can still unlock
+quizLockSchema.virtual('canDeanUnlock').get(function() {
+  return this.isLocked && this.unlockAuthorizationLevel === 'DEAN' && this.deanUnlockCount < 3;
 });
 
 // Virtual for whether HOD unlock is required
@@ -220,6 +230,11 @@ quizLockSchema.virtual('requiresDeanUnlock').get(function() {
   return this.isLocked && this.unlockAuthorizationLevel === 'DEAN';
 });
 
+// Virtual for whether admin override is required (when all levels exhausted)
+quizLockSchema.virtual('requiresAdminOverride').get(function() {
+  return this.isLocked && this.teacherUnlockCount >= 3 && this.hodUnlockCount >= 3 && this.deanUnlockCount >= 3;
+});
+
 // Methods
 quizLockSchema.methods.lockQuiz = function(reason, score = null, passingScore = null) {
   this.isLocked = true;
@@ -229,9 +244,12 @@ quizLockSchema.methods.lockQuiz = function(reason, score = null, passingScore = 
   if (passingScore !== null) this.passingScore = passingScore;
   
   // Set authorization level based on unlock history
-  // Teacher → HOD → Dean escalation flow
-  if (this.teacherUnlockCount >= 3 && this.hodUnlockCount >= 3) {
-    // Both teacher and HOD limits exceeded → Dean level
+  // Teacher (3) → HOD (3) → Dean (3) → Admin (unlimited) escalation flow
+  if (this.teacherUnlockCount >= 3 && this.hodUnlockCount >= 3 && this.deanUnlockCount >= 3) {
+    // All levels exhausted → Admin override required
+    this.unlockAuthorizationLevel = 'ADMIN';
+  } else if (this.teacherUnlockCount >= 3 && this.hodUnlockCount >= 3) {
+    // Teacher and HOD limits exceeded → Dean level
     this.unlockAuthorizationLevel = 'DEAN';
   } else if (this.teacherUnlockCount >= 3) {
     // Teacher limit exceeded → HOD level
@@ -249,8 +267,12 @@ quizLockSchema.methods.updateAuthorizationLevel = function() {
   if (!this.isLocked) return this; // No need to update if not locked
   
   // Determine correct authorization level based on unlock history
-  if (this.teacherUnlockCount >= 3 && this.hodUnlockCount >= 3) {
-    // Both teacher and HOD limits exceeded → Dean level
+  // Teacher (3) → HOD (3) → Dean (3) → Admin (unlimited) escalation flow
+  if (this.teacherUnlockCount >= 3 && this.hodUnlockCount >= 3 && this.deanUnlockCount >= 3) {
+    // All levels exhausted → Admin override required
+    this.unlockAuthorizationLevel = 'ADMIN';
+  } else if (this.teacherUnlockCount >= 3 && this.hodUnlockCount >= 3) {
+    // Teacher and HOD limits exceeded → Dean level
     this.unlockAuthorizationLevel = 'DEAN';
   } else if (this.teacherUnlockCount >= 3) {
     // Teacher limit exceeded → HOD level  
@@ -313,6 +335,14 @@ quizLockSchema.methods.unlockByHOD = function(hodId, reason, notes = '') {
 };
 
 quizLockSchema.methods.unlockByDean = function(deanId, reason, notes = '') {
+  if (this.unlockAuthorizationLevel !== 'DEAN') {
+    throw new Error('Dean unlock not authorized at this level.');
+  }
+  
+  if (this.deanUnlockCount >= 3) {
+    throw new Error('Dean unlock limit exceeded (3/3). Admin override required.');
+  }
+  
   this.isLocked = false;
   this.deanUnlockCount += 1;
   this.deanUnlockHistory.push({
@@ -322,7 +352,11 @@ quizLockSchema.methods.unlockByDean = function(deanId, reason, notes = '') {
     unlockTimestamp: new Date()
   });
   
-  // Dean has unlimited unlock authority
+  // After Dean unlocks reach limit, escalate to Admin level for FUTURE locks
+  if (this.deanUnlockCount >= 3) {
+    this.unlockAuthorizationLevel = 'ADMIN';
+  }
+  
   return this.save();
 };
 
@@ -339,6 +373,24 @@ quizLockSchema.methods.unlockByAdmin = function(adminId, reason, notes = '') {
   this.isLocked = false;
   this.adminUnlockCount = (this.adminUnlockCount || 0) + 1;
   
+  // IMPORTANT: When admin overrides, increment the appropriate role's count
+  // This ensures the unlock flow progresses properly through the hierarchy
+  const overriddenLevel = this.unlockAuthorizationLevel;
+  
+  if (overriddenLevel === 'TEACHER') {
+    // Admin overrode teacher request → increment teacher count
+    this.teacherUnlockCount += 1;
+    console.log(`🔄 Admin override: Teacher unlock count increased to ${this.teacherUnlockCount}/3`);
+  } else if (overriddenLevel === 'HOD') {
+    // Admin overrode HOD request → increment HOD count
+    this.hodUnlockCount += 1;  
+    console.log(`🔄 Admin override: HOD unlock count increased to ${this.hodUnlockCount}/3`);
+  } else if (overriddenLevel === 'DEAN') {
+    // Admin overrode Dean request → increment Dean count
+    this.deanUnlockCount += 1;
+    console.log(`🔄 Admin override: Dean unlock count increased to ${this.deanUnlockCount}/3`);
+  }
+  
   // Initialize adminUnlockHistory if it doesn't exist
   if (!this.adminUnlockHistory) {
     this.adminUnlockHistory = [];
@@ -349,12 +401,12 @@ quizLockSchema.methods.unlockByAdmin = function(adminId, reason, notes = '') {
     reason,
     notes,
     unlockTimestamp: new Date(),
-    overrideLevel: this.unlockAuthorizationLevel, // Record what level was overridden
+    overrideLevel: overriddenLevel, // Record what level was overridden
     lockReason: this.failureReason // Record what type of lock was overridden
   });
   
-  // Reset authorization level to teacher for next potential lock
-  this.unlockAuthorizationLevel = 'TEACHER';
+  // Update authorization level based on new counts after admin override
+  this.updateAuthorizationLevel();
   
   return this.save();
 };

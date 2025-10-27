@@ -37,10 +37,8 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({ 
   storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 100 * 1024 * 1024 // 100MB limit
-  }
+  fileFilter: fileFilter
+  // No file size limits - allow unlimited video uploads
 });
 
 // All routes protected by teacher role (CC is a teacher responsibility, not separate role)

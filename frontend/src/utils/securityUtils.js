@@ -3,6 +3,241 @@
  */
 
 /**
+ * Attempts to disable Chrome extensions by opening quiz in incognito-like mode
+ * @returns {Promise<boolean>} Success status
+ */
+export const disableBrowserExtensions = async () => {
+  try {
+    // Method 1: Request to open in incognito mode (extensions disabled by default)
+    if (navigator.userAgent.includes('Chrome')) {
+      // Create a link to open current page in incognito mode
+      const currentUrl = window.location.href;
+      const incognitoUrl = `chrome://incognito/${currentUrl}`;
+      
+      // Try to detect if we're already in incognito mode
+      const isIncognito = await detectIncognitoMode();
+      
+      if (!isIncognito) {
+        // Show warning about extensions
+        console.warn('🔒 Extensions may be active. For maximum security, please:');
+        console.warn('1. Open quiz in Incognito/Private mode');
+        console.warn('2. Or disable all extensions manually');
+        
+        return false;
+      }
+    }
+    
+    // Method 2: Detect and warn about active extensions
+    const extensionCheck = detectChromeExtensions();
+    if (extensionCheck.detected.length > 0) {
+      console.warn('🚨 Browser extensions detected:', extensionCheck.detected);
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Extension disable check failed:', error);
+    return false;
+  }
+};
+
+/**
+ * Detects if browser is in incognito/private mode
+ * @returns {Promise<boolean>} True if in incognito mode
+ */
+export const detectIncognitoMode = () => {
+  return new Promise((resolve) => {
+    // Chrome detection
+    if (navigator.userAgent.includes('Chrome')) {
+      const fs = window.RequestFileSystem || window.webkitRequestFileSystem;
+      if (fs) {
+        fs(window.TEMPORARY, 100, resolve.bind(null, false), resolve.bind(null, true));
+      } else {
+        resolve(false);
+      }
+    }
+    // Firefox detection
+    else if (navigator.userAgent.includes('Firefox')) {
+      const db = indexedDB.open('test');
+      db.onerror = () => resolve(true);
+      db.onsuccess = () => resolve(false);
+    }
+    // Safari detection
+    else if (navigator.userAgent.includes('Safari')) {
+      try {
+        localStorage.setItem('test', '1');
+        localStorage.removeItem('test');
+        resolve(false);
+      } catch (e) {
+        resolve(true);
+      }
+    } else {
+      resolve(false);
+    }
+  });
+};
+
+/**
+ * Detects remote connection software and screen sharing applications
+ * @returns {Object} Detection results
+ */
+export const detectRemoteConnections = () => {
+  const detectedRemoteApps = [];
+  const suspiciousActivity = [];
+  
+  try {
+    // Method 1: Check for remote desktop software indicators
+    const remoteDesktopIndicators = [
+      // TeamViewer detection
+      () => {
+        return document.title.includes('TeamViewer') ||
+               window.location.href.includes('teamviewer') ||
+               document.querySelector('[class*="teamviewer"]') ||
+               document.querySelector('[id*="teamviewer"]') ||
+               navigator.userAgent.includes('TeamViewer');
+      },
+      
+      // AnyDesk detection
+      () => {
+        return document.title.includes('AnyDesk') ||
+               window.location.href.includes('anydesk') ||
+               document.querySelector('[class*="anydesk"]') ||
+               document.querySelector('[id*="anydesk"]') ||
+               navigator.userAgent.includes('AnyDesk');
+      },
+      
+      // Chrome Remote Desktop detection
+      () => {
+        return document.title.includes('Chrome Remote Desktop') ||
+               window.location.href.includes('remotedesktop.google.com') ||
+               document.querySelector('[class*="remote-desktop"]') ||
+               document.querySelector('[aria-label*="remote"]');
+      },
+      
+      // Windows RDP detection
+      () => {
+        return navigator.userAgent.includes('Remote Desktop') ||
+               document.title.includes('Remote Desktop Connection') ||
+               window.screen.width === 1024 && window.screen.height === 768; // Common RDP resolution
+      },
+      
+      // VNC detection
+      () => {
+        return document.title.includes('VNC') ||
+               window.location.href.includes('vnc') ||
+               navigator.userAgent.includes('VNC') ||
+               document.querySelector('[class*="vnc"]');
+      },
+      
+      // Generic remote session detection
+      () => {
+        const suspiciousPatterns = ['remote', 'desktop', 'viewer', 'session', 'share', 'connect'];
+        const title = document.title.toLowerCase();
+        const url = window.location.href.toLowerCase();
+        
+        return suspiciousPatterns.some(pattern => 
+          title.includes(pattern) || url.includes(pattern)
+        );
+      }
+    ];
+    
+    remoteDesktopIndicators.forEach((test, index) => {
+      try {
+        if (test()) {
+          detectedRemoteApps.push({
+            type: 'remote-desktop',
+            method: `detection-method-${index + 1}`,
+            confidence: 'high',
+            timestamp: new Date()
+          });
+        }
+      } catch (error) {
+        console.warn(`Remote desktop detection method ${index + 1} failed:`, error);
+      }
+    });
+    
+    // Method 2: Check for screen sharing indicators
+    const screenSharingChecks = [
+      // Check if screen is being captured
+      () => {
+        if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+          // This is indirect - we can't directly detect if screen is being shared
+          // But we can check for suspicious screen dimensions
+          const ratio = window.screen.width / window.screen.height;
+          return ratio < 1.2 || ratio > 2.5; // Unusual aspect ratios might indicate sharing
+        }
+        return false;
+      },
+      
+      // Check for multiple monitor setup (common in remote scenarios)
+      () => {
+        return window.screen.availWidth !== window.screen.width ||
+               window.screen.availHeight !== window.screen.height;
+      },
+      
+      // Check for virtualized environment indicators
+      () => {
+        const userAgent = navigator.userAgent;
+        const virtualizedIndicators = [
+          'VirtualBox', 'VMware', 'QEMU', 'Xen', 'Hyper-V', 
+          'Parallels', 'VirtualPC', 'Docker'
+        ];
+        return virtualizedIndicators.some(indicator => userAgent.includes(indicator));
+      }
+    ];
+    
+    screenSharingChecks.forEach((test, index) => {
+      try {
+        if (test()) {
+          suspiciousActivity.push({
+            type: 'screen-sharing-indicator',
+            method: `sharing-detection-${index + 1}`,
+            confidence: 'medium',
+            timestamp: new Date()
+          });
+        }
+      } catch (error) {
+        console.warn(`Screen sharing detection method ${index + 1} failed:`, error);
+      }
+    });
+    
+    // Method 3: Performance-based detection
+    const performanceIndicators = () => {
+      const start = performance.now();
+      for (let i = 0; i < 100000; i++) {
+        Math.random();
+      }
+      const end = performance.now();
+      const executionTime = end - start;
+      
+      // If execution is unusually slow, might indicate remote session
+      return executionTime > 50; // Threshold for suspicious performance
+    };
+    
+    if (performanceIndicators()) {
+      suspiciousActivity.push({
+        type: 'performance-degradation',
+        method: 'execution-time-test',
+        confidence: 'low',
+        timestamp: new Date()
+      });
+    }
+    
+  } catch (error) {
+    console.error('Remote connection detection failed:', error);
+  }
+  
+  return {
+    remoteDesktopDetected: detectedRemoteApps.length > 0,
+    screenSharingPossible: suspiciousActivity.length > 0,
+    detectedRemoteApps,
+    suspiciousActivity,
+    confidence: detectedRemoteApps.length > 0 ? 'high' : 
+                suspiciousActivity.length > 0 ? 'medium' : 'low'
+  };
+};
+
+/**
  * Detects if Chrome extensions are active by checking for common extension artifacts
  * @returns {Object} Detection results
  */
@@ -517,14 +752,107 @@ export const startBypassResistantTabDetection = (onTabSwitch) => {
     }, 2000);
   };
   
-  // Method 2: Keyboard activity tracking
+  // Method 2: Enhanced keyboard activity tracking with system key detection
   let keyboardActivityDetected = false;
-  const keyboardHandler = () => {
+  let altPressed = false;
+  let winPressed = false;
+  
+  const keyboardHandler = (event) => {
     keyboardActivityDetected = true;
     lastActiveTime = Date.now();
+    
+    // Detect system navigation keys
+    const key = event.key;
+    const keyCode = event.keyCode || event.which;
+    const isKeyDown = event.type === 'keydown';
+    
+    // Track Alt key state
+    if (key === 'Alt' || keyCode === 18) {
+      altPressed = isKeyDown;
+      if (isKeyDown) {
+        console.log('🔍 Alt key detected - monitoring for Alt+Tab');
+      }
+    }
+    
+    // Track Windows/Meta key state
+    if (key === 'Meta' || key === 'OS' || keyCode === 91 || keyCode === 92) {
+      winPressed = isKeyDown;
+      if (isKeyDown) {
+        console.log('🔍 Windows key detected - monitoring for system navigation');
+        // Windows key press often indicates system navigation
+        setTimeout(() => {
+          if (document.hidden || !document.hasFocus()) {
+            console.log('🚨 Windows key navigation detected');
+            onTabSwitch({
+              method: 'windows-key-navigation',
+              evidence: 'Windows key pressed followed by focus loss',
+              confidence: 'high'
+            });
+          }
+        }, 100);
+      }
+    }
+    
+    // Detect Alt+Tab combination
+    if (altPressed && key === 'Tab') {
+      console.log('🚨 Alt+Tab detected!');
+      event.preventDefault(); // Try to prevent the action
+      onTabSwitch({
+        method: 'alt-tab-detected',
+        evidence: 'Alt+Tab key combination pressed',
+        confidence: 'very-high'
+      });
+      return false;
+    }
+    
+    // Detect other suspicious key combinations
+    if (event.ctrlKey && event.shiftKey && key === 'Tab') {
+      console.log('🚨 Ctrl+Shift+Tab detected!');
+      event.preventDefault();
+      onTabSwitch({
+        method: 'ctrl-shift-tab',
+        evidence: 'Ctrl+Shift+Tab key combination pressed',
+        confidence: 'very-high'
+      });
+      return false;
+    }
+    
+    // Detect F11 (fullscreen toggle)
+    if (key === 'F11' || keyCode === 122) {
+      console.log('🚨 F11 (fullscreen toggle) detected!');
+      setTimeout(() => {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement && 
+            !document.mozFullScreenElement && !document.msFullscreenElement) {
+          onTabSwitch({
+            method: 'fullscreen-exit',
+            evidence: 'F11 pressed - exited fullscreen mode',
+            confidence: 'high'
+          });
+        }
+      }, 100);
+    }
+    
+    // Detect Escape in fullscreen (potential exit attempt)
+    if (key === 'Escape' && (document.fullscreenElement || document.webkitFullscreenElement || 
+                             document.mozFullScreenElement || document.msFullscreenElement)) {
+      console.log('🚨 Escape in fullscreen detected!');
+      setTimeout(() => {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement && 
+            !document.mozFullScreenElement && !document.msFullscreenElement) {
+          onTabSwitch({
+            method: 'escape-fullscreen-exit',
+            evidence: 'Escape pressed - exited fullscreen mode',
+            confidence: 'high'
+          });
+        }
+      }, 100);
+    }
+    
     clearTimeout(keyboardActivityTimeout);
     keyboardActivityTimeout = setTimeout(() => {
       keyboardActivityDetected = false;
+      altPressed = false;
+      winPressed = false;
     }, 2000);
   };
   
@@ -1070,15 +1398,158 @@ export const testTabSwitchingDetection = () => {
 };
 
 /**
- * Generates instructions for disabling extensions
+ * Comprehensive security check for quiz environment
+ * @returns {Object} Complete security assessment
+ */
+export const performComprehensiveSecurityCheck = async () => {
+  const results = {
+    overall: 'unknown',
+    remoteConnection: null,
+    extensions: null,
+    incognitoMode: null,
+    violations: [],
+    recommendations: [],
+    blocking: false,
+    timestamp: new Date()
+  };
+  
+  try {
+    // 1. Check for remote connections
+    console.log('🔍 Checking for remote connections...');
+    results.remoteConnection = detectRemoteConnections();
+    
+    if (results.remoteConnection.remoteDesktopDetected) {
+      results.violations.push({
+        type: 'REMOTE_CONNECTION_DETECTED',
+        severity: 'HIGH',
+        message: 'Remote desktop software detected',
+        detected: results.remoteConnection.detectedRemoteApps
+      });
+      results.blocking = true;
+    }
+    
+    if (results.remoteConnection.screenSharingPossible) {
+      results.violations.push({
+        type: 'SCREEN_SHARING_POSSIBLE',
+        severity: 'MEDIUM',
+        message: 'Possible screen sharing detected',
+        indicators: results.remoteConnection.suspiciousActivity
+      });
+    }
+    
+    // 2. Check browser extensions
+    console.log('🔍 Checking for browser extensions...');
+    results.extensions = detectChromeExtensions();
+    
+    if (results.extensions.detected.length > 0) {
+      results.violations.push({
+        type: 'EXTENSIONS_DETECTED',
+        severity: 'MEDIUM',
+        message: 'Browser extensions detected',
+        extensions: results.extensions.detected
+      });
+    }
+    
+    // 3. Check incognito mode
+    console.log('🔍 Checking incognito mode...');
+    results.incognitoMode = await detectIncognitoMode();
+    
+    if (!results.incognitoMode) {
+      results.recommendations.push({
+        type: 'USE_INCOGNITO_MODE',
+        message: 'Consider using incognito/private browsing mode for enhanced security',
+        priority: 'MEDIUM'
+      });
+    }
+    
+    // 4. Generate recommendations
+    if (results.violations.length === 0 && results.incognitoMode) {
+      results.overall = 'SECURE';
+      results.recommendations.push({
+        type: 'ENVIRONMENT_SECURE',
+        message: 'Quiz environment appears secure',
+        priority: 'INFO'
+      });
+    } else if (results.blocking) {
+      results.overall = 'BLOCKED';
+      results.recommendations.push({
+        type: 'SECURITY_BLOCK',
+        message: 'Quiz cannot proceed due to security violations',
+        priority: 'HIGH'
+      });
+    } else {
+      results.overall = 'WARNING';
+      results.recommendations.push({
+        type: 'SECURITY_WARNING',
+        message: 'Security concerns detected, proceed with caution',
+        priority: 'MEDIUM'
+      });
+    }
+    
+    // 5. Add specific recommendations
+    if (results.remoteConnection.remoteDesktopDetected) {
+      results.recommendations.push({
+        type: 'DISABLE_REMOTE_SOFTWARE',
+        message: 'Please close all remote desktop applications before taking the quiz',
+        priority: 'HIGH'
+      });
+    }
+    
+    if (results.extensions.detected.length > 0) {
+      results.recommendations.push({
+        type: 'DISABLE_EXTENSIONS',
+        message: 'Please disable browser extensions or use incognito mode',
+        priority: 'MEDIUM',
+        instructions: getExtensionDisableInstructions()
+      });
+    }
+    
+  } catch (error) {
+    console.error('Comprehensive security check failed:', error);
+    results.overall = 'ERROR';
+    results.violations.push({
+      type: 'SECURITY_CHECK_FAILED',
+      severity: 'HIGH',
+      message: 'Unable to verify security environment',
+      error: error.message
+    });
+  }
+  
+  return results;
+};
+
+/**
+ * Gets instructions for disabling extensions based on browser
  * @returns {Array} Step-by-step instructions
  */
 export const getExtensionDisableInstructions = () => {
-  return [
-    'Click the three dots menu (⋮) in the top-right corner of Chrome',
-    'Select "More tools" → "Extensions"',
-    'Toggle OFF all extensions (or click "Remove" to uninstall)',
-    'Close the extensions tab and refresh this quiz page',
-    'Alternatively: Use Chrome\'s Incognito mode (Ctrl+Shift+N) which disables most extensions automatically'
-  ];
+  const userAgent = navigator.userAgent;
+  
+  if (userAgent.includes('Chrome')) {
+    return [
+      'Press Ctrl+Shift+N (Windows) or Cmd+Shift+N (Mac) to open incognito mode',
+      'Or go to Chrome Settings → Extensions → Toggle off all extensions',
+      'Or use chrome://extensions/ to disable extensions manually'
+    ];
+  } else if (userAgent.includes('Firefox')) {
+    return [
+      'Press Ctrl+Shift+P (Windows) or Cmd+Shift+P (Mac) to open private browsing',
+      'Or go to Firefox Menu → Add-ons → Extensions → Disable all extensions'
+    ];
+  } else if (userAgent.includes('Safari')) {
+    return [
+      'Press Cmd+Shift+N to open private browsing',
+      'Or go to Safari → Preferences → Extensions → Uncheck all extensions'
+    ];
+  } else if (userAgent.includes('Edge')) {
+    return [
+      'Press Ctrl+Shift+N to open InPrivate browsing',
+      'Or go to Edge Settings → Extensions → Toggle off all extensions'
+    ];
+  } else {
+    return [
+      'Open your browser in private/incognito mode',
+      'Disable all browser extensions through browser settings'
+    ];
+  }
 };

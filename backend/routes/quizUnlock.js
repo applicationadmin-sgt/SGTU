@@ -1,20 +1,55 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const QuizLock = require('../models/QuizLock');
 const Quiz = require('../models/Quiz');
 const User = require('../models/User');
 const Course = require('../models/Course');
+const Unit = require('../models/Unit');
+const Section = require('../models/Section');
+const SectionCourseTeacher = require('../models/SectionCourseTeacher');
+const StudentProgress = require('../models/StudentProgress');
 const QuizAttempt = require('../models/QuizAttempt');
 const { auth, authorizeRoles } = require('../middleware/auth');
 
 // @route   GET /api/quiz-unlock/locked-students
-// @desc    Get locked students for teacher dashboard
+// @desc    Get ALL locked students for teacher dashboard (including ones escalated to HOD/Dean for tracking)
 // @access  Private (Teacher)
 router.get('/locked-students', auth, authorizeRoles('teacher', 'coordinator'), async (req, res) => {
   try {
     const teacherId = req.user.id;
     
-    const lockedStudents = await QuizLock.getLockedStudentsByTeacher(teacherId);
+    // Get ALL locked students in teacher's sections, regardless of authorization level
+    const Section = require('../models/Section');
+    
+    const sections = await Section.find({
+      $or: [
+        { teacher: teacherId }, // Legacy single teacher field
+        { teachers: teacherId } // New multiple teachers field
+      ]
+    });
+    
+    // Get course IDs and student IDs from teacher's sections
+    const sectionCourseIds = [];
+    const sectionStudentIds = [];
+    
+    for (const section of sections) {
+      if (section.courses) {
+        sectionCourseIds.push(...section.courses);
+      }
+      if (section.students) {
+        sectionStudentIds.push(...section.students);
+      }
+    }
+    
+    // Find ALL locked students (any authorization level) in teacher's domain
+    const lockedStudents = await QuizLock.find({
+      isLocked: true,
+      $or: [
+        { courseId: { $in: sectionCourseIds } }, // Students in courses taught by teacher
+        { studentId: { $in: sectionStudentIds } } // Students in teacher's sections
+      ]
+    });
     
     // Add additional context for each locked student
     const enrichedData = await Promise.all(lockedStudents.map(async (lock) => {
@@ -46,9 +81,26 @@ router.get('/locked-students', auth, authorizeRoles('teacher', 'coordinator'), a
           lastFailureScore: lock.lastFailureScore,
           passingScore: lock.passingScore,
           teacherUnlockCount: lock.teacherUnlockCount,
+          hodUnlockCount: lock.hodUnlockCount || 0,
+          deanUnlockCount: lock.deanUnlockCount || 0,
           remainingTeacherUnlocks: lock.remainingTeacherUnlocks,
           totalAttempts: lock.totalAttempts,
-          canTeacherUnlock: lock.canTeacherUnlock
+          canTeacherUnlock: lock.canTeacherUnlock,
+          unlockAuthorizationLevel: lock.unlockAuthorizationLevel,
+          requiresHodUnlock: lock.requiresHodUnlock,
+          requiresDeanUnlock: lock.requiresDeanUnlock,
+          lastTeacherUnlock: lock.teacherUnlockHistory.length > 0 ? 
+                              lock.teacherUnlockHistory[lock.teacherUnlockHistory.length - 1].unlockTimestamp : null,
+          lastHodUnlock: lock.hodUnlockHistory && lock.hodUnlockHistory.length > 0 ? 
+                         lock.hodUnlockHistory[lock.hodUnlockHistory.length - 1].unlockTimestamp : null,
+          lastDeanUnlock: lock.deanUnlockHistory && lock.deanUnlockHistory.length > 0 ? 
+                          lock.deanUnlockHistory[lock.deanUnlockHistory.length - 1].unlockTimestamp : null
+        },
+        unlockHistory: {
+          teacher: lock.teacherUnlockHistory || [],
+          hod: lock.hodUnlockHistory || [],
+          dean: lock.deanUnlockHistory || [],
+          admin: lock.adminUnlockHistory || []
         }
       };
     }));
@@ -56,7 +108,13 @@ router.get('/locked-students', auth, authorizeRoles('teacher', 'coordinator'), a
     res.json({
       success: true,
       data: enrichedData,
-      count: enrichedData.length
+      count: enrichedData.length,
+      breakdown: {
+        teacherLevel: enrichedData.filter(item => item.lockInfo.unlockAuthorizationLevel === 'TEACHER').length,
+        hodLevel: enrichedData.filter(item => item.lockInfo.unlockAuthorizationLevel === 'HOD').length,
+        deanLevel: enrichedData.filter(item => item.lockInfo.unlockAuthorizationLevel === 'DEAN').length,
+        adminLevel: enrichedData.filter(item => item.lockInfo.unlockAuthorizationLevel === 'ADMIN').length
+      }
     });
   } catch (error) {
     console.error('Error fetching locked students:', error);
@@ -140,12 +198,53 @@ router.get('/dean-locked-students', auth, authorizeRoles('admin', 'dean'), async
 });
 
 // @route   GET /api/quiz-unlock/hod-locked-students
-// @desc    Get locked students requiring HOD authorization
+// @desc    Get ALL locked students in HOD's department (including ones escalated to Dean for tracking)
 // @access  Private (HOD/Admin)
 router.get('/hod-locked-students', auth, authorizeRoles('admin', 'hod'), async (req, res) => {
   try {
     const hodId = req.user.id;
-    const lockedStudents = await QuizLock.getLockedStudentsForHOD(hodId);
+    
+    // Find students in courses from HOD's department
+    const User = require('../models/User');
+    const Course = require('../models/Course');
+    
+    const hod = await User.findById(hodId).populate('department').populate('departments');
+    
+    // Support both single department and departments array for HOD
+    let hodDepartments = [];
+    if (hod.department) {
+      hodDepartments.push(hod.department._id);
+    }
+    if (hod.departments && hod.departments.length > 0) {
+      hodDepartments.push(...hod.departments.map(d => d._id));
+    }
+    
+    if (!hod || hodDepartments.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'HOD department not found or not assigned to any department',
+        debug: {
+          hodId: hodId,
+          hasSingleDept: !!hod?.department,
+          hasDepartmentsArray: hod?.departments?.length > 0,
+          hodRole: hod?.role,
+          hodRoles: hod?.roles
+        }
+      });
+    }
+    
+    // Find courses in HOD's department(s)
+    const departmentCourses = await Course.find({ 
+      department: { $in: hodDepartments }
+    }).select('_id');
+    
+    const courseIds = departmentCourses.map(course => course._id);
+    
+    // Get ALL locked students in department, regardless of authorization level
+    const lockedStudents = await QuizLock.find({
+      isLocked: true,
+      courseId: { $in: courseIds }
+    });
     
     const enrichedData = await Promise.all(lockedStudents.map(async (lock) => {
       // Fetch related information separately to avoid populate issues
@@ -188,18 +287,63 @@ router.get('/hod-locked-students', auth, authorizeRoles('admin', 'hod'), async (
           lastFailureScore: lock.lastFailureScore,
           passingScore: lock.passingScore,
           teacherUnlockCount: lock.teacherUnlockCount,
-          hodUnlockCount: lock.hodUnlockCount,
+          hodUnlockCount: lock.hodUnlockCount || 0,
+          deanUnlockCount: lock.deanUnlockCount || 0,
           totalAttempts: lock.totalAttempts,
-          requiresHodUnlock: lock.requiresHodUnlock
+          unlockAuthorizationLevel: lock.unlockAuthorizationLevel,
+          canHodUnlock: lock.canHodUnlock,
+          requiresHodUnlock: lock.requiresHodUnlock,
+          requiresDeanUnlock: lock.requiresDeanUnlock,
+          remainingHodUnlocks: lock.remainingHodUnlocks,
+          lastTeacherUnlock: lock.teacherUnlockHistory.length > 0 ? 
+                              lock.teacherUnlockHistory[lock.teacherUnlockHistory.length - 1].unlockTimestamp : null,
+          lastHodUnlock: lock.hodUnlockHistory && lock.hodUnlockHistory.length > 0 ? 
+                         lock.hodUnlockHistory[lock.hodUnlockHistory.length - 1].unlockTimestamp : null,
+          lastDeanUnlock: lock.deanUnlockHistory && lock.deanUnlockHistory.length > 0 ? 
+                          lock.deanUnlockHistory[lock.deanUnlockHistory.length - 1].unlockTimestamp : null
         },
-        teacherUnlockHistory: lock.teacherUnlockHistory
+        unlockHistory: {
+          teacher: lock.teacherUnlockHistory || [],
+          hod: lock.hodUnlockHistory || [],
+          dean: lock.deanUnlockHistory || [],
+          admin: lock.adminUnlockHistory || []
+        }
       };
     }));
     
+    // Prepare department info for response
+    const departmentInfo = {
+      departmentIds: hodDepartments,
+      departmentNames: []
+    };
+    
+    if (hod.department) {
+      departmentInfo.departmentNames.push(hod.department.name);
+      // Keep backward compatibility
+      departmentInfo.departmentName = hod.department.name;
+      departmentInfo.departmentId = hod.department._id;
+    }
+    
+    if (hod.departments && hod.departments.length > 0) {
+      departmentInfo.departmentNames.push(...hod.departments.map(d => d.name));
+      // If no single department, use first from array for backward compatibility
+      if (!hod.department) {
+        departmentInfo.departmentName = hod.departments[0].name;
+        departmentInfo.departmentId = hod.departments[0]._id;
+      }
+    }
+
     res.json({
       success: true,
       data: enrichedData,
-      count: enrichedData.length
+      count: enrichedData.length,
+      departmentInfo,
+      breakdown: {
+        teacherLevel: enrichedData.filter(item => item.lockInfo.unlockAuthorizationLevel === 'TEACHER').length,
+        hodLevel: enrichedData.filter(item => item.lockInfo.unlockAuthorizationLevel === 'HOD').length,
+        deanLevel: enrichedData.filter(item => item.lockInfo.unlockAuthorizationLevel === 'DEAN').length,
+        adminLevel: enrichedData.filter(item => item.lockInfo.unlockAuthorizationLevel === 'ADMIN').length
+      }
     });
   } catch (error) {
     console.error('Error fetching HOD locked students:', error);
@@ -360,19 +504,33 @@ router.post('/hod-unlock/:lockId', auth, authorizeRoles('admin', 'hod'), async (
     const course = await Course.findById(lock.courseId).populate('department').select('name code title department');
     
     // Verify HOD has access to this student through department
-    const hod = await User.findById(hodId).populate('department');
-    if (!hod || !hod.department) {
+    const hod = await User.findById(hodId).populate('department').populate('departments');
+    
+    // Support both single department and departments array for HOD
+    let hodDepartments = [];
+    if (hod.department) {
+      hodDepartments.push(hod.department._id);
+    }
+    if (hod.departments && hod.departments.length > 0) {
+      hodDepartments.push(...hod.departments.map(d => d._id));
+    }
+    
+    if (!hod || hodDepartments.length === 0) {
       return res.status(403).json({
         success: false,
-        message: 'HOD department not found'
+        message: 'HOD department not found or not assigned to any department'
       });
     }
     
-    // Check if the course belongs to HOD's department
-    if (!course || !course.department || course.department._id.toString() !== hod.department._id.toString()) {
+    // Check if the course belongs to any of HOD's department(s)
+    if (!course || !course.department || !hodDepartments.some(deptId => deptId.toString() === course.department._id.toString())) {
+      const hodDeptNames = [];
+      if (hod.department) hodDeptNames.push(hod.department.name);
+      if (hod.departments) hodDeptNames.push(...hod.departments.map(d => d.name));
+      
       return res.status(403).json({
         success: false,
-        message: `You do not have access to unlock this student - course not in your department. Course dept: ${course?.department?.name || 'Unknown'}, Your dept: ${hod.department.name}`
+        message: `You do not have access to unlock this student - course not in your department. Course dept: ${course?.department?.name || 'Unknown'}, Your dept(s): ${hodDeptNames.join(', ')}`
       });
     }
     
@@ -559,8 +717,12 @@ router.post('/dean-unlock/:lockId', auth, authorizeRoles('admin', 'dean'), async
         student: student?.name,
         quiz: quiz?.title,
         course: course?.name || course?.title,
-        deanUnlockCount: lock.deanUnlockCount + 1,
-        teacherUnlockCount: lock.teacherUnlockCount
+        deanUnlockCount: lock.deanUnlockCount,
+        remainingDeanUnlocks: Math.max(0, 3 - lock.deanUnlockCount),
+        teacherUnlockCount: lock.teacherUnlockCount,
+        hodUnlockCount: lock.hodUnlockCount || 0,
+        nextAuthorizationLevel: lock.deanUnlockCount >= 3 ? 'ADMIN' : 'DEAN',
+        requiresAdminOverride: lock.deanUnlockCount >= 3
       }
     });
   } catch (error) {
@@ -713,6 +875,1170 @@ router.post('/check-and-lock', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error processing quiz result',
+      error: error.message
+    });
+  }
+});
+
+// @route   GET /api/quiz-unlock/teacher-unlock-history
+// @desc    Get all unlock history for the current teacher with pagination and filters
+// @access  Private (Teacher)
+router.get('/teacher-unlock-history', auth, authorizeRoles('teacher', 'coordinator'), async (req, res) => {
+  try {
+    const teacherId = req.user.id;
+    
+    // Extract pagination and filter parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    
+    // Extract filter parameters
+    const {
+      courseId,
+      unitId,
+      sectionId,
+      studentSearch, // regno or email
+      startDate,
+      endDate,
+      actionType // 'teacher' or 'admin_override' or 'all'
+    } = req.query;
+    
+    // Get teacher details
+    const teacher = await User.findById(teacherId).select('name email');
+    if (!teacher) {
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
+    }
+    
+    // Build query to find QuizLock records for the specified course/unit with any unlock history
+    let baseQuery = {
+      // Must have unlock history
+      $or: [
+        { 'teacherUnlockHistory.0': { $exists: true } },
+        { 'adminUnlockHistory.0': { $exists: true } },
+        { 'hodUnlockHistory.0': { $exists: true } },
+        { 'deanUnlockHistory.0': { $exists: true } }
+      ]
+    };
+
+    // Add mandatory course filter (teachers can only see their assigned courses)
+    if (!courseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Course filter is required for teachers'
+      });
+    }
+    baseQuery.courseId = courseId;
+
+    // Add mandatory unit/quiz filter
+    if (!unitId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unit filter is required for teachers'
+      });
+    }
+    
+    // Get all quizzes in the selected unit
+    console.log('🔍 Getting quizzes in unit:', unitId);
+    const quizzesInUnit = await Quiz.find({ unit: unitId }).select('_id');
+    const quizIds = quizzesInUnit.map(q => q._id);
+    console.log(`📝 Found ${quizIds.length} quizzes in unit`);
+    
+    if (quizIds.length > 0) {
+      baseQuery.quizId = { $in: quizIds };
+    } else {
+      // No quizzes in this unit, return empty result
+      return res.json({
+        success: true,
+        data: [],
+        pagination: {
+          currentPage: page,
+          totalPages: 0,
+          totalCount: 0,
+          hasNextPage: false,
+          hasPrevPage: false
+        }
+      });
+    }
+
+    // Add mandatory section filter (teachers can only see their assigned sections)
+    if (!sectionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Section filter is required for teachers'
+      });
+    }
+
+    // Verify teacher has access to this course through section assignment
+    const teacherAssignment = await SectionCourseTeacher.findOne({
+      teacher: teacherId,
+      course: courseId,
+      section: sectionId,
+      isActive: true
+    });
+
+    if (!teacherAssignment) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this course/section combination'
+      });
+    }
+
+    // Note: QuizLock doesn't have sectionId directly, we'll filter by student's section
+    // First, get all students in the specified section
+    console.log('🔍 Getting students in section:', sectionId);
+    const studentsInSection = await User.find({
+      assignedSections: sectionId,
+      role: 'student'
+    }).select('_id');
+    
+    console.log(`📊 Found ${studentsInSection.length} students in section`);
+    const studentIds = studentsInSection.map(s => s._id);
+    
+    if (studentIds.length === 0) {
+      console.log('⚠️ No students found in this section');
+      return res.json({
+        success: true,
+        data: [],
+        pagination: {
+          currentPage: page,
+          totalPages: 0,
+          totalCount: 0,
+          hasNextPage: false,
+          hasPrevPage: false
+        }
+      });
+    }
+    
+    console.log('📝 Student IDs:', studentIds.map(id => id.toString()));
+    
+    // Add student filter to base query
+    baseQuery.studentId = { $in: studentIds };
+    
+    console.log('🔎 Base query:', JSON.stringify(baseQuery, null, 2));
+
+    // Get total count for pagination (before applying student search)
+    console.log('📊 Counting documents with baseQuery...');
+    const totalCount = await QuizLock.countDocuments(baseQuery);
+    console.log(`📈 Total count: ${totalCount}`);
+
+    // Build student search filter for aggregation
+    let studentMatchStage = {};
+    if (studentSearch) {
+      const searchRegex = new RegExp(studentSearch, 'i');
+      studentMatchStage = {
+        $or: [
+          { 'student.regno': searchRegex },
+          { 'student.email': searchRegex },
+          { 'student.name': searchRegex }
+        ]
+      };
+    }
+
+    // Use aggregation for better filtering and pagination
+    const aggregationPipeline = [
+      { $match: baseQuery },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'studentId',
+          foreignField: '_id',
+          as: 'student'
+        }
+      },
+      {
+        $lookup: {
+          from: 'courses',
+          localField: 'courseId',
+          foreignField: '_id',
+          as: 'course'
+        }
+      },
+      {
+        $lookup: {
+          from: 'quizzes',  // Fixed: QuizLock.quizId refers to Quiz collection
+          localField: 'quizId',
+          foreignField: '_id',
+          as: 'quiz'
+        }
+      },
+      { $unwind: { path: '$student', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: '$course', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: '$quiz', preserveNullAndEmptyArrays: true } }
+    ];
+
+    // Add student search filter if provided
+    if (Object.keys(studentMatchStage).length > 0) {
+      aggregationPipeline.push({ $match: studentMatchStage });
+    }
+
+    // Add date filter if provided
+    if (startDate || endDate) {
+      const dateFilter = {};
+      if (startDate) dateFilter.$gte = new Date(startDate);
+      if (endDate) dateFilter.$lte = new Date(endDate);
+      
+      aggregationPipeline.push({
+        $match: {
+          $or: [
+            { 'teacherUnlockHistory.unlockTimestamp': dateFilter },
+            { 'adminUnlockHistory.unlockTimestamp': dateFilter }
+          ]
+        }
+      });
+    }
+
+    // Add sorting and pagination
+    aggregationPipeline.push(
+      { $sort: { updatedAt: -1 } },
+      { $skip: skip },
+      { $limit: limit }
+    );
+
+    // Execute aggregation
+    console.log('🚀 Executing query with populate...');
+    const locks = await QuizLock.find(baseQuery)
+      .populate('studentId', 'name regno email')
+      .populate('courseId', 'name title code courseCode')
+      .populate('quizId', 'title')
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+    
+    console.log(`📦 Found ${locks.length} QuizLock records with unlock history`);
+    
+    // Extract ALL unlock history for students in teacher's assigned section
+    const allUnlockHistory = [];
+    
+    locks.forEach(lock => {
+      // Skip if required data is missing
+      if (!lock.studentId || !lock.courseId || !lock.quizId) {
+        console.warn('Skipping lock with missing data:', lock._id);
+        return;
+      }
+
+      // Add ALL teacher unlocks (any teacher, not just current teacher)
+      const allTeacherUnlocks = lock.teacherUnlockHistory || [];
+      
+      allTeacherUnlocks.forEach(unlock => {
+        allUnlockHistory.push({
+          type: 'TEACHER_UNLOCK',
+          unlockedBy: {
+            id: unlock.teacherId,
+            name: typeof unlock.teacherId === 'object' ? unlock.teacherId.name : 'Teacher',
+            role: 'Teacher'
+          },
+          student: {
+            id: lock.studentId._id || lock.studentId,
+            name: lock.studentId.name || 'Unknown Student',
+            regno: lock.studentId.regno || 'N/A',
+            email: lock.studentId.email || 'N/A'
+          },
+          course: {
+            id: lock.courseId._id || lock.courseId,
+            name: lock.courseId.name || lock.courseId.title || 'Unknown Course',
+            code: lock.courseId.code || lock.courseId.courseCode || 'N/A'
+          },
+          quiz: {
+            id: lock.quizId._id || lock.quizId,
+            title: lock.quizId.title || 'Unknown Quiz'
+          },
+          unlockTimestamp: unlock.unlockTimestamp,
+          reason: unlock.reason || 'No reason provided',
+          notes: unlock.notes || '',
+          isCurrentlyLocked: lock.isLocked,
+          currentAuthLevel: lock.unlockAuthorizationLevel
+        });
+      });
+
+      // Add all admin overrides (visible to teachers for transparency)
+      const adminOverrides = lock.adminUnlockHistory || [];
+
+      adminOverrides.forEach(unlock => {
+        // Get admin info - handle both populated and non-populated cases
+        let adminInfo = { id: 'unknown', name: 'Admin', role: 'Admin' };
+        if (unlock.adminId) {
+          if (typeof unlock.adminId === 'object') {
+            adminInfo = {
+              id: unlock.adminId._id || unlock.adminId,
+              name: unlock.adminId.name || 'Admin',
+              role: 'Admin'
+            };
+          } else {
+            adminInfo.id = unlock.adminId;
+          }
+        }
+
+        allUnlockHistory.push({
+          type: 'ADMIN_OVERRIDE',
+          unlockedBy: adminInfo,
+          student: {
+            id: lock.studentId._id || lock.studentId,
+            name: lock.studentId.name || 'Unknown Student',
+            regno: lock.studentId.regno || 'N/A',
+            email: lock.studentId.email || 'N/A'
+          },
+          course: {
+            id: lock.courseId._id || lock.courseId,
+            name: lock.courseId.name || lock.courseId.title || 'Unknown Course',
+            code: lock.courseId.code || lock.courseId.courseCode || 'N/A'
+          },
+          quiz: {
+            id: lock.quizId._id || lock.quizId,
+            title: lock.quizId.title || 'Unknown Quiz'
+          },
+          unlockTimestamp: unlock.unlockTimestamp,
+          reason: unlock.reason || 'No reason provided',
+          notes: unlock.notes || '',
+          overrideLevel: unlock.overrideLevel,
+          lockReason: unlock.lockReason || '',
+          isCurrentlyLocked: lock.isLocked,
+          currentAuthLevel: lock.unlockAuthorizationLevel
+        });
+      });
+
+      // Add HOD unlocks (if any)
+      const hodUnlocks = lock.hodUnlockHistory || [];
+      hodUnlocks.forEach(unlock => {
+        allUnlockHistory.push({
+          type: 'HOD_UNLOCK',
+          unlockedBy: {
+            id: unlock.hodId,
+            name: typeof unlock.hodId === 'object' ? unlock.hodId.name : 'HOD',
+            role: 'HOD'
+          },
+          student: {
+            id: lock.studentId._id || lock.studentId,
+            name: lock.studentId.name || 'Unknown Student',
+            regno: lock.studentId.regno || 'N/A',
+            email: lock.studentId.email || 'N/A'
+          },
+          course: {
+            id: lock.courseId._id || lock.courseId,
+            name: lock.courseId.name || lock.courseId.title || 'Unknown Course',
+            code: lock.courseId.code || lock.courseId.courseCode || 'N/A'
+          },
+          quiz: {
+            id: lock.quizId._id || lock.quizId,
+            title: lock.quizId.title || 'Unknown Quiz'
+          },
+          unlockTimestamp: unlock.unlockTimestamp,
+          reason: unlock.reason || 'No reason provided',
+          notes: unlock.notes || '',
+          isCurrentlyLocked: lock.isLocked,
+          currentAuthLevel: lock.unlockAuthorizationLevel
+        });
+      });
+
+      // Add Dean unlocks (if any)
+      const deanUnlocks = lock.deanUnlockHistory || [];
+      deanUnlocks.forEach(unlock => {
+        allUnlockHistory.push({
+          type: 'DEAN_UNLOCK',
+          unlockedBy: {
+            id: unlock.deanId,
+            name: typeof unlock.deanId === 'object' ? unlock.deanId.name : 'Dean',
+            role: 'Dean'
+          },
+          student: {
+            id: lock.studentId._id || lock.studentId,
+            name: lock.studentId.name || 'Unknown Student',
+            regno: lock.studentId.regno || 'N/A',
+            email: lock.studentId.email || 'N/A'
+          },
+          course: {
+            id: lock.courseId._id || lock.courseId,
+            name: lock.courseId.name || lock.courseId.title || 'Unknown Course',
+            code: lock.courseId.code || lock.courseId.courseCode || 'N/A'
+          },
+          quiz: {
+            id: lock.quizId._id || lock.quizId,
+            title: lock.quizId.title || 'Unknown Quiz'
+          },
+          unlockTimestamp: unlock.unlockTimestamp,
+          reason: unlock.reason || 'No reason provided',
+          notes: unlock.notes || '',
+          isCurrentlyLocked: lock.isLocked,
+          currentAuthLevel: lock.unlockAuthorizationLevel
+        });
+      });
+    });
+    
+    // Apply action type filter if specified
+    let filteredHistory = allUnlockHistory;
+    if (actionType && actionType !== 'all') {
+      if (actionType === 'TEACHER_UNLOCK') {
+        filteredHistory = allUnlockHistory.filter(h => h.type === 'TEACHER_UNLOCK');
+      } else if (actionType === 'ADMIN_OVERRIDE') {
+        filteredHistory = allUnlockHistory.filter(h => h.type === 'ADMIN_OVERRIDE');
+      } else if (actionType === 'HOD_UNLOCK') {
+        filteredHistory = allUnlockHistory.filter(h => h.type === 'HOD_UNLOCK');
+      } else if (actionType === 'DEAN_UNLOCK') {
+        filteredHistory = allUnlockHistory.filter(h => h.type === 'DEAN_UNLOCK');
+      }
+    }
+
+    // Sort by unlock timestamp descending (most recent first)
+    filteredHistory.sort((a, b) => new Date(b.unlockTimestamp) - new Date(a.unlockTimestamp));
+    
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalCount / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+    
+    res.json({
+      success: true,
+      data: filteredHistory,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages,
+        hasNextPage,
+        hasPrevPage,
+        count: filteredHistory.length
+      },
+      filters: {
+        courseId: courseId || null,
+        unitId: unitId || null,
+        sectionId: sectionId || null,
+        studentSearch: studentSearch || null,
+        startDate: startDate || null,
+        endDate: endDate || null,
+        actionType: actionType || 'all'
+      },
+      breakdown: {
+        teacherUnlocks: filteredHistory.filter(h => h.type === 'TEACHER').length,
+        adminOverrides: filteredHistory.filter(h => h.type === 'ADMIN_OVERRIDE').length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching teacher unlock history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching unlock history',
+      error: error.message
+    });
+  }
+});
+
+// @route   GET /api/quiz-unlock/hod-unlock-history
+// @desc    Get all unlock history for HOD's department with pagination and filters
+// @access  Private (HOD)
+router.get('/hod-unlock-history', auth, authorizeRoles('hod', 'admin'), async (req, res) => {
+  try {
+    const hodId = req.user.id;
+    
+    // Extract pagination and filter parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    
+    // Extract filter parameters
+    const {
+      courseId,
+      unitId,
+      sectionId,
+      studentSearch,
+      startDate,
+      endDate,
+      actionType // 'teacher', 'hod', 'admin_override', or 'all'
+    } = req.query;
+    
+    // Get HOD's department
+    const hod = await User.findById(hodId).populate('department').populate('departments');
+    
+    // Support both single department and departments array for HOD
+    let hodDepartments = [];
+    if (hod.department) {
+      hodDepartments.push(hod.department._id);
+    }
+    if (hod.departments && hod.departments.length > 0) {
+      hodDepartments.push(...hod.departments.map(d => d._id));
+    }
+    
+    if (!hod || hodDepartments.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'HOD department not found or not assigned to any department'
+      });
+    }
+
+    // Find all teachers in HOD's department(s) (including multi-role users)
+    const departmentTeachers = await User.find({
+      $or: [
+        { department: { $in: hodDepartments } },
+        { departments: { $in: hodDepartments } }
+      ],
+      $and: [{
+        $or: [
+          { role: 'teacher' },
+          { roles: { $in: ['teacher'] } }
+        ]
+      }],
+      isActive: { $ne: false }
+    }).select('_id name');
+
+    const teacherIds = departmentTeachers.map(t => t._id);
+
+    // Add mandatory course filter (HOD can only see courses in their department)
+    if (!courseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Course filter is required for HOD'
+      });
+    }
+    
+    // Add mandatory section filter
+    if (!sectionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Section filter is required for HOD'
+      });
+    }
+    
+    // Get all quizzes in the unit if unitId is provided, otherwise all quizzes in the course
+    console.log('🔍 HOD: Getting quizzes', unitId ? `in unit: ${unitId}` : `for course: ${courseId}`);
+    const quizQuery = unitId ? { unit: unitId } : { course: courseId };
+    const quizzesInUnit = await Quiz.find(quizQuery).select('_id');
+    const quizIds = quizzesInUnit.map(q => q._id);
+    console.log(`📝 HOD: Found ${quizIds.length} quizzes`);
+    
+    if (quizIds.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        pagination: {
+          currentPage: page,
+          totalPages: 0,
+          totalCount: 0,
+          hasNextPage: false,
+          hasPrevPage: false
+        }
+      });
+    }
+    
+    // Get all students in the specified section
+    console.log('🔍 HOD: Getting students in section:', sectionId);
+    const studentsInSection = await User.find({
+      assignedSections: sectionId,
+      role: 'student'
+    }).select('_id');
+    
+    console.log(`📊 HOD: Found ${studentsInSection.length} students in section`);
+    const studentIds = studentsInSection.map(s => s._id);
+    
+    if (studentIds.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        pagination: {
+          currentPage: page,
+          totalPages: 0,
+          totalCount: 0,
+          hasNextPage: false,
+          hasPrevPage: false
+        }
+      });
+    }
+
+    // Build dynamic query based on filters
+    let baseQuery = {
+      // Find all QuizLocks that have ANY unlock history
+      $or: [
+        { 'teacherUnlockHistory.0': { $exists: true } },  // Any teacher unlocks
+        { 'hodUnlockHistory.0': { $exists: true } },      // Any HOD unlocks
+        { 'adminUnlockHistory.0': { $exists: true } },    // Any admin overrides
+        { 'deanUnlockHistory.0': { $exists: true } }      // Any dean unlocks
+      ],
+      courseId: courseId,
+      quizId: { $in: quizIds },
+      studentId: { $in: studentIds }
+    };
+
+    console.log('🔎 HOD Base query:', JSON.stringify(baseQuery, null, 2));
+
+    // Get total count for pagination
+    console.log('📊 HOD: Counting documents with baseQuery...');
+    const totalCount = await QuizLock.countDocuments(baseQuery);
+    console.log(`📈 HOD: Total count: ${totalCount}`);
+    
+    if (totalCount === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        pagination: {
+          currentPage: page,
+          totalPages: 0,
+          totalCount: 0,
+          hasNextPage: false,
+          hasPrevPage: false
+        }
+      });
+    }
+
+    // Use populate instead of aggregation
+    console.log('🚀 HOD: Executing query with populate...');
+    const locks = await QuizLock.find(baseQuery)
+      .populate('studentId', 'name email regno')
+      .populate('courseId', 'title name courseCode code')
+      .populate('quizId', 'title name')
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(limit);
+    
+    console.log(`📦 HOD: Found ${locks.length} QuizLock records with unlock history`);
+    
+    // Extract ALL unlock history for HOD visibility
+    const unlockHistory = [];
+    
+    locks.forEach(lock => {
+      // Skip if required data is missing
+      if (!lock.studentId || !lock.courseId || !lock.quizId) {
+        console.warn('Skipping lock with missing data:', lock._id);
+        return;
+      }
+
+      // Add Teacher unlocks (HOD sees all teacher unlocks)
+      const teacherUnlocks = lock.teacherUnlockHistory || [];
+      
+      teacherUnlocks.forEach(unlock => {
+        // Get teacher info
+        let teacherInfo = { id: unlock.teacherId, name: 'Teacher', role: 'Teacher' };
+        const teacher = departmentTeachers.find(t => t._id.toString() === unlock.teacherId?.toString());
+        if (teacher) teacherInfo.name = teacher.name;
+
+        unlockHistory.push({
+          type: 'TEACHER_UNLOCK',
+          unlockedBy: teacherInfo,
+          student: {
+            id: lock.studentId._id,
+            name: lock.studentId.name || 'Unknown Student',
+            regno: lock.studentId.regno || 'N/A',
+            email: lock.studentId.email || 'N/A'
+          },
+          course: {
+            id: lock.courseId._id,
+            title: lock.courseId.title || lock.courseId.name || 'Unknown Course',
+            courseCode: lock.courseId.courseCode || lock.courseId.code || 'N/A'
+          },
+          quiz: {
+            id: lock.quizId._id,
+            title: lock.quizId.title || lock.quizId.name || 'Unknown Quiz'
+          },
+          unlockTimestamp: unlock.unlockTimestamp,
+          reason: unlock.reason,
+          notes: unlock.notes,
+          isCurrentlyLocked: lock.isLocked,
+          currentAuthLevel: lock.unlockAuthorizationLevel
+        });
+      });
+
+      // Add HOD unlocks
+      const hodUnlocks = lock.hodUnlockHistory || [];
+      hodUnlocks.forEach(unlock => {
+        unlockHistory.push({
+          type: 'HOD_UNLOCK',
+          unlockedBy: {
+            id: unlock.hodId,
+            name: typeof unlock.hodId === 'object' ? unlock.hodId.name : 'HOD',
+            role: 'HOD'
+          },
+          student: {
+            id: lock.studentId._id,
+            name: lock.studentId.name || 'Unknown Student',
+            regno: lock.studentId.regno || 'N/A',
+            email: lock.studentId.email || 'N/A'
+          },
+          course: {
+            id: lock.courseId._id,
+            title: lock.courseId.title || lock.courseId.name || 'Unknown Course',
+            courseCode: lock.courseId.courseCode || lock.courseId.code || 'N/A'
+          },
+          quiz: {
+            id: lock.quizId._id,
+            title: lock.quizId.title || lock.quizId.name || 'Unknown Quiz'
+          },
+          unlockTimestamp: unlock.unlockTimestamp,
+          reason: unlock.reason || 'No reason provided',
+          notes: unlock.notes || '',
+          isCurrentlyLocked: lock.isLocked,
+          currentAuthLevel: lock.unlockAuthorizationLevel
+        });
+      });
+
+      // Add Admin overrides (visible to all HODs for transparency)
+      const adminOverrides = lock.adminUnlockHistory || [];
+      adminOverrides.forEach(unlock => {
+        // Get admin info
+        let adminInfo = { id: unlock.adminId, name: 'Admin', role: 'Admin' };
+        if (typeof unlock.adminId === 'object') {
+          adminInfo.name = unlock.adminId.name || 'Admin';
+        }
+
+        unlockHistory.push({
+          type: 'ADMIN_OVERRIDE',
+          unlockedBy: adminInfo,
+          student: {
+            id: lock.studentId._id,
+            name: lock.studentId.name || 'Unknown Student',
+            regno: lock.studentId.regno || 'N/A',
+            email: lock.studentId.email || 'N/A'
+          },
+          course: {
+            id: lock.courseId._id,
+            title: lock.courseId.title || lock.courseId.name || 'Unknown Course',
+            courseCode: lock.courseId.courseCode || lock.courseId.code || 'N/A'
+          },
+          quiz: {
+            id: lock.quizId._id,
+            title: lock.quizId.title || lock.quizId.name || 'Unknown Quiz'
+          },
+          unlockTimestamp: unlock.unlockTimestamp,
+          reason: unlock.reason || 'No reason provided',
+          notes: unlock.notes || '',
+          overrideLevel: unlock.overrideLevel,
+          lockReason: unlock.lockReason || '',
+          isCurrentlyLocked: lock.isLocked,
+          currentAuthLevel: lock.unlockAuthorizationLevel
+        });
+      });
+    });
+    
+    // Apply action type filter if specified
+    let filteredHistory = unlockHistory;
+    if (actionType && actionType !== 'all') {
+      if (actionType === 'teacher') {
+        filteredHistory = unlockHistory.filter(h => h.type === 'TEACHER');
+      } else if (actionType === 'hod') {
+        filteredHistory = unlockHistory.filter(h => h.type === 'HOD');
+      } else if (actionType === 'admin_override') {
+        filteredHistory = unlockHistory.filter(h => h.type === 'ADMIN_OVERRIDE');
+      }
+    }
+
+    // Sort by unlock timestamp descending (most recent first)
+    filteredHistory.sort((a, b) => new Date(b.unlockTimestamp) - new Date(a.unlockTimestamp));
+    
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalCount / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+    
+    res.json({
+      success: true,
+      data: filteredHistory,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages,
+        hasNextPage,
+        hasPrevPage,
+        count: filteredHistory.length
+      },
+      filters: {
+        courseId: courseId || null,
+        unitId: unitId || null,
+        sectionId: sectionId || null,
+        studentSearch: studentSearch || null,
+        startDate: startDate || null,
+        endDate: endDate || null,
+        actionType: actionType || 'all'
+      },
+      breakdown: {
+        hodUnlocks: filteredHistory.filter(h => h.type === 'HOD').length,
+        teacherUnlocks: filteredHistory.filter(h => h.type === 'TEACHER').length,
+        adminOverrides: filteredHistory.filter(h => h.type === 'ADMIN_OVERRIDE').length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching HOD unlock history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching unlock history',
+      error: error.message
+    });
+  }
+});
+
+// @route   GET /api/quiz-unlock/dean-unlock-history
+// @desc    Get all unlock history (Dean's own + all HODs + all Teachers)
+// @access  Private (Dean)
+router.get('/dean-unlock-history', auth, authorizeRoles('dean', 'admin'), async (req, res) => {
+  try {
+    const deanId = req.user.id;
+    const { 
+      courseId, 
+      departmentId,
+      sectionId,
+      page = 1, 
+      limit = 20, // Increased default limit for better UX
+      actionType = 'all'
+    } = req.query;
+    
+    // Validate and sanitize pagination parameters
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const pageSize = Math.min(100, Math.max(5, parseInt(limit) || 20)); // Limit between 5-100 for performance
+    const skip = (pageNum - 1) * pageSize;
+    
+    console.log(`📄 Dean pagination: page=${pageNum}, limit=${pageSize}, skip=${skip}`);
+    
+    // Get Dean's school information for school-based filtering
+    const dean = await User.findById(deanId).populate('school');
+    if (!dean || !dean.school) {
+      return res.status(404).json({
+        success: false,
+        message: 'Dean school not found. Dean must be assigned to a school.'
+      });
+    }
+
+    const deanSchoolId = dean.school._id;
+    console.log(`🏫 Dean ${dean.name} filtering unlock history for school: ${dean.school.name}`);
+
+    // Dean has institutional oversight within their school only
+    // Lazy loading with efficient pagination
+    
+    // Find all courses in Dean's school to limit scope
+    const schoolCourses = await Course.find({ school: deanSchoolId }).select('_id');
+    const schoolCourseIds = schoolCourses.map(course => course._id);
+    
+    if (schoolCourseIds.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
+          count: 0
+        },
+        schoolInfo: {
+          schoolName: dean.school.name,
+          schoolId: dean.school._id,
+          message: 'No courses found in your school'
+        }
+      });
+    }
+    
+    // Build base query for QuizLock - Dean has institutional oversight within their school
+    const baseQuery = {
+      courseId: { $in: schoolCourseIds }, // CRITICAL: Limit to Dean's school courses only
+      $or: [
+        { 'teacherUnlockHistory.0': { $exists: true } },
+        { 'hodUnlockHistory.0': { $exists: true } },
+        { 'deanUnlockHistory.0': { $exists: true } },
+        { 'adminUnlockHistory.0': { $exists: true } }
+      ]
+    };
+
+    // Optional filters for targeted searches
+    if (courseId) {
+      baseQuery.courseId = courseId;
+    }
+
+    if (departmentId) {
+      // Find courses in the specified department
+      const departmentCourses = await Course.find({ 
+        department: departmentId 
+      }).select('_id');
+      const courseIds = departmentCourses.map(course => course._id);
+      
+      if (courseIds.length > 0) {
+        baseQuery.courseId = { $in: courseIds };
+      }
+    }
+
+    if (sectionId && sectionId !== 'all') {
+      // Get students in this section
+      const studentsInSection = await User.find({ 
+        assignedSections: sectionId,
+        role: 'student'
+      }).select('_id');
+      const studentIds = studentsInSection.map(s => s._id);
+      baseQuery.studentId = { $in: studentIds };
+    }
+
+    // PERFORMANCE OPTIMIZATION: Get total count efficiently
+    console.log(`📊 Counting documents with baseQuery...`);
+    const totalCount = await QuizLock.countDocuments(baseQuery);
+    console.log(`📈 Total matching locks: ${totalCount}`);
+    
+    if (totalCount === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        pagination: {
+          page: pageNum,
+          limit: pageSize,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
+          count: 0
+        },
+        schoolInfo: {
+          schoolName: dean.school.name,
+          schoolId: dean.school._id,
+          coursesInSchool: schoolCourses.length,
+          message: 'No unlock history found in your school'
+        }
+      });
+    }
+    
+    // LAZY LOADING: Fetch only the required page of data
+    console.log(`🚀 Fetching page ${pageNum} (${pageSize} records, skip ${skip})`);
+    const locks = await QuizLock.find(baseQuery)
+      .populate('studentId', 'name email regno regNo')
+      .populate('quizId', 'title name')
+      .populate('courseId', 'title name courseCode code')
+      .populate('teacherUnlockHistory.teacherId', 'name department')
+      .populate('hodUnlockHistory.hodId', 'name department')
+      .populate('deanUnlockHistory.deanId', 'name')
+      .populate('adminUnlockHistory.adminId', 'name')
+      .sort({ updatedAt: -1 }) // Most recent first
+      .skip(skip)
+      .limit(pageSize) // Use validated pageSize
+      .lean(); // Use lean() for better performance
+      
+    console.log(`📦 Found ${locks.length} locks for this page`);
+    
+    const unlockHistory = [];
+    
+    locks.forEach(lock => {
+      // Skip if required data is missing
+      if (!lock.studentId || !lock.courseId || !lock.quizId) {
+        console.warn('Skipping lock with missing data:', lock._id);
+        return;
+      }
+
+      // Add Teacher unlocks (visible to Dean for institutional oversight)
+      const teacherUnlocks = lock.teacherUnlockHistory || [];
+      teacherUnlocks.forEach(unlock => {
+        // Get teacher info
+        let teacherInfo = { id: unlock.teacherId, name: 'Teacher', role: 'Teacher' };
+        if (typeof unlock.teacherId === 'object') {
+          teacherInfo = {
+            id: unlock.teacherId._id,
+            name: unlock.teacherId.name || 'Teacher',
+            department: unlock.teacherId.department,
+            role: 'Teacher'
+          };
+        }
+
+        unlockHistory.push({
+          type: 'TEACHER_UNLOCK',
+          unlockedBy: teacherInfo,
+          student: {
+            id: lock.studentId._id,
+            name: lock.studentId.name || 'Unknown Student',
+            regno: lock.studentId.regno || 'N/A',
+            email: lock.studentId.email || 'N/A'
+          },
+          course: {
+            id: lock.courseId._id,
+            title: lock.courseId.title || lock.courseId.name || 'Unknown Course',
+            courseCode: lock.courseId.courseCode || lock.courseId.code || 'N/A'
+          },
+          quiz: {
+            id: lock.quizId._id,
+            title: lock.quizId.title || lock.quizId.name || 'Unknown Quiz'
+          },
+          unlockTimestamp: unlock.unlockTimestamp,
+          reason: unlock.reason || 'No reason provided',
+          notes: unlock.notes || '',
+          isCurrentlyLocked: lock.isLocked,
+          currentAuthLevel: lock.unlockAuthorizationLevel
+        });
+      });
+
+      // Add HOD unlocks (visible to Dean for institutional oversight)
+      const hodUnlocks = lock.hodUnlockHistory || [];
+      hodUnlocks.forEach(unlock => {
+        // Get HOD info
+        let hodInfo = { id: unlock.hodId, name: 'HOD', role: 'HOD' };
+        if (typeof unlock.hodId === 'object') {
+          hodInfo = {
+            id: unlock.hodId._id,
+            name: unlock.hodId.name || 'HOD',
+            department: unlock.hodId.department,
+            role: 'HOD'
+          };
+        }
+
+        unlockHistory.push({
+          type: 'HOD_UNLOCK',
+          unlockedBy: hodInfo,
+          student: {
+            id: lock.studentId._id,
+            name: lock.studentId.name || 'Unknown Student',
+            regno: lock.studentId.regno || 'N/A',
+            email: lock.studentId.email || 'N/A'
+          },
+          course: {
+            id: lock.courseId._id,
+            title: lock.courseId.title || lock.courseId.name || 'Unknown Course',
+            courseCode: lock.courseId.courseCode || lock.courseId.code || 'N/A'
+          },
+          quiz: {
+            id: lock.quizId._id,
+            title: lock.quizId.title || lock.quizId.name || 'Unknown Quiz'
+          },
+          unlockTimestamp: unlock.unlockTimestamp,
+          reason: unlock.reason || 'No reason provided',
+          notes: unlock.notes || '',
+          isCurrentlyLocked: lock.isLocked,
+          currentAuthLevel: lock.unlockAuthorizationLevel
+        });
+      });
+
+      // Add Dean unlocks
+      const deanUnlocks = lock.deanUnlockHistory || [];
+      deanUnlocks.forEach(unlock => {
+        // Get Dean info
+        let deanInfo = { id: unlock.deanId, name: 'Dean', role: 'Dean' };
+        if (typeof unlock.deanId === 'object') {
+          deanInfo = {
+            id: unlock.deanId._id,
+            name: unlock.deanId.name || 'Dean',
+            role: 'Dean'
+          };
+        }
+
+        unlockHistory.push({
+          type: 'DEAN_UNLOCK',
+          unlockedBy: deanInfo,
+          student: {
+            id: lock.studentId._id,
+            name: lock.studentId.name || 'Unknown Student',
+            regno: lock.studentId.regno || 'N/A',
+            email: lock.studentId.email || 'N/A'
+          },
+          course: {
+            id: lock.courseId._id,
+            title: lock.courseId.title || lock.courseId.name || 'Unknown Course',
+            courseCode: lock.courseId.courseCode || lock.courseId.code || 'N/A'
+          },
+          quiz: {
+            id: lock.quizId._id,
+            title: lock.quizId.title || lock.quizId.name || 'Unknown Quiz'
+          },
+          unlockTimestamp: unlock.unlockTimestamp,
+          reason: unlock.reason || 'No reason provided',
+          notes: unlock.notes || '',
+          isCurrentlyLocked: lock.isLocked,
+          currentAuthLevel: lock.unlockAuthorizationLevel
+        });
+      });
+
+      // Add Admin overrides (visible to Dean for full institutional oversight)
+      const adminOverrides = lock.adminUnlockHistory || [];
+      adminOverrides.forEach(unlock => {
+        // Get admin info
+        let adminInfo = { id: unlock.adminId, name: 'Admin', role: 'Admin' };
+        if (typeof unlock.adminId === 'object') {
+          adminInfo.name = unlock.adminId.name || 'Admin';
+        }
+
+        unlockHistory.push({
+          type: 'ADMIN_OVERRIDE',
+          unlockedBy: adminInfo,
+          student: {
+            id: lock.studentId._id,
+            name: lock.studentId.name || 'Unknown Student',
+            regno: lock.studentId.regno || 'N/A',
+            email: lock.studentId.email || 'N/A'
+          },
+          course: {
+            id: lock.courseId._id,
+            title: lock.courseId.title || lock.courseId.name || 'Unknown Course',
+            courseCode: lock.courseId.courseCode || lock.courseId.code || 'N/A'
+          },
+          quiz: {
+            id: lock.quizId._id,
+            title: lock.quizId.title || lock.quizId.name || 'Unknown Quiz'
+          },
+          unlockTimestamp: unlock.unlockTimestamp,
+          reason: unlock.reason || 'No reason provided',
+          notes: unlock.notes || '',
+          overrideLevel: unlock.overrideLevel,
+          lockReason: unlock.lockReason || '',
+          isCurrentlyLocked: lock.isLocked,
+          currentAuthLevel: lock.unlockAuthorizationLevel
+        });
+      });
+    });
+    
+    // Apply action type filter if specified
+    let filteredHistory = unlockHistory;
+    if (actionType && actionType !== 'all') {
+      if (actionType === 'teacher') {
+        filteredHistory = unlockHistory.filter(h => h.type === 'TEACHER_UNLOCK');
+      } else if (actionType === 'hod') {
+        filteredHistory = unlockHistory.filter(h => h.type === 'HOD_UNLOCK');
+      } else if (actionType === 'dean') {
+        filteredHistory = unlockHistory.filter(h => h.type === 'DEAN_UNLOCK');
+      } else if (actionType === 'admin_override') {
+        filteredHistory = unlockHistory.filter(h => h.type === 'ADMIN_OVERRIDE');
+      }
+    }
+
+    // Sort by unlock timestamp descending (most recent first)
+    filteredHistory.sort((a, b) => new Date(b.unlockTimestamp) - new Date(a.unlockTimestamp));
+    
+    // Calculate pagination metadata using validated variables
+    const totalPages = Math.ceil(totalCount / pageSize);
+    const hasNextPage = pageNum < totalPages;
+    const hasPrevPage = pageNum > 1;
+    
+    console.log(`📊 Pagination: ${pageNum}/${totalPages}, Next: ${hasNextPage}, Prev: ${hasPrevPage}`);
+    
+    res.json({
+      success: true,
+      data: filteredHistory,
+      pagination: {
+        page: pageNum,
+        limit: pageSize,
+        total: totalCount,
+        totalPages,
+        hasNextPage,
+        hasPrevPage,
+        count: filteredHistory.length,
+        // Additional lazy loading metadata
+        recordsPerPage: pageSize,
+        currentPageRecords: locks.length,
+        totalRecordsProcessed: skip + locks.length
+      },
+      filters: {
+        departmentId: departmentId || null,
+        courseId: courseId || null,
+        sectionId: sectionId || null,
+        actionType: actionType || 'all'
+      },
+      breakdown: {
+        teacherUnlocks: unlockHistory.filter(h => h.type === 'TEACHER_UNLOCK').length,
+        hodUnlocks: unlockHistory.filter(h => h.type === 'HOD_UNLOCK').length,
+        deanUnlocks: unlockHistory.filter(h => h.type === 'DEAN_UNLOCK').length,
+        adminOverrides: unlockHistory.filter(h => h.type === 'ADMIN_OVERRIDE').length
+      },
+      schoolInfo: {
+        schoolName: dean.school.name,
+        schoolId: dean.school._id,
+        coursesInSchool: schoolCourses.length,
+        message: `Showing unlock history for ${dean.school.name} only`
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching Dean unlock history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching unlock history',
       error: error.message
     });
   }
@@ -923,9 +2249,15 @@ router.post('/admin-unlock/:lockId', auth, authorizeRoles('admin'), async (req, 
         },
         quiz: { title: quiz?.title },
         course: { name: course?.name },
-        overrideLevel: lock.unlockAuthorizationLevel,
+        overrideLevel: overriddenLevel,
         lockReason: lock.failureReason,
-        adminUnlockCount: lock.adminUnlockCount || 1
+        adminUnlockCount: lock.adminUnlockCount || 1,
+        updatedCounts: {
+          teacherUnlockCount: lock.teacherUnlockCount,
+          hodUnlockCount: lock.hodUnlockCount,
+          deanUnlockCount: lock.deanUnlockCount
+        },
+        newAuthorizationLevel: lock.unlockAuthorizationLevel
       }
     });
   } catch (error) {
@@ -933,6 +2265,211 @@ router.post('/admin-unlock/:lockId', auth, authorizeRoles('admin'), async (req, 
     res.status(500).json({
       success: false,
       message: 'Error unlocking quiz',
+      error: error.message
+    });
+  }
+});
+
+// @route   GET /api/quiz-unlock/test
+// @desc    Test endpoint
+// @access  Private
+router.get('/test', auth, (req, res) => {
+  res.json({
+    success: true,
+    message: 'Quiz unlock routes working',
+    user: {
+      id: req.user.id,
+      role: req.user.role
+    }
+  });
+});
+
+// @route   GET /api/quiz-unlock/filter-options
+// @desc    Get filter options (courses, units, sections) for the current user
+// @access  Private
+router.get('/filter-options', auth, async (req, res) => {
+  console.log('[FILTER-OPTIONS] Request started');
+  
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    
+    console.log(`[FILTER-OPTIONS] User ID: ${userId}, Role: ${userRole}`);
+
+    let courses = [];
+    let units = [];
+    let sections = [];
+
+    if (userRole === 'teacher' || userRole === 'coordinator') {
+      console.log('[FILTER-OPTIONS] Processing teacher/coordinator using SectionCourseTeacher model');
+      
+      // Use the SectionCourseTeacher model to get teacher's course assignments
+      const SectionCourseTeacher = require('../models/SectionCourseTeacher');
+      
+      const teacherAssignments = await SectionCourseTeacher.find({ 
+        teacher: userId,
+        isActive: true 
+      })
+      .populate('course', 'title courseCode _id')
+      .populate('section', 'name _id')
+      .lean();
+      
+      console.log(`[FILTER-OPTIONS] Found ${teacherAssignments.length} assignments`);
+      
+      if (teacherAssignments.length > 0) {
+        // Extract unique courses
+        const courseMap = new Map();
+        const sectionMap = new Map();
+        
+        teacherAssignments.forEach(assignment => {
+          if (assignment.course) {
+            courseMap.set(assignment.course._id.toString(), {
+              _id: assignment.course._id,
+              title: assignment.course.title,  // Frontend expects 'title' not 'name'
+              courseCode: assignment.course.courseCode
+            });
+          }
+          
+          if (assignment.section && assignment.course) {
+            sectionMap.set(assignment.section._id.toString(), {
+              _id: assignment.section._id,
+              name: assignment.section.name,
+              courseId: assignment.course._id.toString()
+            });
+          }
+        });
+        
+        courses = Array.from(courseMap.values());
+        sections = Array.from(sectionMap.values());
+        
+        // Get units for the courses
+        const courseIds = courses.map(c => c._id);
+        if (courseIds.length > 0) {
+          units = await Unit.find({ course: { $in: courseIds } })
+            .select('title course _id')
+            .lean();
+          
+          // Map courseId correctly
+          units = units.map(u => ({
+            _id: u._id,
+            title: u.title,
+            courseId: u.course
+          }));
+        }
+      }
+      
+      console.log(`[FILTER-OPTIONS] Final: ${courses.length} courses, ${units.length} units, ${sections.length} sections`);
+
+    } else if (userRole === 'hod') {
+      console.log('[FILTER-OPTIONS] Processing HOD');
+      
+      // Get user's department
+      const user = await User.findById(userId).select('department');
+      if (user && user.department) {
+        console.log(`[FILTER-OPTIONS] HOD Department: ${user.department}`);
+        
+        // Get all courses in the department
+        courses = await Course.find({ department: user.department })
+          .select('title courseCode _id')
+          .lean();
+        
+        console.log(`[FILTER-OPTIONS] Found ${courses.length} courses in department`);
+        
+        // Map to consistent field names (title and courseCode)
+        courses = courses.map(c => ({
+          _id: c._id,
+          title: c.title,  // Frontend expects 'title' not 'name'
+          courseCode: c.courseCode  // Frontend expects 'courseCode' not 'code'
+        }));
+        
+        const courseIds = courses.map(c => c._id);
+        
+        // Get units for department courses
+        if (courseIds.length > 0) {
+          units = await Unit.find({ course: { $in: courseIds } })
+            .select('title course _id')
+            .lean();
+          
+          units = units.map(u => ({
+            _id: u._id,
+            title: u.title,
+            courseId: u.course
+          }));
+          
+          console.log(`[FILTER-OPTIONS] Found ${units.length} units for courses`);
+        }
+        
+        // Get sections that have courses assigned to them
+        // We need to find sections where the course is in the courses array
+        const sectionsWithCourses = await Section.find({ 
+          department: user.department,
+          courses: { $in: courseIds }
+        })
+        .select('name _id courses')
+        .lean();
+        
+        console.log(`[FILTER-OPTIONS] Found ${sectionsWithCourses.length} sections with courses`);
+        
+        // Transform sections to include courseIds for filtering
+        const sectionList = [];
+        sectionsWithCourses.forEach(section => {
+          if (section.courses && section.courses.length > 0) {
+            // For each course in the section that's in our courseIds, create a section entry
+            section.courses.forEach(courseId => {
+              if (courseIds.some(id => id.toString() === courseId.toString())) {
+                sectionList.push({
+                  _id: section._id,
+                  name: section.name,
+                  courseId: courseId.toString()
+                });
+              }
+            });
+          }
+        });
+        
+        sections = sectionList;
+        console.log(`[FILTER-OPTIONS] Returning ${sections.length} section-course mappings`);
+      }
+
+    } else {
+      console.log(`[FILTER-OPTIONS] Role ${userRole} - basic implementation`);
+      // For admin/dean, get all data (limited for performance)
+      courses = await Course.find({})
+        .select('title courseCode _id')
+        .limit(50)
+        .lean();
+      
+      courses = courses.map(c => ({
+        _id: c._id,
+        name: c.title,
+        code: c.courseCode
+      }));
+    }
+
+    const responseData = {
+      success: true,
+      data: {
+        courses,
+        units,
+        sections
+      }
+    };
+
+    console.log('[FILTER-OPTIONS] Sending response with data counts:', {
+      courses: courses.length,
+      units: units.length, 
+      sections: sections.length
+    });
+    
+    res.json(responseData);
+
+  } catch (error) {
+    console.error('[FILTER-OPTIONS] ERROR:', error.message);
+    console.error('[FILTER-OPTIONS] STACK:', error.stack);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
       error: error.message
     });
   }

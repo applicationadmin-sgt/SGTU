@@ -31,6 +31,7 @@ import {
   Business as DepartmentIcon
 } from '@mui/icons-material';
 import axios from 'axios';
+import BulkUploadDepartments from '../../components/admin/BulkUploadDepartments';
 
 const DepartmentManagement = () => {
   const [departments, setDepartments] = useState([]);
@@ -140,11 +141,31 @@ const DepartmentManagement = () => {
     setSnackbar({ open: true, message, severity });
   };
 
+  const handleBulkDepartmentUpload = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await axios.post(
+      '/api/admin/departments/bulk-upload',
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    
+    // Refresh departments
+    await fetchDepartments();
+    return response.data;
+  };
+
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <DepartmentIcon /> Department Management&nbsp;&nbsp;&nbsp;
+          <DepartmentIcon /> Department Management
         </Typography>
         <Button
           variant="contained"
@@ -153,6 +174,17 @@ const DepartmentManagement = () => {
         >
           Add Department 
         </Button>
+      </Box>
+
+      {/* Bulk Upload Departments */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+          Bulk Department Creation
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Create multiple departments at once using CSV file
+        </Typography>
+        <BulkUploadDepartments onUpload={handleBulkDepartmentUpload} />
       </Box>
 
       <TableContainer component={Paper}>

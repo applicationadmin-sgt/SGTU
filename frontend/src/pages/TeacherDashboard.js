@@ -14,7 +14,8 @@ import {
   CardHeader,
   List,
   ListItem,
-  ListItemText
+  ListItemText,
+  Drawer
 } from '@mui/material';
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonIcon from '@mui/icons-material/Person';
@@ -24,6 +25,7 @@ import EventNoteIcon from '@mui/icons-material/EventNote';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import MenuIcon from '@mui/icons-material/Menu';
 import axios from 'axios';
 import { parseJwt } from '../utils/jwt';
 import { hasPermission } from '../utils/permissions';
@@ -45,15 +47,19 @@ import TeacherQuizzes from './teacher/TeacherQuizzes';
 import QuizAnalytics from './teacher/QuizAnalytics';
 import TeacherSections from '../components/teacher/TeacherSections';
 import TeacherSectionAnalytics from '../components/teacher/TeacherSectionAnalytics';
+import TeacherCourseAnalytics from '../components/teacher/TeacherCourseAnalytics';
 import TeacherProfile from '../components/TeacherProfile';
 import TeacherAnnouncementHistory from './teacher/TeacherAnnouncementHistory';
 import TeacherCCManagement from './teacher/TeacherCCManagement';
 import QuizUnlockDashboard from '../components/teacher/QuizUnlockDashboard';
+import ChatDashboard from '../components/ChatDashboard';
 import VideoUnlockDashboard from '../components/teacher/VideoUnlockDashboard';
+import StudentIndividualAnalytics from '../components/common/StudentIndividualAnalytics';
 import UnauthorizedPage from './UnauthorizedPage';
 // Lazy load components to avoid circular dependencies
-const TeacherLiveClassDashboard = React.lazy(() => import('../components/teacher/TeacherLiveClassDashboard'));
-const SgtLmsLiveClass = React.lazy(() => import('../components/liveclass/CodeTantraLiveClass'));
+// Live class components moved to independent video-call-module
+// const TeacherLiveClassDashboard = React.lazy(() => import('../components/teacher/TeacherLiveClassDashboard'));
+// const SgtLmsLiveClass = React.lazy(() => import('../components/liveclass/CodeTantraLiveClass'));
 
 const TeacherDashboard = () => {
   const navigate = useNavigate();
@@ -77,6 +83,9 @@ const TeacherDashboard = () => {
 
   // Profile menu state
   const [profileAnchorEl, setProfileAnchorEl] = useState(null);
+  
+  // Mobile drawer state
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Dashboard cards state (restored)
   const [notifications, setNotifications] = useState([]);
@@ -92,6 +101,21 @@ const TeacherDashboard = () => {
 
   // Check if we're on the main dashboard route
   const isOnMainDashboard = location.pathname === '/teacher/dashboard' || location.pathname === '/teacher/dashboard/';
+
+  // Sidebar collapsed state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
+
+  // Listen for sidebar toggle events
+  useEffect(() => {
+    const handleSidebarToggle = (event) => {
+      setSidebarCollapsed(event.detail.collapsed);
+    };
+    
+    window.addEventListener('sidebarToggle', handleSidebarToggle);
+    return () => window.removeEventListener('sidebarToggle', handleSidebarToggle);
+  }, []);
 
   // Event handlers
   const handleProfileClick = (event) => {
@@ -201,7 +225,11 @@ const TeacherDashboard = () => {
 
   return (
     <DashboardRoleGuard requiredRole="teacher">
-      <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      <Box sx={{ 
+        display: 'flex', 
+        minHeight: '100vh',
+        flexDirection: { xs: 'column', md: 'row' }
+      }}>
         {/* Professional Header - Full Width Fixed */}
         <Box 
           sx={{ 
@@ -220,8 +248,22 @@ const TeacherDashboard = () => {
             zIndex: 1300
           }}
         >
-          {/* Left side - New Header Logo */}
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          {/* Left side - Mobile Menu + Logo */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {/* Mobile Menu Icon - Only visible on mobile */}
+            <IconButton
+              sx={{ 
+                display: { xs: 'flex', md: 'none' },
+                color: 'white',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)'
+                }
+              }}
+              onClick={() => setMobileMenuOpen(true)}
+            >
+              <MenuIcon />
+            </IconButton>
+            
             <img 
               src={sgtLogoWhite} 
               alt="Header Logo" 
@@ -430,13 +472,38 @@ const TeacherDashboard = () => {
           </Box>
         </Box>
 
-        {/* Sidebar with top margin for fixed header */}
-        <Box sx={{ mt: '64px', width: '280px', flexShrink: 0 }}>
+        {/* Mobile Drawer - Only visible on mobile */}
+        {/* Note: Sidebar component has its own drawer, we pass mobileOpen state to it */}
+        <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+          <Sidebar 
+            currentUser={user} 
+            mobileOpen={mobileMenuOpen} 
+            handleDrawerToggle={() => setMobileMenuOpen(false)} 
+          />
+        </Box>
+
+        {/* Sidebar with top margin for fixed header - Hidden on mobile */}
+        <Box sx={{ 
+          display: { xs: 'none', md: 'block' },
+          mt: '64px', 
+          width: sidebarCollapsed ? '80px' : '280px', 
+          flexShrink: 0,
+          transition: 'width 0.3s'
+        }}>
           <Sidebar currentUser={user} />
         </Box>
         
         {/* Main Content Area with margin for sidebar and header */}
-        <Box sx={{ flexGrow: 1, mt: '64px', ml: 0 }}>
+        <Box sx={{ 
+          flexGrow: 1, 
+          mt: '64px', 
+          ml: 0,
+          width: { 
+            xs: '100%', 
+            md: `calc(100% - ${sidebarCollapsed ? 80 : 280}px)` 
+          },
+          transition: 'width 0.3s'
+        }}>
           <Box 
             component="main" 
             sx={{ 
@@ -684,10 +751,12 @@ const TeacherDashboard = () => {
               <Routes>
                 <Route path="/dashboard" element={<TeacherDashboardHome />} />
                 <Route path="/profile" element={<TeacherProfile />} />
+                <Route path="/chats" element={<ChatDashboard />} />
                 <Route path="/courses" element={<TeacherCourses />} />
                 <Route path="/sections" element={<TeacherSections />} />
                 <Route path="/section-analytics" element={<TeacherSectionAnalytics user={currentUser} token={token} />} />
-                <Route path="/live-classes" element={
+                {/* Live class routes moved to independent video-call-module */}
+                {/* <Route path="/live-classes" element={
                   <Suspense fallback={<div>Loading Live Classes...</div>}>
                     <TeacherLiveClassDashboard token={token} user={user} />
                   </Suspense>
@@ -701,7 +770,7 @@ const TeacherDashboard = () => {
                   <Suspense fallback={<div>Loading Live Class Room...</div>}>
                     <SgtLmsLiveClass token={token} user={user} />
                   </Suspense>
-                } />
+                } /> */}
                 <Route path="/course/:courseId" element={<TeacherCourseDetail />} />
                 <Route path="/videos" element={<PermissionRoute element={<TeacherVideos />} permission="manage_videos" />} />
                 <Route path="/students" element={<PermissionRoute element={<TeacherStudents />} permission="manage_students" />} />
@@ -712,8 +781,8 @@ const TeacherDashboard = () => {
                 <Route path="/quiz-analytics/:quizId" element={<QuizAnalytics />} />
                 <Route path="/announcements" element={<AnnouncementPage role="teacher" teacherCourses={[]} userId={currentUser?._id} />} />
                 <Route path="/announcements/history" element={<TeacherAnnouncementHistory token={token} />} />
-                <Route path="/student-analytics" element={<Navigate to="/analytics" replace />} />
-                <Route path="/analytics" element={<PermissionRoute element={<TeacherAnalytics viewType="course" />} permission="view_analytics" />} />
+                <Route path="/student-analytics" element={<StudentIndividualAnalytics />} />
+                <Route path="/analytics" element={<TeacherCourseAnalytics />} />
                 <Route path="*" element={<Navigate to="/teacher/dashboard" replace />} />
               </Routes>
             </Box>

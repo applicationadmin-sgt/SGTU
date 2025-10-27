@@ -25,8 +25,9 @@ import {
   FullscreenExit,
   Close
 } from '@mui/icons-material';
-import { updateWatchHistory } from '../../api/studentVideoApi';
+import { updateWatchHistory, getVideoResumePosition } from '../../api/studentVideoApi';
 import { formatDuration } from '../../utils/videoUtils';
+import VideoResumeDialog from './VideoResumeDialog';
 
 const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVideoComplete }) => {
   console.log('CustomVideoPlayer received videoUrl:', videoUrl);
@@ -55,9 +56,55 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
   const [controlsTimeout, setControlsTimeout] = useState(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
+  
+  // Resume functionality state
+  const [showResumeDialog, setShowResumeDialog] = useState(false);
+  const [resumePosition, setResumePosition] = useState(0);
+  const [resumeData, setResumeData] = useState(null);
+  const [videoInitialized, setVideoInitialized] = useState(false);
+
+  // Reset video initialization when videoId or videoUrl changes
+  useEffect(() => {
+    setVideoInitialized(false);
+    setShowResumeDialog(false);
+    setResumeData(null);
+    setResumePosition(0);
+    setVideoEnded(false); // Reset video ended state for new videos
+    console.log("🔄 Video changed - resetting all states");
+  }, [videoId, videoUrl]);
 
   // Speed options
   const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+  // Check for resume position when play is clicked
+  const checkResumePosition = async () => {
+    if (!videoId || !token) {
+      console.log("🔍 Cannot check resume position - missing videoId or token");
+      return false;
+    }
+    
+    try {
+      console.log(`🔍 Checking resume position for video ${videoId} (rewatch support enabled)`);
+      const resumeInfo = await getVideoResumePosition(videoId, token);
+      console.log(`🔍 Resume API response:`, resumeInfo);
+      
+      if (resumeInfo.hasResumePosition) {
+        const progressPercent = (resumeInfo.currentPosition / resumeInfo.videoDuration) * 100;
+        console.log(`📍 Found resume position: ${resumeInfo.currentPosition}s (${progressPercent.toFixed(1)}% of video)`);
+        setResumeData(resumeInfo);
+        setResumePosition(resumeInfo.currentPosition);
+        setShowResumeDialog(true);
+        return true; // Has resume position, show dialog
+      } else {
+        console.log(`📍 No meaningful resume position found (position: ${resumeInfo.currentPosition}s, threshold not met)`);
+        return false; // No resume position, play normally
+      }
+    } catch (error) {
+      console.error('Error checking resume position:', error);
+      console.error('Error details:', error.response?.data || error.message);
+      return false; // Error, play normally
+    }
+  };
 
   // Helper function to get the currently active video element
   const getActiveVideoRef = () => {
@@ -174,17 +221,66 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
     // eslint-disable-next-line
   }, [videoUrl]);
 
-  // Update watch time at regular intervals
+  // Update watch time at reasonable intervals - only when meaningful progress is made
   useEffect(() => {
     const intervalId = setInterval(() => {
-      if (isPlaying && totalWatchTime > 0.5) {  // Only update if we have meaningful time accumulated
+      const video = getActiveVideoRef().current;
+      // Only save if we have meaningful watch time accumulated AND video is playing
+      if (isPlaying && video && video.currentTime > 0.5 && totalWatchTime > 2) {
+        console.log(`⏰ Periodic save: Position ${video.currentTime.toFixed(2)}s, Total time: ${totalWatchTime.toFixed(2)}s`);
         updateWatchTime(false);
       }
-    }, 10000); // Update every 10 seconds for more accurate tracking
+    }, 15000); // Every 15 seconds to prevent excessive API calls
 
     return () => clearInterval(intervalId);
     // eslint-disable-next-line
   }, [isPlaying, totalWatchTime]);
+
+  // Add a special effect for handling component unmount (page navigation/refresh)
+  useEffect(() => {
+    return () => {
+      // Component is unmounting (page refresh, navigation, etc.)
+      const video = getActiveVideoRef().current;
+      if (video && video.currentTime > 0 && token && videoId) {
+        console.log("🔄 Component unmounting - emergency position save");
+        console.log(`🔄 Saving position on unmount: ${video.currentTime.toFixed(2)}s, Total watch time: ${totalWatchTime.toFixed(2)}s`);
+        
+        // Final synchronous save to ensure data is not lost
+        try {
+          const finalData = {
+            timeSpent: Math.max(0.1, totalWatchTime || 0),
+            sessionTime: totalWatchTime,
+            segmentTime: cumulativeWatchTime,
+            currentTime: video.currentTime,
+            duration: video.duration || duration,
+            playbackRate: playbackRate || 1,
+            isCompleted: false,
+            timestamp: new Date().toISOString(),
+            isFinal: true,
+            sessionCount: watchingSessions.length,
+            segmentsWatched: watchedSegments.size,
+            totalSegments: video.duration > 0 ? Math.ceil(video.duration / 5) : 0,
+            completionPercentage: video.duration > 0 ? Math.min(100, (cumulativeWatchTime / video.duration) * 100) : 0,
+            speedAdjustedTime: totalWatchTime,
+            realTimeSpent: watchingSessions.reduce((sum, session) => sum + (session.realTime || 0), 0)
+          };
+          
+          // Use synchronous XHR for guaranteed delivery on unmount
+          const xhr = new XMLHttpRequest();
+          const url = `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/student/video/${videoId}/watch`;
+          
+          xhr.open('POST', url, false); // Synchronous
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+          xhr.send(JSON.stringify(finalData));
+          
+          console.log(`🔄 Unmount save ${xhr.status === 200 ? 'successful' : 'failed'}: ${xhr.status}`);
+        } catch (error) {
+          console.error("Error in unmount save:", error);
+        }
+      }
+    };
+  }, [videoId, totalWatchTime, cumulativeWatchTime, watchedSegments.size, token, duration, playbackRate, watchingSessions]);
 
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
@@ -345,6 +441,7 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
     // Mark the video as completed when it ends
     setIsPlaying(false);
     setVideoEnded(true);
+    console.log("🎬 Video ended naturally - will be marked as complete");
     
     // End the current watching session if active
     if (sessionStartTime) {
@@ -510,6 +607,10 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
     if (video) {
       video.dataset.wasPlaying = "";
     }
+    
+    // CRITICAL: Save current position immediately when paused for resume functionality
+    console.log("💾 Immediate save on pause for page refresh protection");
+    updateWatchTime(false);
   };
 
   const updateWatchTime = async (isFinal = false) => {
@@ -524,6 +625,9 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
         console.warn('Cannot update watch history: Video ID is missing');
         return;
       }
+      
+      console.log(`💾 updateWatchTime called (isFinal: ${isFinal}) - ensuring position is saved for refresh scenarios`);
+      console.log(`💾 Current watch data: Time=${totalWatchTime.toFixed(2)}s, Segments=${cumulativeWatchTime.toFixed(2)}s, Sessions=${watchingSessions.length}`);
       
       // Calculate different time metrics accounting for playback speed
       let sessionBasedTime = totalWatchTime;
@@ -546,15 +650,42 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
         // Ensure timeSpent is a valid number
         const sanitizedTimeToReport = Math.max(0.1, timeToReport || 0);
         
-        // Calculate completion status
-        const completionThreshold = 0.90; // 90% completion threshold
-        const currentPos = currentTime || 0;
-        const totalDuration = duration || 100;
+        // Calculate completion status with stricter criteria
+        const completionThreshold = 0.98; // 98% completion threshold (stricter)
         
+        // Get current position from the actual video element, not the state - ALWAYS use video element
+        const video = getActiveVideoRef().current;
+        const currentPos = video && !isNaN(video.currentTime) ? video.currentTime : (currentTime || 0);
+        const totalDuration = video && video.duration && !isNaN(video.duration) ? video.duration : (duration || 100);
+        
+        console.log(`💾 Saving video position: ${currentPos.toFixed(2)}s / ${totalDuration.toFixed(2)}s (isFinal: ${isFinal})`);
+        console.log(`💾 Video element state: currentTime=${video?.currentTime}, duration=${video?.duration}, paused=${video?.paused}`);
+        
+        // Stricter completion logic - require BOTH position AND time thresholds to be met
         const isPositionCompleted = totalDuration > 0 && (currentPos / totalDuration) >= completionThreshold;
         const isTimeCompleted = totalDuration > 0 && timeToReport >= (totalDuration * completionThreshold);
         const isSegmentCompleted = totalDuration > 0 && (segmentBasedTime / totalDuration) >= completionThreshold;
-        const isCompleted = isPositionCompleted || isTimeCompleted || isSegmentCompleted || isFinal;
+        
+        // For short videos (< 30 seconds), require even stricter criteria
+        const isShortVideo = totalDuration < 30;
+        let isCompleted = false;
+        
+        if (isFinal && videoEnded) {
+          // Only mark complete if video actually ended
+          isCompleted = true;
+          console.log("✅ Video marked complete: Video ended naturally");
+        } else if (isShortVideo) {
+          // For short videos, require 99% AND both position and time criteria
+          const strictThreshold = 0.99;
+          const strictPositionComplete = (currentPos / totalDuration) >= strictThreshold;
+          const strictTimeComplete = timeToReport >= (totalDuration * strictThreshold);
+          isCompleted = strictPositionComplete && strictTimeComplete;
+          console.log(`📏 Short video (${totalDuration}s): Position ${strictPositionComplete}, Time ${strictTimeComplete} = Complete: ${isCompleted}`);
+        } else {
+          // For longer videos, require position AND (time OR segments) thresholds
+          isCompleted = isPositionCompleted && (isTimeCompleted || isSegmentCompleted);
+          console.log(`📏 Long video: Position ${isPositionCompleted}, Time ${isTimeCompleted}, Segments ${isSegmentCompleted} = Complete: ${isCompleted}`);
+        }
         
         // Prepare detailed analytics data
         const analyticsData = {
@@ -612,7 +743,7 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
     }
   };
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     const video = getActiveVideoRef().current;
     if (!video) return;
 
@@ -624,6 +755,22 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
         video.pause();
         // This will trigger handlePause event handler
       } else {
+        // Always check for resume position when starting playback (unless dialog is already showing)
+        if (!showResumeDialog) {
+          console.log("🎬 Play attempt, checking for resume position...");
+          console.log("🔍 VideoId:", videoId, "Token exists:", !!token);
+          
+          const hasResumePosition = await checkResumePosition();
+          
+          if (hasResumePosition) {
+            console.log("📍 Resume dialog will be shown, waiting for user choice");
+            return; // Wait for user to choose resume or start over
+          } else {
+            console.log("▶️ No resume position, playing normally");
+            setVideoInitialized(true);
+          }
+        }
+
         // Try to play and handle any errors
         const playPromise = video.play();
         if (playPromise !== undefined) {
@@ -851,13 +998,19 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
     };
   }, [controlsTimeout]);
   
-  // Add an effect to handle page visibility changes at the component level
+  // Add an effect to handle page visibility changes and beforeunload
   useEffect(() => {
     // Function to handle page visibility changes
     const handlePageVisibility = () => {
       if (document.visibilityState === 'hidden') {
-        // Page is now hidden
-        console.log("Page hidden - preserving player state");
+        // Page is now hidden - save current position immediately
+        console.log("💾 Page hidden - saving video position urgently");
+        // Force immediate save with current video position
+        const video = getActiveVideoRef().current;
+        if (video && video.currentTime > 0) {
+          console.log(`💾 Saving position on page hide: ${video.currentTime.toFixed(2)}s`);
+          updateWatchTime(false);
+        }
         // If currently playing, remember this state
         if (isPlaying) {
           // We don't pause here because that would trigger unwanted state changes
@@ -865,7 +1018,7 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
         }
       } else if (document.visibilityState === 'visible') {
         // Page is now visible
-        console.log("Page visible again - restoring player state");
+        console.log("👁️ Page visible again - restoring player state");
         // Refresh the player state - force a re-render
         if (videoRef.current) {
           // Update duration if needed
@@ -879,21 +1032,145 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
       }
     };
     
-    // Add event listener
+    // Function to handle beforeunload (when user closes browser/tab or refreshes)
+    const handleBeforeUnload = (e) => {
+      console.log("🚪 Page unloading/refreshing - saving final video position");
+      const video = getActiveVideoRef().current;
+      if (video && video.currentTime > 0) {
+        console.log(`🚪 Final position save on unload/refresh: ${video.currentTime.toFixed(2)}s`);
+        
+        // For page refresh scenarios, use synchronous XHR for reliable save
+        try {
+          // Calculate current watch data for immediate save
+          const currentWatchData = {
+            timeSpent: Math.max(0.1, totalWatchTime || 0),
+            sessionTime: totalWatchTime,
+            segmentTime: cumulativeWatchTime,
+            currentTime: video.currentTime,
+            duration: video.duration || duration,
+            playbackRate: playbackRate || 1,
+            isCompleted: false,
+            timestamp: new Date().toISOString(),
+            isFinal: true,
+            sessionCount: watchingSessions.length,
+            segmentsWatched: watchedSegments.size,
+            totalSegments: video.duration > 0 ? Math.ceil(video.duration / 5) : 0,
+            completionPercentage: video.duration > 0 ? Math.min(100, (cumulativeWatchTime / video.duration) * 100) : 0,
+            speedAdjustedTime: totalWatchTime,
+            realTimeSpent: watchingSessions.reduce((sum, session) => sum + (session.realTime || 0), 0)
+          };
+          
+          console.log("💾 Refresh save data:", currentWatchData);
+          
+          // Try async API call first
+          updateWatchTime(true);
+          
+          // Backup: Use synchronous XHR for page refresh reliability
+          if (token && videoId && video.currentTime > 0) {
+            const xhr = new XMLHttpRequest();
+            const url = `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/student/video/${videoId}/watch`;
+            
+            xhr.open('POST', url, false); // false = synchronous
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+            
+            try {
+              xhr.send(JSON.stringify(currentWatchData));
+              console.log(`� Synchronous save ${xhr.status === 200 ? 'successful' : 'failed'} on page refresh`);
+            } catch (xhrError) {
+              console.error("Synchronous XHR failed:", xhrError);
+            }
+          }
+        } catch (error) {
+          console.error("Error saving on unload:", error);
+        }
+      }
+    };
+
+    // Function to handle pagehide (more reliable than beforeunload)
+    const handlePageHide = (e) => {
+      console.log("🔒 Page hide event - emergency position save");
+      const video = getActiveVideoRef().current;
+      if (video && video.currentTime > 0) {
+        console.log(`🔒 Emergency save on page hide: ${video.currentTime.toFixed(2)}s`);
+        updateWatchTime(true);
+      }
+    };
+
+    // Add event listeners with priority order
     document.addEventListener('visibilitychange', handlePageVisibility);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide); // More reliable for mobile/modern browsers
     
     // Cleanup
     return () => {
       document.removeEventListener('visibilitychange', handlePageVisibility);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
     };
-  }, [isPlaying, duration]);
+  }, [isPlaying, duration, updateWatchTime]);
+
+  // Handle resume dialog choices
+  const handleResumeFromPosition = async () => {
+    setShowResumeDialog(false);
+    setVideoInitialized(true);
+    
+    if (videoRef.current && resumePosition > 0) {
+      videoRef.current.currentTime = resumePosition;
+      setCurrentTime(resumePosition);
+      console.log(`📍 Resumed video at ${resumePosition}s`);
+      
+      // Start playing from resume position
+      try {
+        const playPromise = videoRef.current.play();
+        if (playPromise !== undefined) {
+          await playPromise;
+          console.log(`▶️ Video playing from resume position`);
+        }
+      } catch (error) {
+        console.error("Error playing video from resume position:", error);
+      }
+    }
+  };
+
+  const handleStartFromBeginning = async () => {
+    setShowResumeDialog(false);
+    setVideoInitialized(true);
+    
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      setCurrentTime(0);
+      console.log(`📍 Starting video from beginning`);
+      
+      // Start playing from beginning
+      try {
+        const playPromise = videoRef.current.play();
+        if (playPromise !== undefined) {
+          await playPromise;
+          console.log(`▶️ Video playing from beginning`);
+        }
+      } catch (error) {
+        console.error("Error playing video from beginning:", error);
+      }
+    }
+  };
+
+  const handleResumeDialogClose = () => {
+    // Default to starting from beginning if user closes dialog
+    handleStartFromBeginning();
+  };
 
   return (
     <>
       {/* Regular Player */}
       <Paper 
         elevation={2} 
-        sx={{ borderRadius: 2, overflow: 'hidden' }}
+        sx={{ 
+          borderRadius: { xs: 0, sm: 2 }, 
+          overflow: 'hidden',
+          width: '100%',
+          maxWidth: '100%'
+        }}
         ref={videoContainerRef}
       >
         {/* Video Player */}
@@ -906,9 +1183,12 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
             // Add CSS to prevent shivering effect
             willChange: 'transform',
             // Apply hardware acceleration to prevent visual glitches
-            transform: 'translateZ(0)'
+            transform: 'translateZ(0)',
+            // Ensure proper aspect ratio on mobile
+            aspectRatio: { xs: '16/9', sm: 'auto' }
           }}
           onMouseMove={handleMouseMove}
+          onTouchStart={() => setShowControls(true)}
         >
           {loading && (
             <Box
@@ -934,9 +1214,11 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
             key="main-video-player"
             src={videoUrl}
             style={{ 
-              width: '100%', 
+              width: '100%',
+              height: 'auto',
               display: isFullScreen ? 'none' : 'block', 
-              maxHeight: '500px',
+              maxHeight: window.innerWidth < 600 ? '250px' : '500px',
+              objectFit: 'contain',
               // Prevent shivering with hardware acceleration
               transform: 'translateZ(0)',
               willChange: 'transform',
@@ -996,7 +1278,7 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
                 bottom: 0,
                 left: 0,
                 right: 0,
-                p: 1.5,
+                p: { xs: 1, sm: 1.5 },
                 backgroundColor: 'rgba(0,0,0,0.7)',
                 transition: 'opacity 0.3s',
                 opacity: showControls ? 1 : 0,
@@ -1012,10 +1294,10 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
                 aria-label="video progress (view only)"
                 sx={{ 
                   color: 'primary.main',
-                  height: 8,
+                  height: { xs: 6, sm: 8 },
                   '& .MuiSlider-thumb': {
-                    width: 16,
-                    height: 16,
+                    width: { xs: 12, sm: 16 },
+                    height: { xs: 12, sm: 16 },
                     transition: '0.3s cubic-bezier(.47,1.64,.41,.8)',
                     '&::before': {
                       boxShadow: '0 2px 12px 0 rgba(0,0,0,0.4)',
@@ -1034,23 +1316,59 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
                 }}
               />
 
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                mt: { xs: 0.5, sm: 1 },
+                flexWrap: 'nowrap',
+                gap: { xs: 0.5, sm: 1 }
+              }}>
                 {/* Left controls: Play/Pause and time */}
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <IconButton onClick={togglePlay} size="large" sx={{ color: 'white' }}>
-                    {isPlaying ? <Pause /> : <PlayArrow />}
+                <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, flex: '0 0 auto' }}>
+                  <IconButton 
+                    onClick={togglePlay} 
+                    size="small"
+                    sx={{ 
+                      color: 'white',
+                      p: { xs: 0.3, sm: 0.5 },
+                      minWidth: { xs: '28px', sm: '36px' }
+                    }}
+                  >
+                    {isPlaying ? <Pause fontSize="small" /> : <PlayArrow fontSize="small" />}
                   </IconButton>
-                  <Typography variant="body2" sx={{ ml: 1, color: 'white' }}>
+                  <Typography 
+                    variant="body2" 
+                    sx={{ 
+                      ml: { xs: 0.25, sm: 0.5 }, 
+                      color: 'white',
+                      fontSize: { xs: '0.65rem', sm: '0.75rem', md: '0.875rem' },
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
                     {formatDuration(getDisplayCurrentTime())} / {formatDuration(getDisplayDuration())}
                   </Typography>
                 </Box>
 
                 {/* Right controls: Volume, Speed, and Fullscreen */}
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  {/* Volume control */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', width: 150, mr: 2 }}>
-                    <IconButton onClick={toggleMute} size="small" sx={{ color: 'white' }}>
-                      {isMuted ? <VolumeOff /> : <VolumeUp />}
+                <Box sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  gap: { xs: 0.25, sm: 0.5, md: 1 },
+                  flexWrap: 'nowrap',
+                  justifyContent: 'flex-end',
+                  minWidth: 0,
+                  flex: '1 1 auto',
+                  overflow: 'hidden'
+                }}>
+                  {/* Volume control - Hidden on mobile, shown on tablet and up */}
+                  <Box sx={{ 
+                    display: { xs: 'none', sm: 'flex' }, 
+                    alignItems: 'center', 
+                    width: { sm: 100, md: 120 }
+                  }}>
+                    <IconButton onClick={toggleMute} size="small" sx={{ color: 'white', p: 0.5 }}>
+                      {isMuted ? <VolumeOff fontSize="small" /> : <VolumeUp fontSize="small" />}
                     </IconButton>
                     <Slider
                       min={0}
@@ -1064,28 +1382,46 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
                     />
                   </Box>
 
-                  {/* Playback speed control */}
+                  {/* Mobile-only mute button */}
+                  <IconButton 
+                    onClick={toggleMute} 
+                    size="small" 
+                    sx={{ 
+                      display: { xs: 'inline-flex', sm: 'none' },
+                      color: 'white',
+                      p: 0.5
+                    }}
+                  >
+                    {isMuted ? <VolumeOff fontSize="small" /> : <VolumeUp fontSize="small" />}
+                  </IconButton>
+
+                  {/* Playback speed control - Desktop: All buttons, Mobile: Dropdown style */}
+                  {/* Desktop version with all speed buttons */}
                   <Tooltip title="Playback Speed">
-                    <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-                      <IconButton size="small" sx={{ color: 'white' }}>
-                        <SpeedIcon />
+                    <Box sx={{ 
+                      display: { xs: 'none', md: 'flex' }, 
+                      alignItems: 'center'
+                    }}>
+                      <IconButton size="small" sx={{ color: 'white', p: 0.5 }}>
+                        <SpeedIcon fontSize="small" />
                       </IconButton>
-                      <Box component="span" sx={{ ml: 0.5 }}>
+                      <Box component="span" sx={{ ml: 0.5, display: 'flex', gap: 0.2 }}>
                         {speedOptions.map((speed) => (
                           <Tooltip key={speed} title={`${speed}x`}>
                             <IconButton
                               size="small"
                               onClick={() => handleSpeedChange(speed)}
                               sx={{
-                                mx: 0.2,
                                 backgroundColor: playbackRate === speed ? 'primary.main' : 'rgba(255,255,255,0.1)',
                                 color: 'white',
                                 '&:hover': {
                                   backgroundColor: playbackRate === speed ? 'primary.dark' : 'rgba(255,255,255,0.2)'
                                 },
-                                width: 30,
-                                height: 24,
-                                fontSize: '0.75rem'
+                                width: 28,
+                                height: 22,
+                                fontSize: '0.65rem',
+                                p: 0.5,
+                                minWidth: 'auto'
                               }}
                             >
                               {speed}x
@@ -1096,13 +1432,43 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
                     </Box>
                   </Tooltip>
 
+                  {/* Mobile version - Tap to cycle through speeds */}
+                  <Tooltip title="Tap to change speed">
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        const currentIndex = speedOptions.indexOf(playbackRate);
+                        const nextIndex = (currentIndex + 1) % speedOptions.length;
+                        handleSpeedChange(speedOptions[nextIndex]);
+                      }}
+                      sx={{
+                        display: { xs: 'inline-flex', md: 'none' },
+                        backgroundColor: 'rgba(255,255,255,0.2)',
+                        color: 'white',
+                        fontSize: '0.7rem',
+                        minWidth: { xs: '36px', sm: '42px' },
+                        height: { xs: '24px', sm: '28px' },
+                        px: { xs: 0.5, sm: 1 },
+                        '&:hover': {
+                          backgroundColor: 'rgba(255,255,255,0.3)'
+                        }
+                      }}
+                    >
+                      <SpeedIcon sx={{ fontSize: '0.9rem', mr: 0.3 }} />
+                      {playbackRate}x
+                    </IconButton>
+                  </Tooltip>
+
                   {/* Fullscreen toggle */}
                   <IconButton 
                     onClick={toggleFullScreen} 
                     size="small"
-                    sx={{ color: 'white' }}
+                    sx={{ 
+                      color: 'white',
+                      p: { xs: 0.5, sm: 1 }
+                    }}
                   >
-                    {isFullScreen ? <FullscreenExit /> : <Fullscreen />}
+                    {isFullScreen ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
                   </IconButton>
                 </Box>
               </Box>
@@ -1113,15 +1479,31 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
         {/* Title and description (only show in regular view) */}
         {!isFullScreen && (
           <>
-            <Box sx={{ p: 1.5, backgroundColor: '#f5f5f5' }}>
-              <Typography variant="subtitle1" gutterBottom>
+            <Box sx={{ p: { xs: 1, sm: 1.5 }, backgroundColor: '#f5f5f5' }}>
+              <Typography 
+                variant="subtitle1" 
+                gutterBottom
+                sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}
+              >
                 {title}
               </Typography>
             </Box>
             
             {/* Notice about video restrictions */}
-            <Alert severity="info" sx={{ m: 1.5, mt: 0 }}>
-              <Typography variant="body2">
+            <Alert 
+              severity="info" 
+              sx={{ 
+                m: { xs: 1, sm: 1.5 }, 
+                mt: 0,
+                '& .MuiAlert-message': {
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                }
+              }}
+            >
+              <Typography 
+                variant="body2"
+                sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}
+              >
                 📹 Video seeking is disabled to ensure complete learning. You can rewind but cannot skip ahead.
               </Typography>
             </Alert>
@@ -1382,6 +1764,18 @@ const CustomVideoPlayer = ({ videoId, videoUrl, title, token, onTimeUpdate, onVi
           )}
         </Box>
       </Dialog>
+
+      {/* Video Resume Dialog */}
+      <VideoResumeDialog
+        open={showResumeDialog}
+        onClose={handleResumeDialogClose}
+        onResumeFromPosition={handleResumeFromPosition}
+        onStartFromBeginning={handleStartFromBeginning}
+        currentPosition={resumePosition}
+        videoDuration={resumeData?.videoDuration || duration}
+        videoTitle={title}
+        lastWatched={resumeData?.lastWatched}
+      />
     </>
   );
 };

@@ -29,6 +29,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { getTeacherCourses, getTeacherUnitsByCourse } from '../../api/teacherApi';
 import { getQuizTemplate, uploadQuiz } from '../../api/quizApi';
+import QuizConfigPanel from './QuizConfigPanel';
 
 const QuizUploadForm = ({ onCancel }) => {
   const navigate = useNavigate();
@@ -38,6 +39,7 @@ const QuizUploadForm = ({ onCancel }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [courseId, setCourseId] = useState('');
+  const [sectionId, setSectionId] = useState('');
   const [unitId, setUnitId] = useState('');
   const [timeLimit, setTimeLimit] = useState('30');
   const [passingScore, setPassingScore] = useState('70');
@@ -47,6 +49,7 @@ const QuizUploadForm = ({ onCancel }) => {
   // UI state
   const [loading, setLoading] = useState(false);
   const [courses, setCourses] = useState([]);
+  const [sections, setSections] = useState([]);
   const [units, setUnits] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -66,6 +69,10 @@ const QuizUploadForm = ({ onCancel }) => {
       
       if (coursesData.length > 0) {
         setCourseId(coursesData[0]._id);
+        setSections(coursesData[0].sections || []);
+        if (coursesData[0].sections && coursesData[0].sections.length > 0) {
+          setSectionId(coursesData[0].sections[0]._id);
+        }
         fetchUnits(coursesData[0]._id);
       }
       
@@ -97,6 +104,12 @@ const QuizUploadForm = ({ onCancel }) => {
   const handleCourseChange = async (e) => {
     const selectedCourseId = e.target.value;
     setCourseId(selectedCourseId);
+    
+    // Update sections for the selected course
+    const selectedCourse = courses.find(c => c._id === selectedCourseId);
+    setSections(selectedCourse?.sections || []);
+    setSectionId(selectedCourse?.sections?.[0]?._id || '');
+    
     await fetchUnits(selectedCourseId);
   };
 
@@ -347,6 +360,25 @@ const QuizUploadForm = ({ onCancel }) => {
             <Grid item xs={12} md={6}>
               <TextField
                 select
+                label="Select Section"
+                fullWidth
+                required
+                value={sectionId}
+                onChange={(e) => setSectionId(e.target.value)}
+                disabled={sections.length === 0}
+                helperText={sections.length === 0 ? "No sections available" : "Select the section for this quiz"}
+              >
+                {sections.map((section) => (
+                  <MenuItem key={section._id} value={section._id}>
+                    {section.name} ({section.studentsCount} students)
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <TextField
+                select
                 label="Select Unit"
                 fullWidth
                 required={units.length > 0}
@@ -365,6 +397,29 @@ const QuizUploadForm = ({ onCancel }) => {
                 Your questions will be added to this unit's quiz pool
               </FormHelperText>
             </Grid>
+          </Grid>
+          
+          {/* Quiz Configuration Panel */}
+          {courseId && sectionId && unitId && (
+            <Box sx={{ mt: 3 }}>
+              <QuizConfigPanel 
+                courseId={courseId}
+                sectionId={sectionId}
+                unitId={unitId}
+                unitTitle={units.find(u => u._id === unitId)?.title || 'Selected Unit'}
+              />
+            </Box>
+          )}
+          
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <Alert severity="info">
+                <Typography variant="body2">
+                  Quiz settings (time limit, number of questions, etc.) are now configured above.
+                  These settings will apply to all students taking this quiz.
+                </Typography>
+              </Alert>
+            </Grid>
             
             <Grid item xs={12} md={6}>
               <TextField
@@ -374,6 +429,8 @@ const QuizUploadForm = ({ onCancel }) => {
                 value={timeLimit}
                 onChange={(e) => setTimeLimit(e.target.value)}
                 InputProps={{ inputProps: { min: 5, max: 180 } }}
+                disabled={true}
+                helperText="Configured in Quiz Configuration Panel above"
               />
             </Grid>
             
@@ -389,7 +446,7 @@ const QuizUploadForm = ({ onCancel }) => {
               />
               <FormHelperText>
                 <InfoIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5 }} />
-                Fixed at 70% for all quizzes in the system
+                Configured in Quiz Configuration Panel above
               </FormHelperText>
             </Grid>
             

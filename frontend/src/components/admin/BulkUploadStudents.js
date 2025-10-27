@@ -9,10 +9,17 @@ const emailRegex = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 // Helper function to generate sample CSV content
 const generateSampleCSV = () => {
-  return `name,email,password,regNo,school,department,section,courseAssigned
-John Smith,john.smith@example.com,StrongPass123!,S123456,SCHOOL001,DEPT001,SEC001,COURSE001
-Jane Doe,jane.doe@example.com,SecurePass456!,,SCHOOL001,DEPT002,,COURSE002
-Alan Johnson,alan.johnson@example.com,SafePass789!,S567890,SCHOOL002,,,COURSE003`;
+  return `name,email,password,section,school,department,courseAssigned
+Aarav Kumar,aarav.kumar@student.sgtuniversity.edu,Aarav@2024,A1,School of Engineering,Computer Science Engineering,CS101;CS102;CS103
+Diya Sharma,diya.sharma@student.sgtuniversity.edu,Diya@2024,A1,School of Engineering,Computer Science Engineering,CS101;CS102;CS103
+Arjun Patel,arjun.patel@student.sgtuniversity.edu,Arjun@2024,A2,School of Engineering,Computer Science Engineering,CS101;CS102;CS103
+Ananya Singh,ananya.singh@student.sgtuniversity.edu,Ananya@2024,A2,School of Engineering,Computer Science Engineering,CS101;CS102;CS103
+Rohan Verma,rohan.verma@student.sgtuniversity.edu,Rohan@2024,B1,School of Engineering,Electronics Engineering,EE101;EE102
+Isha Gupta,isha.gupta@student.sgtuniversity.edu,Isha@2024,B1,School of Engineering,Electronics Engineering,EE101;EE102
+Kabir Reddy,kabir.reddy@student.sgtuniversity.edu,Kabir@2024,C1,School of Management,MBA,MBA101;MBA102;MBA103
+Meera Joshi,meera.joshi@student.sgtuniversity.edu,Meera@2024,C1,School of Management,MBA,MBA101;MBA102;MBA103
+Advait Desai,advait.desai@student.sgtuniversity.edu,Advait@2024,D1,School of Arts,English Literature,ENG101;ENG102
+Saanvi Iyer,saanvi.iyer@student.sgtuniversity.edu,Saanvi@2024,D1,School of Arts,English Literature,ENG101;ENG102`;
 };
 
 // Helper function to download sample CSV
@@ -132,9 +139,9 @@ const BulkUploadStudents = ({ onUpload }) => {
       <Alert severity="info" sx={{ mb: 2 }}>
         <Typography variant="body2">
           Upload a CSV file with required columns: <strong>name</strong>, <strong>email</strong>.
-          Optional columns: <strong>password</strong> (auto-generated if blank), <strong>regNo</strong> (auto-generated if blank), <strong>school</strong>, <strong>department</strong>, <strong>section</strong>, <strong>courseAssigned</strong> (single or multiple; use comma / semicolon or ["C000001","C000002"]).
+          Optional columns: <strong>password</strong> (auto-generated if blank), <strong>regNo</strong>, <strong>school</strong>, <strong>department</strong>, <strong>section</strong>, <strong>courseAssigned</strong> (single or multiple; use comma / semicolon or ["C000001","C000002"]).
           <br />
-          <strong>Note:</strong> If you don't provide a registration number (regNo), the system will automatically generate one starting with "S" followed by 6 digits.
+          <strong>Note:</strong> <strong>UIDs (Unique IDs)</strong> will be automatically generated as 8-digit numbers (e.g., 00000001, 00000002) for each new student. The regNo field is optional and can be used for legacy registration numbers if needed.
           <br />If password is omitted a secure random password will be generated and shown below after upload (copy & distribute securely).
           <br />You can assign students to sections by providing school, department, and section codes/IDs.
           <br />

@@ -109,6 +109,21 @@ const HODQuizUnlockDashboard = ({ showAlert = () => {} }) => {
   }, [items, query]);
 
   const handleHODUnlock = async (item) => {
+    const authLevel = item.lockInfo?.unlockAuthorizationLevel || 'TEACHER';
+    const canHodAct = authLevel === 'HOD' && item.lockInfo?.canHodUnlock;
+    
+    if (!canHodAct) {
+      if (authLevel === 'TEACHER') {
+        showAlert('This request is at Teacher level. Teacher should handle this.', 'info');
+      } else if (authLevel === 'DEAN') {
+        showAlert('This request is at Dean level. Dean authorization required.', 'info');
+      } else if (authLevel === 'ADMIN') {
+        showAlert('This request requires Admin override. All unlock limits have been exceeded.', 'error');
+      } else {
+        showAlert('HOD unlock limit exceeded. Dean authorization required.', 'warning');
+      }
+      return;
+    }
     setSelectedLock(item);
     setUnlockReason('');
     setUnlockNote('');
@@ -161,7 +176,7 @@ const HODQuizUnlockDashboard = ({ showAlert = () => {} }) => {
             <Box display="flex" alignItems="center">
               <AdminPanelSettingsIcon sx={{ mr: 1, color: 'warning.main' }} />
               <Typography variant="h5" component="h1" fontWeight="bold">
-                HOD Quiz Unlock Requests
+                Quiz Unlock Requests - Department View
               </Typography>
               <Box>
                 <Tooltip title="Refresh">
@@ -198,19 +213,39 @@ const HODQuizUnlockDashboard = ({ showAlert = () => {} }) => {
             <Table size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell><strong>Status</strong></TableCell>
                   <TableCell><strong>Student</strong></TableCell>
                   <TableCell><strong>Course</strong></TableCell>
                   <TableCell><strong>Quiz</strong></TableCell>
                   <TableCell><strong>Failure Reason</strong></TableCell>
                   <TableCell><strong>Score</strong></TableCell>
-                  <TableCell><strong>Teacher Unlocks</strong></TableCell>
+                  <TableCell><strong>Unlock History</strong></TableCell>
+                  <TableCell><strong>Current Level</strong></TableCell>
                   <TableCell><strong>Locked Since</strong></TableCell>
                   <TableCell><strong>Actions</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filtered.map((item) => (
+                {filtered.map((item) => {
+                  const authLevel = item.lockInfo?.unlockAuthorizationLevel || 'TEACHER';
+                  const canHodAct = authLevel === 'HOD' && item.lockInfo?.canHodUnlock;
+                  
+                  return (
                   <TableRow key={item.lockId} hover>
+                    <TableCell>
+                      {authLevel === 'TEACHER' && (
+                        <Chip size="small" color="primary" label="Teacher Level" />
+                      )}
+                      {authLevel === 'HOD' && (
+                        <Chip size="small" color="warning" label="HOD Level" />
+                      )}
+                      {authLevel === 'DEAN' && (
+                        <Chip size="small" color="error" label="Dean Level" />
+                      )}
+                      {authLevel === 'ADMIN' && (
+                        <Chip size="small" color="secondary" label="Admin Required" />
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Box>
                         <Typography variant="subtitle2" fontWeight="bold">
@@ -252,30 +287,82 @@ const HODQuizUnlockDashboard = ({ showAlert = () => {} }) => {
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Chip 
-                        label={`${item.lockInfo.teacherUnlockCount}/3`} 
-                        size="small" 
-                        color="error" 
-                      />
+                      <Box>
+                        <Typography variant="caption">
+                          Teacher: {item.lockInfo?.teacherUnlockCount || 0}/3
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                          HOD: {item.lockInfo?.hodUnlockCount || 0}/3
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                          Dean: {item.lockInfo?.deanUnlockCount || 0}
+                        </Typography>
+                      </Box>
                     </TableCell>
                     <TableCell>
-                      <Typography variant="caption">
-                        {format(new Date(item.lockInfo.lockTimestamp), 'MMM dd, HH:mm')}
+                      <Typography variant="body2" fontWeight={600}>
+                        {authLevel === 'TEACHER' && 'Teacher Level'}
+                        {authLevel === 'HOD' && 'HOD Can Act'}
+                        {authLevel === 'DEAN' && 'Dean Required'}
+                        {authLevel === 'ADMIN' && 'Admin Override Required'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Level: {authLevel}
                       </Typography>
                     </TableCell>
                     <TableCell>
+                      <Box>
+                        <Typography variant="caption">
+                          {format(new Date(item.lockInfo.lockTimestamp), 'MMM dd, HH:mm')}
+                        </Typography>
+                        {item.lockInfo?.lastTeacherUnlock && (
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            Last T: {format(new Date(item.lockInfo.lastTeacherUnlock), 'MMM dd, HH:mm')}
+                          </Typography>
+                        )}
+                        {item.lockInfo?.lastHodUnlock && (
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            Last H: {format(new Date(item.lockInfo.lastHodUnlock), 'MMM dd, HH:mm')}
+                          </Typography>
+                        )}
+                        {item.lockInfo?.lastDeanUnlock && (
+                          <Typography variant="caption" display="block" color="warning.main">
+                            Last D: {format(new Date(item.lockInfo.lastDeanUnlock), 'MMM dd, HH:mm')}
+                          </Typography>
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell>
                       <Box display="flex" gap={1}>
-                        <Tooltip title="HOD Unlock">
-                          <Button
-                            variant="contained"
-                            color="warning"
-                            size="small"
-                            startIcon={<LockOpen />}
-                            onClick={() => handleHODUnlock(item)}
-                          >
-                            Unlock
-                          </Button>
-                        </Tooltip>
+                        {canHodAct ? (
+                          <Tooltip title="HOD Unlock">
+                            <Button
+                              variant="contained"
+                              color="warning"
+                              size="small"
+                              startIcon={<LockOpen />}
+                              onClick={() => handleHODUnlock(item)}
+                            >
+                              Unlock ({item.lockInfo?.remainingHodUnlocks || 0})
+                            </Button>
+                          </Tooltip>
+                        ) : (
+                          <Chip 
+                            size="small" 
+                            label={
+                              authLevel === 'TEACHER' ? 'Teacher Level' : 
+                              authLevel === 'DEAN' ? 'At Dean Level' : 
+                              authLevel === 'ADMIN' ? 'Admin Override Required' :
+                              'H-Limit Reached'
+                            }
+                            color={
+                              authLevel === 'TEACHER' ? 'primary' : 
+                              authLevel === 'DEAN' ? 'error' : 
+                              authLevel === 'ADMIN' ? 'secondary' :
+                              'default'
+                            }
+                          />
+                        )}
                         
                         <Tooltip title="View History">
                           <IconButton
@@ -288,10 +375,11 @@ const HODQuizUnlockDashboard = ({ showAlert = () => {} }) => {
                       </Box>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} align="center">
+                    <TableCell colSpan={10} align="center">
                       <Typography variant="body2" color="text.secondary">
                         No HOD unlock requests.
                       </Typography>

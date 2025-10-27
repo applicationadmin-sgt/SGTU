@@ -53,10 +53,11 @@ module.exports = function(type) {
   } else if (type === 'quizzes') {
     limits.fileSize = 5 * 1024 * 1024; // 5MB for quizzes
   }
+  // For videos and other types: no size limits
 
   return multer({
     storage: storage,
     fileFilter: fileFilter,
-    limits: limits
+    limits: type === 'videos' ? {} : limits  // No limits for videos
   });
 };

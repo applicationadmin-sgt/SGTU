@@ -14,7 +14,6 @@ import {
   Breadcrumbs,
   Link,
 } from '@mui/material';
-import { Chat as ChatIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { Link as RouterLink } from 'react-router-dom';
 import axios from 'axios';
@@ -147,18 +146,6 @@ const StudentCoursesPage = () => {
                     onClick={() => navigate(`/student/course/${course._id}/progress`)}
                   >
                     View Progress
-                  </Button>
-                  <Button 
-                    size="small"
-                    variant="contained"
-                    startIcon={<ChatIcon />}
-                    onClick={() => navigate(`/group-chat/${course._id}/${course.sectionId}`)}
-                    sx={{ 
-                      bgcolor: '#395a7f',
-                      '&:hover': { bgcolor: '#6e9fc1' }
-                    }}
-                  >
-                    Group Chat
                   </Button>
                 </CardActions>
               </Card>

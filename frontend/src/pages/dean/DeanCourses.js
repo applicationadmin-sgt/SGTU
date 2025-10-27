@@ -176,7 +176,7 @@ const DeanCourses = () => {
                           <Box>
                             {course.coordinators.map((cc, idx) => (
                               <Typography key={cc._id || idx} variant="body2" color="primary">
-                                {cc.name || cc.email || cc.teacherId}
+                                {cc.name || cc.email || cc.uid || cc.teacherId}
                               </Typography>
                             ))}
                           </Box>

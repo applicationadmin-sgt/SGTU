@@ -6,6 +6,7 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import ResetPasswordErrorPage from './pages/ResetPasswordErrorPage';
 import UnauthorizedPage from './pages/UnauthorizedPage';
+import VerifyCertificate from './pages/public/VerifyCertificate';
 import PrivateRoute from './components/PrivateRoute';
 import RoleBasedRedirect from './components/RoleBasedRedirect';
 import { restoreUserFromToken } from './utils/authService';
@@ -17,7 +18,8 @@ const StudentDashboard = lazy(() => import('./pages/StudentDashboard'));
 const DeanDashboard = lazy(() => import('./pages/DeanDashboard'));
 const HODDashboard = lazy(() => import('./pages/HODDashboard'));
 const CCDashboard = lazy(() => import('./pages/CCDashboard'));
-const GroupChatPage = lazy(() => import('./components/GroupChatPage'));
+const GroupChatPageEnhanced = lazy(() => import('./components/GroupChatPageEnhanced'));
+const GroupChatPage = lazy(() => import('./components/GroupChatPage')); // Legacy fallback
 const GroupChatListPage = lazy(() => import('./components/GroupChatList'));
 
 // Create a simple theme
@@ -76,11 +78,16 @@ function App() {
         <CssBaseline />
     <Suspense fallback={<div style={{padding: 24}}>Loading…</div>}>
     <Routes>
+        {/* Public Routes - No Authentication Required */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
         <Route path="/reset-password-error" element={<ResetPasswordErrorPage />} />
         <Route path="/unauthorized" element={<UnauthorizedPage />} />
+        <Route path="/verify-certificate/:hash?" element={<VerifyCertificate />} />
+        <Route path="/verify" element={<VerifyCertificate />} />
+        
+        {/* Protected Routes - Authentication Required */}
         <Route 
           path="/admin/*" 
           element={
@@ -129,8 +136,18 @@ function App() {
             </PrivateRoute>
           } 
         />
+        {/* Enhanced Group Chat Route (Default) */}
         <Route 
           path="/group-chat/:courseId/:sectionId" 
+          element={
+            <PrivateRoute allowedRoles={['student', 'teacher', 'hod', 'dean', 'admin', 'cc', 'superadmin']}>
+              <GroupChatPageEnhanced />
+            </PrivateRoute>
+          } 
+        />
+        {/* Original Group Chat Route (Legacy fallback) */}
+        <Route 
+          path="/group-chat-legacy/:courseId/:sectionId" 
           element={
             <PrivateRoute allowedRoles={['student', 'teacher', 'hod', 'dean', 'admin', 'cc', 'superadmin']}>
               <GroupChatPage />
@@ -145,30 +162,7 @@ function App() {
             </PrivateRoute>
           } 
         />
-        <Route 
-          path="/live-class/room/:classId" 
-          element={
-            <PrivateRoute allowedRoles={['student', 'teacher', 'hod', 'dean', 'admin']}>
-              {React.createElement(React.lazy(() => import('./components/enhanced/EnhancedLiveClassRoom')))}
-            </PrivateRoute>
-          } 
-        />
-        <Route 
-          path="/live-class/join/:token" 
-          element={
-            <PrivateRoute allowedRoles={['student', 'teacher', 'hod', 'dean', 'admin']}>
-              {React.createElement(React.lazy(() => import('./components/enhanced/EnhancedLiveClassRoom')))}
-            </PrivateRoute>
-          } 
-        />
-        <Route 
-          path="/live-class/monitor/:classId" 
-          element={
-            <PrivateRoute allowedRoles={['hod', 'dean', 'admin']}>
-              {React.createElement(React.lazy(() => import('./components/LiveClassMonitor')))}
-            </PrivateRoute>
-          } 
-        />
+        {/* Live class routes removed - moved to independent video call module */}
         <Route path="/dashboard" element={<RoleBasedRedirect />} />
         <Route path="/" element={<RoleBasedRedirect />} />
         <Route path="*" element={<Navigate to="/login" />} />

@@ -10,7 +10,7 @@ const QuizLock = require('./models/QuizLock');
 async function debugQuizAvailability() {
   try {
     // Connect to database
-    await mongoose.connect('mongodb+srv://sourav092002_db_user:aq5UgwNDh2tgyZcB@cluster0.nvkrxcx.mongodb.net/');
+  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/sgtlms');
     console.log('✅ Connected to database');
     
     // Find student Munmun

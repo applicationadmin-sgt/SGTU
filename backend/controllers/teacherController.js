@@ -123,11 +123,11 @@ exports.getTeacherProfile = async (req, res) => {
       .populate({
         path: 'department',
         populate: [
-          { path: 'hod', select: 'name email teacherId' },
-          { path: 'school', populate: { path: 'dean', select: 'name email' } }
+          { path: 'hod', select: 'name email uid teacherId' },
+          { path: 'school', populate: { path: 'dean', select: 'name email uid' } }
         ]
       })
-      .select('name email teacherId canAnnounce department createdAt');
+      .select('name email uid teacherId canAnnounce department createdAt');
     
     if (!teacher) {
       return res.status(404).json({ message: 'Teacher not found' });
@@ -204,7 +204,8 @@ exports.getTeacherProfile = async (req, res) => {
       personalInfo: {
         name: teacher.name,
         email: teacher.email,
-        teacherId: teacher.teacherId,
+        uid: teacher.uid,
+        teacherId: teacher.teacherId, // Legacy field - DEPRECATED
         canAnnounce: true, // Enable announcements for all teachers
         joinDate: teacher.createdAt
       },
@@ -215,10 +216,13 @@ exports.getTeacherProfile = async (req, res) => {
       hod: teacher.department?.hod ? {
         name: teacher.department.hod.name,
         email: teacher.department.hod.email,
+        uid: teacher.department.hod.uid,
+        teacherId: teacher.department.hod.teacherId // Legacy field - DEPRECATED
       } : null,
       dean: teacher.department?.school?.dean ? {
         name: teacher.department.school.dean.name,
-        email: teacher.department.school.dean.email
+        email: teacher.department.school.dean.email,
+        uid: teacher.department.school.dean.uid
       } : null,
       school: {
         name: teacher.department?.school?.name || 'Not Assigned',

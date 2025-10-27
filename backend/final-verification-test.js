@@ -8,7 +8,7 @@ async function runFinalTest() {
         console.log('🔍 Final System Verification Test\n');
         
         // Connect to database
-        await mongoose.connect('mongodb+srv://Cluster37906:ZOtRFZe8MctGOp7L@cluster0.flx5j.mongodb.net/campus_link_db?retryWrites=true&w=majority');
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/sgtlms');
         console.log('✅ Connected to database');
         
         // Find student Munmun2

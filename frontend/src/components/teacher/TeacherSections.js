@@ -23,8 +23,7 @@ import {
   People as PeopleIcon, 
   School as SchoolIcon,
   MenuBook as MenuBookIcon,
-  Person as PersonIcon,
-  Chat as ChatIcon
+  Person as PersonIcon
 } from '@mui/icons-material';
 import * as sectionApi from '../../api/sectionApi';
 import { useUserRole } from '../../contexts/UserRoleContext';
@@ -38,7 +37,8 @@ const TeacherSections = () => {
   const currentUser = parseJwt(token);
   const user = contextUser || currentUser;
   
-  console.log('[TeacherSections] Component mounted - user:', user, 'token:', !!token);
+  // Extract userId to prevent infinite loops
+  const userId = user?._id || user?.id;
   
   const [sections, setSections] = useState([]);
   const [selectedSection, setSelectedSection] = useState(null);
@@ -47,43 +47,34 @@ const TeacherSections = () => {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    console.log('[TeacherSections] useEffect triggered - user:', user, 'token:', !!token);
-    // If user not ready yet, stop loading to avoid infinite spinner
-    if (!user || (!user._id && !user.id)) {
-      console.log('[TeacherSections] No user or user._id/id, stopping loading');
+    // If userId not ready yet, stop loading
+    if (!userId) {
       setLoading(false);
       return;
     }
     // If token missing, surface error and stop loading
     if (!token) {
-      console.log('[TeacherSections] No token, setting error');
       setError('You are not authenticated. Please sign in again.');
       setLoading(false);
       return;
     }
-    console.log('[TeacherSections] User and token ready, calling fetchTeacherSections');
+    
     fetchTeacherSections();
-  }, [user, token]);
+  }, [userId]); // Only depend on userId, not entire user object
 
   const fetchTeacherSections = async () => {
     try {
       setLoading(true);
-      // Guard: require user
-      const userId = user._id || user.id;
-      if (!user || !userId) {
+      if (!userId) {
         throw new Error('Missing user session.');
       }
-      console.log('[TeacherSections] Fetching sections for teacher:', userId);
-      console.log('[TeacherSections] Token present:', !!token);
       const data = await sectionApi.getTeacherStudentConnections(userId);
-      console.log('[TeacherSections] Received sections data:', data);
       setSections(data);
       setError(''); // Clear any previous errors
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.message || 'Failed to fetch your sections';
       setError(errorMsg);
       console.error('[TeacherSections] Error fetching teacher sections:', err);
-      console.error('[TeacherSections] Error response:', err.response?.data);
     } finally {
       setLoading(false);
     }
@@ -186,29 +177,6 @@ const TeacherSections = () => {
                       >
                         View All Students
                       </Button>
-                      
-                      {/* Group Chat buttons for each course in the section */}
-                      {section.courses && section.courses.length > 0 && (
-                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                          {section.courses.map((course) => (
-                            <Button
-                              key={course._id}
-                              variant="contained"
-                              size="small"
-                              startIcon={<ChatIcon />}
-                              onClick={() => navigate(`/group-chat/${course._id}/${section._id}`)}
-                              sx={{ 
-                                bgcolor: '#395a7f',
-                                '&:hover': { bgcolor: '#6e9fc1' },
-                                flex: 1,
-                                minWidth: 'auto'
-                              }}
-                            >
-                              {course.courseCode} Chat
-                            </Button>
-                          ))}
-                        </Box>
-                      )}
                     </Box>
                   </CardContent>
                 </Card>

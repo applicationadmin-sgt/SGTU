@@ -45,7 +45,12 @@ import DeanAnnouncements from './dean/DeanAnnouncements';
 import DeanAnnouncementHistory from './dean/DeanAnnouncementHistory';
 import MyTeachingSections from '../components/common/MyTeachingSections';
 import DeanProfile from '../components/DeanProfile';
-import DeanLiveClasses from './dean/DeanLiveClasses';
+import ChatDashboard from '../components/ChatDashboard';
+import DeanCertificates from './dean/DeanCertificates';
+import StudentIndividualAnalytics from '../components/common/StudentIndividualAnalytics';
+import SectionAnalytics from '../components/dean/SectionAnalytics';
+// Live class components moved to independent video-call-module
+// import DeanLiveClasses from './dean/DeanLiveClasses';
 
 const DeanDashboard = () => {
   const navigate = useNavigate();
@@ -84,8 +89,23 @@ const DeanDashboard = () => {
   // Check if we're on a sub-page
   const isOnMainDashboard = location.pathname === '/dean/dashboard';
 
+  // Sidebar collapsed state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
+
+  // Listen for sidebar toggle events
   useEffect(() => {
-    if (!token) return;
+    const handleSidebarToggle = (event) => {
+      setSidebarCollapsed(event.detail.collapsed);
+    };
+    
+    window.addEventListener('sidebarToggle', handleSidebarToggle);
+    return () => window.removeEventListener('sidebarToggle', handleSidebarToggle);
+  }, []);
+
+  useEffect(() => {
+    if (!token || !currentUser) return;
     
     // Fetch notifications
     (async () => {
@@ -160,7 +180,7 @@ const DeanDashboard = () => {
         setStatsLoading(false);
       }
     })();
-  }, [token, currentUser._id]);
+  }, [token, currentUser?._id]);
 
   // Helper function to render loading or empty state
   const renderLoadingOrEmpty = (loading, items, emptyMessage) => {
@@ -473,7 +493,12 @@ const DeanDashboard = () => {
 
         {/* Sidebar with top margin for fixed header - Hidden on live class */}
         {!isOnLiveClass && (
-          <Box sx={{ mt: '64px', width: '280px', flexShrink: 0 }}>
+          <Box sx={{ 
+            mt: '64px', 
+            width: sidebarCollapsed ? '80px' : '280px', 
+            flexShrink: 0,
+            transition: 'width 0.3s'
+          }}>
             <Sidebar currentUser={currentUser} />
           </Box>
         )}
@@ -483,6 +508,8 @@ const DeanDashboard = () => {
           flexGrow: 1, 
           mt: isOnLiveClass ? 0 : '64px', 
           ml: 0,
+          width: isOnLiveClass ? '100vw' : `calc(100% - ${sidebarCollapsed ? 80 : 280}px)`,
+          transition: 'width 0.3s',
           width: isOnLiveClass ? '100vw' : 'auto',
           position: isOnLiveClass ? 'fixed' : 'relative',
           top: isOnLiveClass ? 0 : 'auto',
@@ -828,16 +855,20 @@ const DeanDashboard = () => {
               <Routes>
                 <Route path="/dashboard" element={<DeanDashboardHome />} />
                 <Route path="/profile" element={<DeanProfile />} />
+                <Route path="/chats" element={<ChatDashboard />} />
                 <Route path="/departments" element={<DeanDepartments />} />
-                <Route path="/sections" element={<DeanSectionAnalytics />} />
+                <Route path="/section-analytics" element={<SectionAnalytics />} />
                 <Route path="/school-management" element={<DeanSchoolManagement />} />
                 <Route path="/teachers" element={<DeanTeachers />} />
                 <Route path="/analytics" element={<DeanAnalytics />} />
+                <Route path="/student-analytics" element={<StudentIndividualAnalytics />} />
                 <Route path="/announcements" element={<DeanAnnouncements />} />
                 <Route path="/announcements/history" element={<DeanAnnouncementHistory />} />
                 <Route path="/unlock-requests" element={<DeanQuizUnlockDashboard />} />
+                <Route path="/certificates" element={<DeanCertificates />} />
                 <Route path="/teaching-sections" element={<MyTeachingSections />} />
-                <Route path="/live-classes" element={<DeanLiveClasses />} />
+                {/* Live class routes moved to independent video-call-module */}
+                {/* <Route path="/live-classes" element={<DeanLiveClasses />} /> */}
                 <Route path="*" element={<Navigate to="/dean/dashboard" replace />} />
               </Routes>
             </Box>

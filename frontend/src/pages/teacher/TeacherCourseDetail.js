@@ -23,8 +23,10 @@ import VideoLibraryIcon from '@mui/icons-material/VideoLibrary';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import EventIcon from '@mui/icons-material/Event';
+import SettingsIcon from '@mui/icons-material/Settings';
 import axios from 'axios';
 import { getUnitsByCourse, createUnit } from '../../api/unitApi';
+import QuizConfigurationDialog from '../../components/common/QuizConfigurationDialog';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, TextField as MuiTextField
 } from '@mui/material';
@@ -59,6 +61,8 @@ const TeacherCourseDetail = () => {
   const [newUnitDesc, setNewUnitDesc] = useState('');
   const [unitLoading, setUnitLoading] = useState(false);
   const [unitError, setUnitError] = useState('');
+  const [quizConfigDialogOpen, setQuizConfigDialogOpen] = useState(false);
+  const [selectedUnit, setSelectedUnit] = useState(null);
 
   useEffect(() => {
     const fetchCourseDetails = async () => {
@@ -102,7 +106,19 @@ const TeacherCourseDetail = () => {
     setUnitError('');
     setUnitDialogOpen(true);
   };
+  
   const handleCloseUnitDialog = () => setUnitDialogOpen(false);
+  
+  const handleOpenQuizConfig = (unit) => {
+    setSelectedUnit(unit);
+    setQuizConfigDialogOpen(true);
+  };
+  
+  const handleCloseQuizConfig = () => {
+    setQuizConfigDialogOpen(false);
+    setSelectedUnit(null);
+  };
+  
   const handleCreateUnit = async () => {
     if (!newUnitTitle.trim()) {
       setUnitError('Unit title is required');
@@ -249,6 +265,15 @@ const TeacherCourseDetail = () => {
                       </Box>
                     }
                   />
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<SettingsIcon />}
+                    onClick={() => handleOpenQuizConfig(unit)}
+                    sx={{ ml: 2 }}
+                  >
+                    Quiz Settings
+                  </Button>
                 </ListItem>
                 );
               })}
@@ -369,6 +394,19 @@ const TeacherCourseDetail = () => {
         </TabPanel>
         
       </Paper>
+
+      {/* Quiz Configuration Dialog */}
+      {selectedUnit && course && (
+        <QuizConfigurationDialog
+          open={quizConfigDialogOpen}
+          onClose={handleCloseQuizConfig}
+          courseId={courseId}
+          unitId={selectedUnit._id}
+          unitTitle={selectedUnit.title}
+          sections={course.sections || []}
+          userRole="teacher"
+        />
+      )}
     </div>
   );
 };

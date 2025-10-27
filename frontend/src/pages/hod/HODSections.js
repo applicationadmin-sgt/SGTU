@@ -38,7 +38,6 @@ import {
   School as SchoolIcon,
   Book as BookIcon,
   Assignment as AssignmentIcon,
-  Chat as ChatIcon,
   PersonAdd as PersonAddIcon,
   PersonRemove as PersonRemoveIcon,
   Edit as EditIcon
@@ -395,20 +394,6 @@ const HODSections = () => {
                                 <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
                                   {course.courseCode} - {course.title}
                                 </Typography>
-                                <Button
-                                  variant="contained"
-                                  size="small"
-                                  startIcon={<ChatIcon />}
-                                  onClick={() => navigate(`/group-chat/${course._id}/${section._id}`)}
-                                  sx={{ 
-                                    bgcolor: '#395a7f',
-                                    '&:hover': { bgcolor: '#6e9fc1' },
-                                    minWidth: 'auto',
-                                    fontSize: '0.75rem'
-                                  }}
-                                >
-                                  Chat
-                                </Button>
                               </Box>
                               
                               {/* Teacher Assignment Section */}

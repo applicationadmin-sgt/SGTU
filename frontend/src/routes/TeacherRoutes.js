@@ -17,11 +17,7 @@ import TeacherStudents from '../pages/teacher/TeacherStudents';
 import TeacherEnhancedAnalytics from '../pages/teacher/TeacherEnhancedAnalytics';
 import TeacherAnalyticsFixed from '../components/teacher/TeacherAnalyticsFixed';
 import TeacherProfile from '../components/TeacherProfile';
-// Import the restored teacher live class dashboard
-import TeacherLiveClassDashboard from '../components/teacher/TeacherLiveClassDashboard';
-import SimpleTeacherLiveClassDashboard from '../components/teacher/SimpleTeacherLiveClassDashboard';
-import SgtLmsLiveClass from '../components/liveclass/CodeTantraLiveClass';
-import TestLiveClassPage from '../components/teacher/TestLiveClassPage';
+// Live class imports removed - moved to independent video call module
 import TeacherSections from '../components/teacher/TeacherSections';
 import TeacherSectionAnalytics from '../components/teacher/TeacherSectionAnalytics';
 import AnnouncementPage from '../pages/AnnouncementPage';
@@ -86,10 +82,7 @@ const TeacherRoutes = () => {
         <Route path="/course/:courseId/forums" element={<CourseForums token={token} user={user} />} />
         <Route path="/forum/:forumId" element={<ForumDiscussion token={token} user={user} />} />
         
-        {/* Live Classes routes */}
-        <Route path="/live-classes" element={<TeacherLiveClassDashboard token={token} user={user} />} />
-        <Route path="/live-class/:classId" element={<SgtLmsLiveClass token={token} user={user} />} />
-        <Route path="/scalable-classroom/:classId" element={<SgtLmsLiveClass token={token} user={user} />} />
+        {/* Live class routes removed - moved to independent video call module */}
         
         {/* Sections routes */}
         <Route path="/sections" element={<TeacherSections token={token} user={user} />} />

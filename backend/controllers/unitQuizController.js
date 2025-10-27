@@ -6,6 +6,7 @@ const Unit = require('../models/Unit');
 const Course = require('../models/Course');
 const User = require('../models/User');
 const QuizSecurityAudit = require('../models/QuizSecurityAudit');
+const QuizConfiguration = require('../models/QuizConfiguration');
 
 // Helper function to determine violation severity
 function getSeverityLevel(violationType, tabSwitchCount = 0) {
@@ -130,7 +131,36 @@ exports.checkUnitQuizAvailability = async (req, res) => {
         { isComplete: true }
       ]
     });
-  const baseAttemptLimit = 1; // Lock immediately after first failure for teacher unlock system
+
+  // Fetch quiz configuration to get maxAttempts
+  let configuredMaxAttempts = 3; // Default if no config found
+  try {
+    const student = await User.findById(studentId).select('assignedSections');
+    const courseId = unit.course._id;
+    const Section = require('../models/Section');
+    const studentSection = await Section.findOne({
+      _id: { $in: student.assignedSections },
+      courses: courseId
+    });
+    
+    if (studentSection) {
+      const customConfig = await QuizConfiguration.findOne({
+        course: courseId,
+        section: studentSection._id,
+        unit: unitId,
+        isActive: true
+      });
+      
+      if (customConfig && customConfig.maxAttempts) {
+        configuredMaxAttempts = customConfig.maxAttempts;
+        console.log(`Using configured maxAttempts: ${configuredMaxAttempts}`);
+      }
+    }
+  } catch (configError) {
+    console.error('Error fetching max attempts from config:', configError);
+  }
+
+  const baseAttemptLimit = configuredMaxAttempts; // Use configured value instead of hardcoded 1
   const extraAttempts = unitProgress.extraAttempts || 0;
   const attemptLimit = baseAttemptLimit + extraAttempts;
   const remainingAttempts = quizPassed ? 0 : Math.max(0, attemptLimit - attemptsTaken);
@@ -354,7 +384,7 @@ exports.generateUnitQuiz = async (req, res) => {
       return res.status(403).json({ message: 'Quiz already passed for this unit' });
     }
 
-    // Enforce attempt limit (1 attempt for immediate lock after failure)
+    // Enforce attempt limit using configured maxAttempts
     const attemptsTaken = await QuizAttempt.countDocuments({
       student: studentId,
       unit: unitId,
@@ -363,7 +393,36 @@ exports.generateUnitQuiz = async (req, res) => {
         { isComplete: true }
       ]
     });
-    const baseAttemptLimit = 1; // Lock immediately after first failure for teacher unlock system
+    
+    // Fetch quiz configuration to get maxAttempts
+    let configuredMaxAttempts = 3; // Default if no config found
+    try {
+      const student = await User.findById(studentId).select('assignedSections');
+      const courseId = unit.course._id;
+      const Section = require('../models/Section');
+      const studentSection = await Section.findOne({
+        _id: { $in: student.assignedSections },
+        courses: courseId
+      });
+      
+      if (studentSection) {
+        const customConfig = await QuizConfiguration.findOne({
+          course: courseId,
+          section: studentSection._id,
+          unit: unitId,
+          isActive: true
+        });
+        
+        if (customConfig && customConfig.maxAttempts) {
+          configuredMaxAttempts = customConfig.maxAttempts;
+          console.log(`Using configured maxAttempts: ${configuredMaxAttempts}`);
+        }
+      }
+    } catch (configError) {
+      console.error('Error fetching max attempts from config:', configError);
+    }
+
+    const baseAttemptLimit = configuredMaxAttempts; // Use configured value
     const extraAttempts = unitProgress.extraAttempts || 0;
     let attemptLimit = baseAttemptLimit + extraAttempts;
     
@@ -410,6 +469,51 @@ exports.generateUnitQuiz = async (req, res) => {
 
     let selectedQuestions = [];
     let quizSource = null;
+    
+    // **NEW: Fetch quiz configuration for this unit/section**
+    let quizConfig = {
+      timeLimit: 30,
+      numberOfQuestions: 10,
+      shuffleQuestions: true
+    };
+    
+    try {
+      // Get student's section for this course
+      const student = await User.findById(studentId).select('assignedSections');
+      const courseId = unit.course._id;
+      
+      // Find the section where student is enrolled for this course
+      const Section = require('../models/Section');
+      const studentSection = await Section.findOne({
+        _id: { $in: student.assignedSections },
+        courses: courseId
+      });
+      
+      if (studentSection) {
+        // Try to get custom configuration
+        const customConfig = await QuizConfiguration.findOne({
+          course: courseId,
+          section: studentSection._id,
+          unit: unitId,
+          isActive: true
+        });
+        
+        if (customConfig) {
+          quizConfig = {
+            timeLimit: customConfig.timeLimit,
+            numberOfQuestions: customConfig.numberOfQuestions,
+            shuffleQuestions: customConfig.shuffleQuestions
+          };
+          console.log('Using custom quiz configuration:', quizConfig);
+        } else {
+          console.log('Using default quiz configuration:', quizConfig);
+        }
+      } else {
+        console.log('Student section not found, using defaults');
+      }
+    } catch (configError) {
+      console.error('Error fetching quiz configuration, using defaults:', configError);
+    }
 
     // Check if unit has a quiz pool
     if (unit.quizPool) {
@@ -435,14 +539,16 @@ exports.generateUnitQuiz = async (req, res) => {
       
       console.log('Total questions found in quiz pool:', allQuestions.length);
       
-      if (allQuestions.length < 10) {
+      if (allQuestions.length < quizConfig.numberOfQuestions) {
         console.log('Insufficient questions in quiz pool:', allQuestions.length);
-        return res.status(400).json({ message: `Insufficient questions in quiz pool. Found ${allQuestions.length} questions, need at least 10.` });
+        return res.status(400).json({ message: `Insufficient questions in quiz pool. Found ${allQuestions.length} questions, need at least ${quizConfig.numberOfQuestions}.` });
       }
 
-      // Randomly select 10 questions
-      const shuffled = [...allQuestions].sort(() => 0.5 - Math.random());
-      selectedQuestions = shuffled.slice(0, 10).map(q => ({
+      // Randomly select configured number of questions
+      const shuffled = quizConfig.shuffleQuestions 
+        ? [...allQuestions].sort(() => 0.5 - Math.random())
+        : allQuestions;
+      selectedQuestions = shuffled.slice(0, quizConfig.numberOfQuestions).map(q => ({
         questionId: q._id,
         questionText: q.questionText,
         options: q.options,
@@ -459,13 +565,15 @@ exports.generateUnitQuiz = async (req, res) => {
         console.log('Quiz not found');
         return res.status(400).json({ message: 'Quiz not found' });
       }
-      if (!quiz.questions || quiz.questions.length < 10) {
+      if (!quiz.questions || quiz.questions.length < quizConfig.numberOfQuestions) {
         console.log('Insufficient questions in quiz:', quiz.questions?.length || 0);
         return res.status(400).json({ message: 'Insufficient questions in quiz' });
       }
 
-      const shuffled = [...quiz.questions].sort(() => 0.5 - Math.random());
-      selectedQuestions = shuffled.slice(0, 10).map(q => ({
+      const shuffled = quizConfig.shuffleQuestions
+        ? [...quiz.questions].sort(() => 0.5 - Math.random())
+        : quiz.questions;
+      selectedQuestions = shuffled.slice(0, quizConfig.numberOfQuestions).map(q => ({
         questionId: q._id,
         questionText: q.questionText,
         options: q.options,
@@ -508,7 +616,7 @@ exports.generateUnitQuiz = async (req, res) => {
           attemptId: existingAttempt._id,
           unitTitle: unit.title,
           courseTitle: unit.course.title,
-          timeLimit: 30, // 30 minutes
+          timeLimit: quizConfig.timeLimit,
           questions: existingAttempt.questions.map((q, index) => ({
             questionNumber: index + 1,
             questionId: q.questionId,
@@ -552,7 +660,7 @@ exports.generateUnitQuiz = async (req, res) => {
       attemptId: quizAttempt._id,
       unitTitle: unit.title,
       courseTitle: unit.course.title,
-      timeLimit: 30, // 30 minutes
+      timeLimit: quizConfig.timeLimit,
       questions: selectedQuestions.map((q, index) => ({
         questionNumber: index + 1,
         questionId: q.questionId,
@@ -834,6 +942,85 @@ exports.submitUnitQuiz = async (req, res) => {
       }
     }
 
+    // **AUTOMATIC CERTIFICATE REGENERATION: Update certificate if it exists**
+    try {
+      const Certificate = require('../models/Certificate');
+      const Section = require('../models/Section');
+      
+      // Find student's section for this course
+      const student = await User.findById(studentId);
+      const section = await Section.findOne({
+        course: attempt.course,
+        _id: { $in: student.assignedSections }
+      });
+      
+      if (section) {
+        // Check if certificate exists for this student/course/section
+        const existingCertificate = await Certificate.findOne({
+          student: studentId,
+          course: attempt.course,
+          section: section._id,
+          status: 'active'
+        });
+        
+        if (existingCertificate) {
+          console.log(`📜 Updating certificate for student ${studentId} with new marks: ${finalPercentage}%`);
+          
+          // Recalculate marks based on ALL quiz attempts
+          const allQuizzes = await Unit.find({ course: attempt.course }).select('quizzes quizPool');
+          const totalQuizzes = allQuizzes.filter(u => u.quizzes?.length > 0 || u.quizPool).length;
+          
+          const passedAttempts = await QuizAttempt.find({
+            student: studentId,
+            course: attempt.course,
+            passed: true,
+            completedAt: { $exists: true }
+          }).select('unit');
+          
+          const uniquePassedUnits = [...new Set(passedAttempts.map(a => a.unit.toString()))];
+          const newMarks = totalQuizzes > 0 
+            ? Math.round((uniquePassedUnits.length / totalQuizzes) * 100) 
+            : 0;
+          
+          // Update certificate marks and regenerate verification data
+          const crypto = require('crypto');
+          const QRCode = require('qrcode');
+          
+          existingCertificate.marks = newMarks;
+          
+          // Regenerate verification hash with updated marks
+          const hashData = [
+            existingCertificate.certificateNumber,
+            studentId.toString(),
+            attempt.course.toString(),
+            newMarks.toString(),
+            existingCertificate.issueDate.toISOString()
+          ].join('|');
+          
+          existingCertificate.verificationHash = crypto
+            .createHash('sha256')
+            .update(hashData)
+            .digest('hex');
+          
+          // Regenerate verification URL
+          existingCertificate.verificationUrl = `${process.env.FRONTEND_URL || 'https://192.168.7.20:3000'}/verify-certificate/${existingCertificate.verificationHash}`;
+          
+          // Regenerate QR code
+          try {
+            existingCertificate.qrCodeData = await QRCode.toDataURL(existingCertificate.verificationUrl);
+          } catch (qrError) {
+            console.error('QR code regeneration error:', qrError);
+          }
+          
+          await existingCertificate.save();
+          console.log(`✅ Certificate updated successfully with ${newMarks}% marks`);
+        }
+      }
+    } catch (certError) {
+      console.error('Error updating certificate:', certError);
+      // Don't fail the quiz submission due to certificate update errors
+    }
+
     // **NEW: Check and lock quiz if student failed (regardless of security violations)**
     try {
       if (!attempt.passed && finalPercentage < 70) {
@@ -1030,12 +1217,38 @@ exports.getQuizAttempt = async (req, res) => {
       });
     }
 
+    // **NEW: Fetch quiz configuration**
+    let timeLimit = 30; // default
+    try {
+      const student = await User.findById(studentId).select('assignedSections');
+      const Section = require('../models/Section');
+      const studentSection = await Section.findOne({
+        _id: { $in: student.assignedSections },
+        courses: attempt.course._id
+      });
+      
+      if (studentSection) {
+        const customConfig = await QuizConfiguration.findOne({
+          course: attempt.course._id,
+          section: studentSection._id,
+          unit: attempt.unit._id,
+          isActive: true
+        });
+        
+        if (customConfig) {
+          timeLimit = customConfig.timeLimit;
+        }
+      }
+    } catch (configError) {
+      console.error('Error fetching quiz configuration:', configError);
+    }
+
     // Return quiz data for student (without correct answers)
     const quizData = {
       attemptId: attempt._id,
       unitTitle: attempt.unit.title,
       courseTitle: attempt.course.title,
-      timeLimit: 30, // 30 minutes
+      timeLimit: timeLimit,
       questions: attempt.questions.map((q, index) => ({
         questionNumber: index + 1,
         questionId: q.questionId,

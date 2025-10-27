@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Box,
@@ -7,12 +7,14 @@ import {
   IconButton,
   Menu,
   MenuItem,
-  Divider
+  Divider,
+  Drawer
 } from '@mui/material';
 
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonIcon from '@mui/icons-material/Person';
 import SwitchAccountIcon from '@mui/icons-material/SwitchAccount';
+import MenuIcon from '@mui/icons-material/Menu';
 import { getCurrentUser } from '../utils/authService';
 import { useUserRole } from '../contexts/UserRoleContext';
 import Sidebar from '../components/Sidebar';
@@ -35,11 +37,14 @@ import StudentForumDetailPage from './student/StudentForumDetailPage';
 import StudentUnansweredForumsPage from './student/StudentUnansweredForumsPage';
 import StudentSection from '../components/student/StudentSection';
 // import StudentLiveClasses from './student/StudentLiveClasses'; // Moved to LEGACY_BACKUP
-import StudentLiveClassDashboard from '../components/student/StudentLiveClassDashboard';
+// Live class components moved to independent video-call-module
+// import StudentLiveClassDashboard from '../components/student/StudentLiveClassDashboard';
 import QuizResults from '../components/student/QuizResults';
 import RecentVideos from '../components/student/RecentVideos';
 import StudentProfile from '../components/StudentProfile';
 import WatchHistory from '../components/student/WatchHistory';
+import ChatDashboard from '../components/ChatDashboard';
+import StudentCertificates from '../components/student/StudentCertificates';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -56,6 +61,24 @@ const StudentDashboard = () => {
 
   // Profile menu state
   const [profileAnchorEl, setProfileAnchorEl] = useState(null);
+  
+  // Mobile drawer state
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Sidebar collapsed state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
+
+  // Listen for sidebar toggle events
+  useEffect(() => {
+    const handleSidebarToggle = (event) => {
+      setSidebarCollapsed(event.detail.collapsed);
+    };
+    
+    window.addEventListener('sidebarToggle', handleSidebarToggle);
+    return () => window.removeEventListener('sidebarToggle', handleSidebarToggle);
+  }, []);
 
   // Event handlers for profile menu
   const handleProfileClick = (event) => {
@@ -110,7 +133,11 @@ const StudentDashboard = () => {
   };
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    <Box sx={{ 
+      display: 'flex', 
+      minHeight: '100vh',
+      flexDirection: { xs: 'column', md: 'row' }
+    }}>
       {/* Professional Header - Full Width Fixed - Hidden on live class */}
       {!isOnLiveClass && (
         <Box 
@@ -130,8 +157,22 @@ const StudentDashboard = () => {
             zIndex: 1300
           }}
         >
-        {/* Left side - SGT Logo */}
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        {/* Left side - Mobile Menu + Logo */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {/* Mobile Menu Icon - Only visible on mobile */}
+          <IconButton
+            sx={{ 
+              display: { xs: 'flex', md: 'none' },
+              color: 'white',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.1)'
+              }
+            }}
+            onClick={() => setMobileMenuOpen(true)}
+          >
+            <MenuIcon />
+          </IconButton>
+          
           <img 
             src={sgtLogoWhite} 
             alt="Header Logo" 
@@ -327,9 +368,24 @@ const StudentDashboard = () => {
       </Box>
       )}
 
-      {/* Sidebar with top margin for fixed header - Hidden on live class */}
+      {/* Mobile Navigation - Sidebar handles its own drawer */}
+      <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+        <Sidebar 
+          currentUser={currentUser} 
+          mobileOpen={mobileMenuOpen} 
+          handleDrawerToggle={() => setMobileMenuOpen(false)} 
+        />
+      </Box>
+
+      {/* Sidebar with top margin for fixed header - Hidden on live class & mobile */}
       {!isOnLiveClass && (
-        <Box sx={{ mt: '64px', width: '280px', flexShrink: 0 }}>
+        <Box sx={{ 
+          display: { xs: 'none', md: 'block' },
+          mt: '64px', 
+          width: sidebarCollapsed ? '80px' : '280px', 
+          flexShrink: 0,
+          transition: 'width 0.3s'
+        }}>
           <Sidebar currentUser={currentUser} />
         </Box>
       )}
@@ -339,7 +395,11 @@ const StudentDashboard = () => {
         flexGrow: 1, 
         mt: isOnLiveClass ? 0 : '64px', 
         ml: 0,
-        width: isOnLiveClass ? '100vw' : 'auto',
+        width: isOnLiveClass ? '100vw' : { 
+          xs: '100%', 
+          md: `calc(100% - ${sidebarCollapsed ? 80 : 280}px)` 
+        },
+        transition: 'width 0.3s',
         position: isOnLiveClass ? 'fixed' : 'relative',
         top: isOnLiveClass ? 0 : 'auto',
         left: isOnLiveClass ? 0 : 'auto',
@@ -365,9 +425,11 @@ const StudentDashboard = () => {
             <Route path="/" element={<StudentHomeDashboard />} />
             <Route path="/dashboard" element={<StudentHomeDashboard />} />
             <Route path="/profile" element={<StudentProfile />} />
+            <Route path="/chats" element={<ChatDashboard />} />
             <Route path="/courses" element={<StudentCoursesPage />} />
             <Route path="/section" element={<StudentSection user={currentUser} token={token} />} />
-            <Route path="/live-classes" element={<StudentLiveClassDashboard token={token} user={currentUser} />} />
+            {/* Live class routes moved to independent video-call-module */}
+            {/* <Route path="/live-classes" element={<StudentLiveClassDashboard token={token} user={currentUser} />} /> */}
             <Route path="/videos" element={<RecentVideos />} />
             <Route path="/watch-history" element={<WatchHistory />} />
             <Route path="/course/:courseId" element={<StudentCourseUnits />} />
@@ -376,6 +438,7 @@ const StudentDashboard = () => {
             <Route path="/course/:courseId/unit/:unitId/video/:videoId" element={<StudentUnitVideo />} />
             <Route path="/course/:courseId/progress" element={<StudentCourseProgress />} />
             <Route path="/quiz-results" element={<QuizResults />} />
+            <Route path="/certificates" element={<StudentCertificates />} />
             <Route path="/course/:courseId/quiz/:attemptId" element={<StudentQuizPage user={currentUser} token={token} />} />
             <Route path="/secure-quiz/:attemptId" element={<SecureQuizPage user={currentUser} token={token} />} />
             <Route path="/quiz-launcher/:attemptId" element={<QuizLauncher user={currentUser} token={token} />} />

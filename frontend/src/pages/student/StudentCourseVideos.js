@@ -201,11 +201,11 @@ const StudentCourseVideos = () => {
             setCurrentVideo(videoToPlay);
             setVideoOpen(true);
             
-            // Record initial video watch
+            // Record initial video watch (don't override position)
             updateWatchHistory(videoId, {
               timeSpent: 0.1,
-              currentTime: 0,
               duration: videoToPlay.duration
+              // Don't send currentTime: 0 - let the backend keep existing position
             }, token).catch(err => {
               console.error('Error recording initial video watch:', err);
             });
@@ -276,8 +276,8 @@ const StudentCourseVideos = () => {
       
       updateWatchHistory(video._id, {
         timeSpent: 0.1, // Use 0.1 instead of 0 to pass backend validation
-        currentTime: 0,
         duration: video.duration
+        // Don't send currentTime: 0 - let the backend keep existing position
       }, token);
     } catch (err) {
       console.error('Error recording video watch:', err);
@@ -628,544 +628,411 @@ const StudentCourseVideos = () => {
   };
 
 
-  
-  return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      {/* Breadcrumbs */}
-      <Breadcrumbs aria-label="breadcrumb" sx={{ mb: 2 }}>
-        <Link component={RouterLink} to="/student" color="inherit">
-          Dashboard
-        </Link>
-        <Link component={RouterLink} to="/student/courses" color="inherit">
-          My Courses
-        </Link>
-        <Typography color="text.primary">
-          {hasUnits ? 'Course Units' : 'Course Videos'}
-        </Typography>
-      </Breadcrumbs>
+  // Helper functions for the new Coursera-style layout
+  const calculateUnitProgress = (unit) => {
+    const totalVideos = unit.videos?.length || 0;
+    const watchedVideos = unit.videos?.filter(v => v.watched).length || 0;
+    return totalVideos > 0 ? Math.round((watchedVideos / totalVideos) * 100) : 0;
+  };
 
-      {/* Course Deadline Warnings */}
-      {console.log('🎨 Rendering course deadline section. deadlineLoading:', deadlineLoading, 'deadlineWarnings:', deadlineWarnings)}
-      {deadlineLoading ? (
-        <Alert severity="info" sx={{ mb: 3 }}>
-          Loading deadline information...
-        </Alert>
-      ) : deadlineWarnings && deadlineWarnings.length > 0 && (
-        <Alert 
-          severity={deadlineWarnings.some(w => w.isExpired) ? "error" : "warning"} 
-          sx={{ mb: 3 }}
-          icon={<WarningIcon />}
-        >
-          <Typography variant="h6" gutterBottom>
-            {deadlineWarnings.some(w => w.isExpired) ? "⚠️ Urgent Deadline Alerts!" : "📅 Course Deadlines"}
-          </Typography>
-          <Typography variant="body2" paragraph>
-            This course has {deadlineWarnings.length} deadline{deadlineWarnings.length !== 1 ? 's' : ''} requiring attention
-            {deadlineWarnings.some(w => w.isExpired) && (
-              <span style={{ fontWeight: 'bold', color: '#d32f2f' }}>
-                {' '}({deadlineWarnings.filter(w => w.isExpired).length} expired!)
-              </span>
-            )}
-          </Typography>
-          <List dense>
-            {deadlineWarnings.map((warning) => (
-              <ListItem key={warning.unitId}>
-                <ListItemText
-                  primary={
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <Typography variant="subtitle2">
-                        {warning.unitTitle}
-                      </Typography>
-                      <Chip
-                        size="small"
-                        label={warning.isExpired ? 'EXPIRED' : `${warning.daysLeft} days left`}
-                        color={warning.isExpired ? 'error' : warning.daysLeft <= 1 ? 'warning' : 'info'}
-                      />
-                    </Box>
-                  }
-                  secondary={
-                    <Typography variant="body2" color="text.secondary">
-                      Deadline: {new Date(warning.deadline).toLocaleDateString()} at{' '}
-                      {new Date(warning.deadline).toLocaleTimeString()}
-                      {warning.deadlineDescription && ` - ${warning.deadlineDescription}`}
-                    </Typography>
-                  }
-                />
-              </ListItem>
-            ))}
-          </List>
-        </Alert>
-      )}
-      
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
-          <CircularProgress />
+  const isUnitUnlocked = (unit) => {
+    // Unit is unlocked if all videos are watched
+    if (!unit.videos || unit.videos.length === 0) return false;
+    return unit.videos.every(v => v.watched);
+  };
+
+  const isVideoLockedInUnit = (video, unit, unitIndex, allUnits) => {
+    // First unit videos: first video unlocked, rest sequential
+    if (unitIndex === 0) {
+      const videoIndexInUnit = unit.videos.findIndex(v => v._id === video._id);
+      if (videoIndexInUnit === 0) return false;
+      // Check if previous video is watched
+      return !unit.videos[videoIndexInUnit - 1].watched;
+    }
+    
+    // Other units: check if previous unit is completed
+    const previousUnit = allUnits[unitIndex - 1];
+    if (!previousUnit || !isUnitUnlocked(previousUnit)) {
+      return true; // Lock entire unit if previous unit not completed
+    }
+    
+    // Within unlocked unit, check sequential video access
+    const videoIndexInUnit = unit.videos.findIndex(v => v._id === video._id);
+    if (videoIndexInUnit === 0) return false;
+    return !unit.videos[videoIndexInUnit - 1].watched;
+  };
+
+  const handleUnitToggle = (unitId) => {
+    setExpandedUnit(expandedUnit === unitId ? null : unitId);
+  };
+
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
+      {/* Left Sidebar - Video/Unit List (Coursera-style) */}
+      <Box
+        sx={{
+          width: { xs: '100%', md: '380px' },
+          flexShrink: 0,
+          backgroundColor: 'white',
+          borderRight: { md: '1px solid #e0e0e0' },
+          height: { md: '100vh' },
+          overflowY: 'auto',
+          position: { md: 'sticky' },
+          top: 0,
+          zIndex: 10
+        }}
+      >
+        {/* Course Header in Sidebar */}
+        <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: '1px solid #e0e0e0', backgroundColor: '#fafafa' }}>
+          <Breadcrumbs aria-label="breadcrumb" sx={{ mb: 2, fontSize: '0.75rem' }}>
+            <Link component={RouterLink} to="/student" color="inherit">
+              Dashboard
+            </Link>
+            <Link component={RouterLink} to="/student/courses" color="inherit">
+              Courses
+            </Link>
+          </Breadcrumbs>
+          
+          {course && (
+            <>
+              <Typography variant="h6" gutterBottom sx={{ fontSize: { xs: '1rem', sm: '1.125rem' }, fontWeight: 600 }}>
+                {course.title}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" display="block">
+                {course.courseCode}
+              </Typography>
+            </>
+          )}
         </Box>
-      ) : error ? (
-        <Typography color="error">{error}</Typography>
-      ) : !course ? (
-        <Typography variant="body1">
-          Course not found or you don't have access to this course.
-        </Typography>
-      ) : (
-        <>
-          <Typography variant="h4" gutterBottom>
-            {course.title}
-          </Typography>
-          
-          <Typography variant="subtitle1" color="text.secondary" paragraph>
-            Course Code: {course.courseCode}
-          </Typography>
-          
-          <Grid container spacing={4}>
-            {/* Current/Selected Video Player */}
-            {videoOpen && currentVideo && (
-              <Grid item xs={12}>
-                <Paper sx={{ p: 2, mb: 3 }}>
-                  <Typography variant="h5" gutterBottom>
-                    {currentVideo.title}
-                  </Typography>
-                  
-                  <Box sx={{ mb: 2 }}>
-                    <CustomVideoPlayer 
-                      videoId={currentVideo._id}
-                      videoUrl={currentVideo.videoUrl.startsWith('http') ? currentVideo.videoUrl : formatVideoUrl(currentVideo.videoUrl)}
-                      title={currentVideo.title}
-                      token={token}
-                      onTimeUpdate={(currentTime, duration) => {
-                        // Update the local duration if different from what's stored
-                        if (duration > 0 && Math.abs(currentVideo.duration - duration) > 1) {
-                          console.log(`Updating video duration in parent: ${duration}s`);
-                          setCurrentVideo(prev => ({
-                            ...prev,
-                            duration: duration
-                          }));
-                        }
-                      }}
-                      onVideoComplete={(videoId, duration) => {
-                        console.log(`Video ${videoId} completed - updating backend and refreshing videos list`);
-                        console.log('Current video state:', { videoId, duration, isUpdatingVideoState });
-                        if (isUpdatingVideoState) {
-                          console.log('Already updating video state, ignoring duplicate completion event');
-                          return;
-                        }
-                        console.log('Starting video completion update process');
-                        setIsUpdatingVideoState(true);
-                        // Mark as watched locally
-                        setCurrentVideo(prev => ({ ...prev, watched: true }));
-                        if (hasUnits) {
-                          setUnits(prevUnits => prevUnits.map(unit => ({
-                            ...unit,
-                            videos: unit.videos.map(video => video._id === videoId ? { ...video, watched: true, completedAt: new Date().toISOString() } : video)
-                          })));
-                        } else {
-                          setVideos(prevVideos => prevVideos.map(video => video._id === videoId ? { ...video, watched: true, completedAt: new Date().toISOString() } : video));
-                        }
-                        // Call backend to mark as completed
-                        const payload = {
-                          timeSpent: duration || currentVideo.duration || 0, // Use actual duration, not 9999
-                          currentTime: duration || currentVideo.duration || 0, // Use full duration
-                          duration: currentVideo.duration || duration || 0,
-                          completed: true, // Explicitly mark as completed
-                          isCompleted: true // Add this flag for better backend handling
-                        };
-                        console.log('Calling updateWatchHistory with:', payload);
-                        console.log('Current video details:', currentVideo);
-                        
-                        updateWatchHistory(videoId, payload, token)
-                          .then(response => {
-                            console.log('Watch history update successful:', response);
-                            setVideoCompleted(prev => !prev);
-                            // Delay reload slightly to ensure backend has processed the update
-                            setTimeout(() => {
-                              window.location.reload();
-                            }, 500);
-                          })
-                          .catch(error => {
-                            console.error('Error updating watch history:', error);
-                          })
-                          .finally(() => {
-                            setTimeout(() => {
-                              setIsUpdatingVideoState(false);
-                            }, 1000);
-                          });
-                      }}
-                    />
-                  </Box>
-                  
-                  <Alert severity="info" sx={{ mb: 2 }}>
-                    Your progress is automatically tracked while watching. 
-                    {hasUnits && ' Complete all videos in a unit to unlock the quiz.'}
-                  </Alert>
-                  
-                  <Typography variant="body1" paragraph>
-                    {currentVideo.description}
-                  </Typography>
-                  
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Chip 
-                      icon={<AccessTimeIcon />} 
-                      label={`Duration: ${formatDuration(currentVideo.duration)}`} 
-                    />
-                    
-                    {currentVideo.watched && (
-                      <Chip 
-                        icon={<CheckCircleIcon />} 
-                        color="success" 
-                        label="Watched" 
+
+        {/* Deadline Warnings in Sidebar */}
+        {!deadlineLoading && deadlineWarnings && deadlineWarnings.length > 0 && (
+          <Alert 
+            severity={deadlineWarnings.some(w => w.isExpired) ? "error" : "warning"} 
+            sx={{ m: 2, fontSize: '0.75rem' }}
+            icon={<WarningIcon fontSize="small" />}
+          >
+            <Typography variant="caption" fontWeight="600">
+              {deadlineWarnings.length} deadline{deadlineWarnings.length !== 1 ? 's' : ''} pending
+            </Typography>
+          </Alert>
+        )}
+
+        {/* Video/Unit List */}
+        <Box sx={{ pb: 4 }}>
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+              <CircularProgress size={40} />
+            </Box>
+          ) : hasUnits ? (
+            // Unit-based curriculum
+            units.map((unit, unitIndex) => {
+              const unitProgress = calculateUnitProgress(unit);
+              const isUnitLocked = unitIndex > 0 && !isUnitUnlocked(units[unitIndex - 1]);
+              
+              return (
+                <Accordion 
+                  key={unit._id}
+                  expanded={expandedUnit === unit._id}
+                  onChange={() => handleUnitToggle(unit._id)}
+                  disableGutters
+                  elevation={0}
+                  sx={{
+                    '&:before': { display: 'none' },
+                    borderBottom: '1px solid #e0e0e0'
+                  }}
+                >
+                  <AccordionSummary
+                    expandIcon={<ExpandMoreIcon />}
+                    sx={{
+                      px: 2,
+                      py: 1.5,
+                      '&:hover': { backgroundColor: '#f5f5f5' }
+                    }}
+                  >
+                    <Box sx={{ width: '100%' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="subtitle2" fontWeight="600" sx={{ fontSize: '0.875rem' }}>
+                          Week {unitIndex + 1}: {unit.title}
+                        </Typography>
+                        {isUnitLocked && <LockIcon fontSize="small" color="disabled" />}
+                      </Box>
+                      <LinearProgress 
+                        variant="determinate" 
+                        value={unitProgress} 
+                        sx={{ height: 4, borderRadius: 2, mb: 0.5 }}
+                        color={unitProgress === 100 ? "success" : "primary"}
                       />
-                    )}
-                  </Box>
-                </Paper>
-              </Grid>
-            )}
-            
-            {/* Main Content - Units or Videos */}
-            <Grid item xs={12}>
-              {hasUnits ? (
-                // Unit-based display
-                <>
-                  <Typography variant="h5" gutterBottom>
-                    Course Units ({units.length})
-                  </Typography>
-                  
-                  {units.length === 0 ? (
-                    <Typography variant="body1">
-                      No units available for this course yet.
-                    </Typography>
-                  ) : (
-                    <Box>
-                      {units.map((unit, index) => (
-                        <Accordion 
-                          key={unit._id}
-                          expanded={expandedUnit === unit._id}
-                          onChange={handleAccordionChange(unit._id)}
-                          disabled={!unit.unlocked}
-                          sx={{ 
-                            mb: 2,
-                            opacity: unit.unlocked ? 1 : 0.6,
-                            '&.Mui-disabled': {
-                              backgroundColor: 'action.disabledBackground'
-                            }
-                          }}
-                        >
-                          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 2 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                {unit.unlocked ? (
-                                  unit.progress.status === 'completed' ? (
-                                    <CheckCircleIcon color="success" />
-                                  ) : (
-                                    <SchoolIcon color="primary" />
-                                  )
-                                ) : (
-                                  <LockIcon color="disabled" />
-                                )}
-                                <Typography variant="h6">
-                                  Unit {index + 1}: {unit.title}
-                                </Typography>
-                              </Box>
-                              
-                              <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
-                                <Chip 
-                                  size="small" 
-                                  label={`${unit.videos.length} videos`}
-                                  color="default"
-                                />
-                                <Chip 
-                                  size="small" 
-                                  label={unit.progress.status}
-                                  color={
-                                    unit.progress.status === 'completed' ? 'success' :
-                                    unit.progress.status === 'in-progress' ? 'primary' : 'default'
-                                  }
-                                />
-                                {!unit.unlocked && (
-                                  <Chip size="small" label="Locked" color="default" />
-                                )}
-                              </Box>
-                            </Box>
-                          </AccordionSummary>
-                          
-                          <AccordionDetails>
-                            <Box>
-                              <Typography variant="body1" paragraph>
-                                {unit.description}
-                              </Typography>
-                              
-                              {renderUnitProgress(unit)}
-                              
-                              {/* Videos List */}
-                              <Typography variant="h6" gutterBottom>
-                                Videos ({unit.videos.length})
-                              </Typography>
-                              
-                              {unit.videos.length === 0 ? (
-                                <Typography variant="body2" color="text.secondary">
-                                  No videos in this unit yet.
-                                </Typography>
-                              ) : (
-                                <List>
-                                  {unit.videos.map((video, videoIndex) => {
-                                    // Check if this video is locked
-                                    const isVideoLocked = videoIndex > 0 && !unit.videos[videoIndex - 1].watched;
-                                    
-                                    return (
-                                      <ListItem 
-                                        key={video._id}
-                                        sx={{ 
-                                          cursor: isVideoLocked ? 'not-allowed' : 'pointer',
-                                          opacity: isVideoLocked ? 0.6 : 1,
-                                          '&:hover': { 
-                                            bgcolor: isVideoLocked ? 'inherit' : 'action.hover' 
-                                          },
-                                          borderRadius: 1,
-                                          mb: 1,
-                                          border: isVideoLocked ? '1px dashed #ccc' : 'none'
-                                        }}
-                                        onClick={() => !isVideoLocked && handlePlayVideo(video)}
-                                      >
-                                        <ListItemIcon>
-                                          {isVideoLocked ? (
-                                            <LockIcon color="disabled" />
-                                          ) : video.watched ? (
-                                            <CheckCircleIcon color="success" />
-                                          ) : (
-                                            <PlayCircleOutlineIcon color="primary" />
-                                          )}
-                                        </ListItemIcon>
-                                        
-                                        <ListItemText
-                                          primary={
-                                            <Typography variant="subtitle1">
-                                              {videoIndex + 1}. {video.title}
-                                              {video.watched && (
-                                                <Chip 
-                                                  size="small" 
-                                                  label="Watched" 
-                                                  color="success" 
-                                                  sx={{ ml: 1 }} 
-                                                />
-                                              )}
-                                              {isVideoLocked && (
-                                                <Chip 
-                                                  size="small" 
-                                                  label="Locked" 
-                                                  color="default" 
-                                                  sx={{ ml: 1 }} 
-                                                />
-                                              )}
-                                            </Typography>
-                                          }
-                                          secondary={
-                                            <Box component="div">
-                                              <Typography component="div" variant="body2" color="text.primary">
-                                                Duration: {formatDuration(video.duration || 0)}
-                                              </Typography>
-                                              
-                                              {isVideoLocked ? (
-                                                <Typography component="div" variant="body2" color="text.secondary">
-                                                  Complete the previous video to unlock this one
-                                                </Typography>
-                                              ) : (
-                                                <>
-                                              {video.timeSpent > 0 && (
-                                                <Typography component="div" variant="body2" color="text.secondary">
-                                                  Watched: {Math.floor(video.timeSpent / 60)}m {Math.floor(video.timeSpent % 60)}s
-                                                  {video.duration > 0 && video.timeSpent > 0 && (
-                                                    <> ({Math.min(100, Math.round((video.timeSpent / video.duration) * 100))}%)</>
-                                                  )}
-                                                </Typography>
-                                              )}                                                  {video.description && (
-                                                    <Typography component="div" variant="body2" color="text.secondary">
-                                                      {video.description.substring(0, 100)}
-                                                      {video.description.length > 100 ? '...' : ''}
-                                                    </Typography>
-                                                  )}
-                                                </>
-                                              )}
-                                            </Box>
-                                          }
-                                        />
-                                        
-                                        <Button 
-                                          variant="outlined" 
-                                          color="primary" 
-                                          size="small"
-                                          disabled={isVideoLocked}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            !isVideoLocked && handlePlayVideo(video);
-                                          }}
-                                        >
-                                          {isVideoLocked ? 'Locked' : (video.watched ? 'Rewatch' : 'Watch')}
-                                        </Button>
-                                      </ListItem>
-                                    );
-                                  })}
-                                </List>
-                              )}
-                              
-                              {/* Quiz Section */}
-                              {renderQuizSection(unit)}
-                            </Box>
-                          </AccordionDetails>
-                        </Accordion>
-                      ))}
+                      <Typography variant="caption" color="text.secondary">
+                        {unitProgress}% complete • {unit.videos?.length || 0} videos
+                      </Typography>
                     </Box>
-                  )}
-                </>
-              ) : (
-                // Direct videos display (legacy)
-                <>
-                  <Typography variant="h6" gutterBottom>
-                    Videos ({videos.length})
-                  </Typography>
+                  </AccordionSummary>
                   
-                  {videos.length === 0 ? (
-                    <Typography variant="body1">
-                      No videos available for this course yet.
-                    </Typography>
-                  ) : (
-                    <List sx={{ bgcolor: 'background.paper' }}>
-                      {videos.map((video, index) => {
-                        const locked = isVideoLocked(index, videos);
+                  <AccordionDetails sx={{ p: 0 }}>
+                    <List disablePadding>
+                      {unit.videos && unit.videos.map((video, videoIndex) => {
+                        const locked = isVideoLockedInUnit(video, unit, unitIndex, units);
+                        const isCurrentVideo = currentVideo?._id === video._id;
                         
                         return (
-                          <React.Fragment key={video._id}>
-                            <ListItem 
-                              alignItems="flex-start"
-                              sx={{ 
-                                cursor: locked ? 'not-allowed' : 'pointer',
-                                opacity: locked ? 0.7 : 1,
-                                '&:hover': {
-                                  bgcolor: locked ? 'inherit' : 'action.hover'
-                                }
-                              }}
-                              onClick={() => !locked && handlePlayVideo(video)}
-                            >
-                              <ListItemIcon>
-                                {locked ? (
-                                  <LockIcon color="action" />
-                                ) : video.watched ? (
-                                  <CheckCircleIcon color="success" />
-                                ) : (
-                                  <PlayCircleOutlineIcon color="primary" />
-                                )}
-                              </ListItemIcon>
-                              
-                              <ListItemText
-                                primary={
-                                  <Typography variant="subtitle1">
-                                    {index + 1}. {video.title}
-                                    {video.watched && (
-                                      <Chip 
-                                        size="small" 
-                                        label="Watched" 
-                                        color="success" 
-                                        sx={{ ml: 1 }} 
-                                      />
-                                    )}
-                                    {locked && (
-                                      <Chip 
-                                        size="small" 
-                                        label="Locked" 
-                                        color="default" 
-                                        sx={{ ml: 1 }} 
-                                      />
-                                    )}
-                                  </Typography>
-                                }
-                                secondary={
-                                  <Box component="div">
-                                    <Typography component="div" variant="body2" color="text.primary">
-                                      Duration: {formatDuration(video.duration || 0)}
-                                    </Typography>
-                                    
-                                    {/* Add progress bar for each video */}
-                                    {!locked && video.duration > 0 && (
-                                      <Box sx={{ mt: 1, mb: 1 }}>
-                                        <Typography component="div" variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                                          Progress: {Math.min(100, Math.round((video.timeSpent / video.duration) * 100))}%
-                                        </Typography>
-                                        <Box sx={{ width: '100%', mr: 1 }}>
-                                          <Box
-                                            sx={{
-                                              width: '100%',
-                                              height: 8,
-                                              bgcolor: 'grey.300',
-                                              borderRadius: 5,
-                                              position: 'relative'
-                                            }}
-                                          >
-                                            <Box
-                                              sx={{
-                                                position: 'absolute',
-                                                top: 0,
-                                                left: 0,
-                                                height: '100%',
-                                                borderRadius: 5,
-                                                bgcolor: video.watched ? 'success.main' : 'primary.main',
-                                                width: `${Math.min(100, Math.round((video.timeSpent / video.duration) * 100))}%`,
-                                                transition: 'width 0.5s ease-in-out'
-                                              }}
-                                            />
-                                          </Box>
-                                        </Box>
-                                      </Box>
-                                    )}
-                                    
-                                    {video.timeSpent > 0 && (
-                                      <Typography component="div" variant="body2" color="text.secondary">
-                                        Watched: {Math.floor(video.timeSpent / 60)}m {Math.floor(video.timeSpent % 60)}s
-                                        {video.duration > 0 && video.timeSpent > 0 && (
-                                          <> ({Math.min(100, Math.round((video.timeSpent / video.duration) * 100))}%)</>
-                                        )}
-                                      </Typography>
-                                    )}
-                                    {video.completedAt && (
-                                      <Typography component="div" variant="body2" color="text.secondary">
-                                        Completed: {new Date(video.completedAt).toLocaleDateString()}
-                                      </Typography>
-                                    )}
-                                    {video.description && (
-                                      <Typography component="div" variant="body2" color="text.secondary">
-                                        {video.description.substring(0, 100)}
-                                        {video.description.length > 100 ? '...' : ''}
-                                      </Typography>
-                                    )}
-                                  </Box>
-                                }
-                              />
-                              
-                              <Button 
-                                variant="outlined" 
-                                color="primary" 
-                                size="small"
-                                sx={{ mt: 1 }}
-                                disabled={locked}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  !locked && handlePlayVideo(video);
-                                }}
-                              >
-                                {video.watched ? 'Rewatch' : 'Watch'}
-                              </Button>
-                            </ListItem>
+                          <ListItem
+                            key={video._id}
+                            button
+                            disabled={locked}
+                            onClick={() => !locked && handlePlayVideo(video)}
+                            sx={{
+                              pl: 4,
+                              pr: 2,
+                              py: 1.5,
+                              backgroundColor: isCurrentVideo ? '#e3f2fd' : 'transparent',
+                              borderLeft: isCurrentVideo ? '4px solid #1976d2' : '4px solid transparent',
+                              '&:hover': { backgroundColor: locked ? 'transparent' : '#f5f5f5' }
+                            }}
+                          >
+                            <ListItemIcon sx={{ minWidth: 36 }}>
+                              {locked ? (
+                                <LockIcon fontSize="small" color="disabled" />
+                              ) : video.watched ? (
+                                <CheckCircleIcon fontSize="small" color="success" />
+                              ) : (
+                                <PlayCircleOutlineIcon fontSize="small" color="primary" />
+                              )}
+                            </ListItemIcon>
                             
-                            {index < videos.length - 1 && <Divider variant="inset" component="li" />}
-                          </React.Fragment>
+                            <ListItemText
+                              primary={
+                                <Typography variant="body2" sx={{ fontSize: '0.875rem', fontWeight: isCurrentVideo ? 600 : 400 }}>
+                                  {videoIndex + 1}. {video.title}
+                                </Typography>
+                              }
+                              secondary={
+                                <Typography variant="caption" color="text.secondary">
+                                  {formatDuration(video.duration || 0)}
+                                  {video.watched && " • Completed"}
+                                </Typography>
+                              }
+                            />
+                          </ListItem>
                         );
                       })}
                     </List>
-                  )}
-                </>
+                    
+                    {/* Quiz Section */}
+                    {renderQuizSection(unit)}
+                  </AccordionDetails>
+                </Accordion>
+              );
+            })
+          ) : (
+            // Simple video list (no units)
+            <List disablePadding>
+              {videos.map((video, index) => {
+                const locked = isVideoLocked(index, videos);
+                const isCurrentVideo = currentVideo?._id === video._id;
+                
+                return (
+                  <ListItem
+                    key={video._id}
+                    button
+                    disabled={locked}
+                    onClick={() => !locked && handlePlayVideo(video)}
+                    sx={{
+                      px: 2,
+                      py: 1.5,
+                      backgroundColor: isCurrentVideo ? '#e3f2fd' : 'transparent',
+                      borderLeft: isCurrentVideo ? '4px solid #1976d2' : '4px solid transparent',
+                      '&:hover': { backgroundColor: locked ? 'transparent' : '#f5f5f5' },
+                      borderBottom: '1px solid #f0f0f0'
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 36 }}>
+                      {locked ? (
+                        <LockIcon fontSize="small" color="disabled" />
+                      ) : video.watched ? (
+                        <CheckCircleIcon fontSize="small" color="success" />
+                      ) : (
+                        <PlayCircleOutlineIcon fontSize="small" color="primary" />
+                      )}
+                    </ListItemIcon>
+                    
+                    <ListItemText
+                      primary={
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem', fontWeight: isCurrentVideo ? 600 : 400 }}>
+                          {index + 1}. {video.title}
+                        </Typography>
+                      }
+                      secondary={
+                        <Typography variant="caption" color="text.secondary">
+                          {formatDuration(video.duration || 0)}
+                          {video.watched && " • Completed"}
+                          {video.timeSpent > 0 && ` • ${Math.round((video.timeSpent / video.duration) * 100)}% watched`}
+                        </Typography>
+                      }
+                    />
+                  </ListItem>
+                );
+              })}
+            </List>
+          )}
+        </Box>
+      </Box>
+
+      {/* Right Main Content - Video Player */}
+      <Box
+        sx={{
+          flexGrow: 1,
+          width: { xs: '100%', md: 'calc(100% - 380px)' },
+          overflowY: 'auto'
+        }}
+      >
+      {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '80vh' }}>
+            <CircularProgress size={60} />
+          </Box>
+        ) : error ? (
+          <Box sx={{ p: 4, textAlign: 'center' }}>
+            <Typography color="error" variant="h6">{error}</Typography>
+          </Box>
+        ) : !course ? (
+          <Box sx={{ p: 4, textAlign: 'center' }}>
+            <Typography variant="body1">
+              Course not found or you don't have access to this course.
+            </Typography>
+          </Box>
+        ) : currentVideo ? (
+          // Video Player View
+          <Box sx={{ backgroundColor: 'white', minHeight: '100vh' }}>
+            {/* Video Player Container */}
+            <Box sx={{ position: 'relative', backgroundColor: '#000' }}>
+              <CustomVideoPlayer 
+                videoId={currentVideo._id}
+                videoUrl={currentVideo.videoUrl.startsWith('http') ? currentVideo.videoUrl : formatVideoUrl(currentVideo.videoUrl)}
+                title={currentVideo.title}
+                token={token}
+                onTimeUpdate={(currentTime, duration) => {
+                  if (duration > 0 && Math.abs(currentVideo.duration - duration) > 1) {
+                    setCurrentVideo(prev => ({ ...prev, duration: duration }));
+                  }
+                }}
+                onVideoComplete={(videoId, duration) => {
+                  if (isUpdatingVideoState) return;
+                  setIsUpdatingVideoState(true);
+                  setCurrentVideo(prev => ({ ...prev, watched: true }));
+                  if (hasUnits) {
+                    setUnits(prevUnits => prevUnits.map(unit => ({
+                      ...unit,
+                      videos: unit.videos.map(video => video._id === videoId ? { ...video, watched: true, completedAt: new Date().toISOString() } : video)
+                    })));
+                  } else {
+                    setVideos(prevVideos => prevVideos.map(video => video._id === videoId ? { ...video, watched: true, completedAt: new Date().toISOString() } : video));
+                  }
+                  const payload = {
+                    timeSpent: duration || currentVideo.duration || 0,
+                    currentTime: duration || currentVideo.duration || 0,
+                    duration: currentVideo.duration || duration || 0,
+                    completed: true,
+                    isCompleted: true
+                  };
+                  updateWatchHistory(videoId, payload, token)
+                    .then(response => {
+                      setVideoCompleted(prev => !prev);
+                      setTimeout(() => window.location.reload(), 500);
+                    })
+                    .catch(error => console.error('Error updating watch history:', error))
+                    .finally(() => setTimeout(() => setIsUpdatingVideoState(false), 1000));
+                }}
+              />
+            </Box>
+
+            {/* Video Info Section */}
+            <Box sx={{ p: { xs: 2, sm: 3, md: 4 }, maxWidth: '1200px', mx: 'auto' }}>
+              {/* Video Title and Description */}
+              <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                {currentVideo.title}
+              </Typography>
+              
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+                <Chip 
+                  icon={<AccessTimeIcon />} 
+                  label={`${formatDuration(currentVideo.duration)}`}
+                  size="small"
+                  variant="outlined"
+                />
+                {currentVideo.watched && (
+                  <Chip 
+                    icon={<CheckCircleIcon />} 
+                    color="success" 
+                    label="Completed"
+                    size="small"
+                  />
+                )}
+              </Box>
+
+              {currentVideo.description && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="h6" gutterBottom sx={{ fontSize: '1rem', fontWeight: 600 }}>
+                    About this video
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {currentVideo.description}
+                  </Typography>
+                </Box>
               )}
-            </Grid>
-          </Grid>
-        </>
-      )}
-    </Container>
+
+              <Alert severity="info" sx={{ mb: 3 }}>
+                <Typography variant="body2">
+                  Your progress is automatically tracked while watching. 
+                  {hasUnits && ' Complete all videos in a unit to unlock the quiz.'}
+                </Typography>
+              </Alert>
+
+              {/* Deadline Warnings */}
+              {!deadlineLoading && deadlineWarnings && deadlineWarnings.length > 0 && (
+                <Alert severity="warning" sx={{ mb: 3 }} icon={<WarningIcon />}>
+                  <Typography variant="subtitle2" fontWeight="600" gutterBottom>
+                    Course Deadlines
+                  </Typography>
+                  {deadlineWarnings.slice(0, 2).map((warning) => (
+                    <Typography key={warning.unitId} variant="caption" display="block">
+                      • {warning.unitTitle}: {warning.isExpired ? 'EXPIRED' : `${warning.daysLeft} days left`}
+                    </Typography>
+                  ))}
+                </Alert>
+              )}
+            </Box>
+          </Box>
+        ) : (
+          // No Video Selected - Show Welcome Message
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column',
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            minHeight: '80vh',
+            p: 4,
+            textAlign: 'center'
+          }}>
+            <SchoolIcon sx={{ fontSize: 80, color: 'primary.main', mb: 2 }} />
+            <Typography variant="h5" gutterBottom sx={{ fontWeight: 600 }}>
+              Welcome to {course?.title}
+            </Typography>
+            <Typography variant="body1" color="text.secondary" paragraph sx={{ maxWidth: 600 }}>
+              Select a video from the {hasUnits ? 'units' : 'playlist'} on the left to begin learning.
+            </Typography>
+            {hasUnits && (
+              <Alert severity="info" sx={{ mt: 2, maxWidth: 600 }}>
+                <Typography variant="body2">
+                  💡 Videos are unlocked sequentially. Complete each video to access the next one, 
+                  and finish all videos in a unit to unlock the quiz!
+                </Typography>
+              </Alert>
+            )}
+          </Box>
+        )}
+      </Box>
+    </Box>
   );
 };
 

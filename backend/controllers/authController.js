@@ -4,10 +4,49 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const AuditLog = require('../models/AuditLog');
+
+// Helper function to extract IP address
+const getIpAddress = (req) => {
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+         req.headers['x-real-ip'] ||
+         req.connection?.remoteAddress ||
+         req.socket?.remoteAddress ||
+         req.ip ||
+         'Unknown';
+};
 
 // Logout (optional: implement token blacklisting)
 exports.logout = async (req, res) => {
   try {
+    // Log logout action
+    if (req.user && req.user._id) {
+      await AuditLog.create({
+        action: 'USER_LOGOUT',
+        description: `User ${req.user.name} (${req.user.email}) logged out successfully`,
+        actionType: 'logout',
+        performedBy: req.user._id,
+        performedByRole: req.user.role,
+        performedByName: req.user.name,
+        performedByEmail: req.user.email,
+        ipAddress: getIpAddress(req),
+        userAgent: req.headers['user-agent'] || 'Unknown',
+        requestMethod: req.method,
+        requestUrl: req.originalUrl,
+        status: 'success',
+        severity: 'info',
+        category: 'authentication',
+        details: {
+          logoutTime: new Date(),
+          sessionInfo: {
+            userAgent: req.headers['user-agent'],
+            ip: getIpAddress(req)
+          }
+        },
+        timestamp: new Date()
+      });
+    }
+    
     // If you implement token blacklisting, add the token to the blacklist here
     // For a simple implementation, just return success since the frontend will handle clearing localStorage
     res.json({ message: 'Logged out successfully' });
@@ -215,6 +254,29 @@ exports.login = async (req, res) => {
     }
     
     if (!user) {
+      // Log failed login attempt
+      await AuditLog.create({
+        action: 'FAILED_LOGIN',
+        description: `Failed login attempt for ${loginIdentifier} - User not found`,
+        actionType: 'login',
+        performedByEmail: loginIdentifier,
+        ipAddress: getIpAddress(req),
+        userAgent: req.headers['user-agent'] || 'Unknown',
+        requestMethod: req.method,
+        requestUrl: req.originalUrl,
+        status: 'failure',
+        statusCode: 400,
+        severity: 'medium',
+        category: 'authentication',
+        isSuspicious: true,
+        details: {
+          reason: 'User not found',
+          attemptedEmail: loginIdentifier,
+          loginMethod: loginIdentifier.includes('@') ? 'email' : 'uid'
+        },
+        timestamp: new Date()
+      });
+      
       // If not found and it was an email, try a more flexible search
       if (loginIdentifier.includes('@')) {
         const normalizedEmail = loginIdentifier.toLowerCase();
@@ -233,8 +295,62 @@ exports.login = async (req, res) => {
     }
     
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
-    if (!user.isActive) return res.status(403).json({ message: 'Account deactivated' });
+    if (!isMatch) {
+      // Log failed login - wrong password
+      await AuditLog.create({
+        action: 'FAILED_LOGIN',
+        description: `Failed login attempt for ${user.name} (${user.email}) - Invalid password`,
+        actionType: 'login',
+        performedBy: user._id,
+        performedByRole: user.role,
+        performedByName: user.name,
+        performedByEmail: user.email,
+        ipAddress: getIpAddress(req),
+        userAgent: req.headers['user-agent'] || 'Unknown',
+        requestMethod: req.method,
+        requestUrl: req.originalUrl,
+        status: 'failure',
+        statusCode: 400,
+        severity: 'medium',
+        category: 'authentication',
+        isSuspicious: true,
+        details: {
+          reason: 'Invalid password',
+          attemptedEmail: loginIdentifier
+        },
+        timestamp: new Date()
+      });
+      
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+    
+    if (!user.isActive) {
+      // Log failed login - account deactivated
+      await AuditLog.create({
+        action: 'FAILED_LOGIN',
+        description: `Failed login attempt for ${user.name} (${user.email}) - Account deactivated`,
+        actionType: 'login',
+        performedBy: user._id,
+        performedByRole: user.role,
+        performedByName: user.name,
+        performedByEmail: user.email,
+        ipAddress: getIpAddress(req),
+        userAgent: req.headers['user-agent'] || 'Unknown',
+        requestMethod: req.method,
+        requestUrl: req.originalUrl,
+        status: 'failure',
+        statusCode: 403,
+        severity: 'medium',
+        category: 'authentication',
+        details: {
+          reason: 'Account deactivated',
+          attemptedEmail: loginIdentifier
+        },
+        timestamp: new Date()
+      });
+      
+      return res.status(403).json({ message: 'Account deactivated' });
+    }
     
     // Ensure permissions exist in both formats (lowercase with underscores and title case with spaces)
     const normalizedPermissions = [];
@@ -284,6 +400,49 @@ exports.login = async (req, res) => {
       permissions: normalizedPermissions
     }, process.env.JWT_SECRET, { expiresIn: '1d' });
     
+    // Log successful login
+    await AuditLog.create({
+      action: 'USER_LOGIN',
+      description: `User ${user.name} (${user.email}) logged in successfully using ${loginIdentifier.includes('@') ? 'email' : 'UID'} authentication`,
+      actionType: 'login',
+      performedBy: user._id,
+      performedByRole: user.role,
+      performedByName: user.name,
+      performedByEmail: user.email,
+      ipAddress: getIpAddress(req),
+      userAgent: req.headers['user-agent'] || 'Unknown',
+      requestMethod: req.method,
+      requestUrl: req.originalUrl,
+      status: 'success',
+      statusCode: 200,
+      severity: 'info',
+      category: 'authentication',
+      details: {
+        loginMethod: loginIdentifier.includes('@') ? 'email' : 'uid',
+        loginIdentifier: loginIdentifier,
+        userRole: user.role,
+        userRoles: user.roles || [user.role],
+        primaryRole: user.primaryRole || user.role,
+        school: user.school,
+        department: user.department,
+        permissions: normalizedPermissions.length,
+        browser: req.headers['user-agent'] ? (
+          req.headers['user-agent'].includes('Chrome') ? 'Chrome' :
+          req.headers['user-agent'].includes('Firefox') ? 'Firefox' :
+          req.headers['user-agent'].includes('Safari') ? 'Safari' :
+          req.headers['user-agent'].includes('Edge') ? 'Edge' : 'Other'
+        ) : 'Unknown',
+        os: req.headers['user-agent'] ? (
+          req.headers['user-agent'].includes('Windows') ? 'Windows' :
+          req.headers['user-agent'].includes('Mac') ? 'macOS' :
+          req.headers['user-agent'].includes('Linux') ? 'Linux' :
+          req.headers['user-agent'].includes('Android') ? 'Android' :
+          req.headers['user-agent'].includes('iOS') ? 'iOS' : 'Other'
+        ) : 'Unknown'
+      },
+      timestamp: new Date()
+    });
+    
     res.json({ 
       token, 
       user: { 
@@ -323,11 +482,11 @@ exports.getCurrentUser = async (req, res) => {
           },
           {
             path: 'teacher',
-            select: 'name email teacherId'
+            select: 'name email uid teacherId'
           },
           {
             path: 'teachers',
-            select: 'name email teacherId'
+            select: 'name email uid teacherId'
           },
           {
             path: 'students',
@@ -360,9 +519,11 @@ exports.getCurrentUser = async (req, res) => {
       permissions: user.permissions || [],
       school: user.school,
       department: user.department,
-      regNo: user.regNo,
-      studentId: user.regNo, // Add studentId for students
-      teacherId: user.teacherId,
+      uid: user.uid,
+      regNo: user.regNo, // Legacy - DEPRECATED
+      studentId: user.uid || user.regNo, // Use UID first, fallback to regNo
+      teacherId: user.teacherId, // Legacy - DEPRECATED
+      employeeId: user.uid || user.teacherId, // Use UID first, fallback to teacherId
       coursesAssigned: user.coursesAssigned,
       assignedSections: user.assignedSections, // Include populated sections
       createdAt: user.createdAt,

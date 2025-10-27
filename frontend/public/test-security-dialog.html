@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Dialog Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .counter {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border-left: 4px solid #007bff;
+        }
+        .violation-log {
+            background: #fff3cd;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 5px 0;
+            border-left: 4px solid #ffc107;
+            font-size: 14px;
+        }
+        .test-dialog {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            z-index: 9999;
+            border: 3px solid #ff9800;
+            min-width: 400px;
+            text-align: center;
+        }
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 9998;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Security Violation Detection Test</h1>
+        <p>This page tests the security violation detection system without the full quiz environment.</p>
+        
+        <div class="counter">
+            <h3>Violation Counters</h3>
+            <div>Tab Switch Count: <span id="tabCount">0</span></div>
+            <div>Alt+Tab Count: <span id="altTabCount">0</span></div>
+            <div>Total Violations: <span id="totalViolations">0</span></div>
+        </div>
+
+        <div>
+            <h3>Manual Tests</h3>
+            <button class="button" onclick="simulateTabSwitch()">Simulate Tab Switch</button>
+            <button class="button" onclick="simulateAltTab()">Simulate Alt+Tab</button>
+            <button class="button" onclick="showTestDialog()">Show Test Dialog</button>
+            <button class="button" onclick="clearLog()">Clear Log</button>
+        </div>
+
+        <div>
+            <h3>Automatic Detection</h3>
+            <p>Try switching tabs or pressing Alt+Tab while this page is active. The system should detect it.</p>
+            <p><strong>Instructions:</strong></p>
+            <ol>
+                <li>Click on this page to make sure it's focused</li>
+                <li>Press Ctrl+T to open a new tab</li>
+                <li>Switch back to this tab</li>
+                <li>The system should detect the tab switch</li>
+            </ol>
+        </div>
+
+        <div id="violationLog">
+            <h3>Violation Log</h3>
+        </div>
+    </div>
+
+    <!-- Test Dialog -->
+    <div id="testDialog" style="display: none;">
+        <div class="overlay" onclick="hideTestDialog()"></div>
+        <div class="test-dialog">
+            <h2>🚨 Security Violation Detected</h2>
+            <p>This is a test dialog to verify rendering works correctly.</p>
+            <p><strong>Violation Type:</strong> <span id="violationType">Tab Switch</span></p>
+            <p><strong>Attempt:</strong> <span id="attemptCount">1</span> / 3</p>
+            <button class="button" onclick="hideTestDialog()">I Understand</button>
+        </div>
+    </div>
+
+    <script>
+        let tabSwitchCount = 0;
+        let altTabCount = 0;
+        let violations = [];
+        let isPageVisible = true;
+
+        function logViolation(type, message) {
+            const timestamp = new Date().toLocaleTimeString();
+            violations.push({ type, message, timestamp });
+            
+            const logDiv = document.getElementById('violationLog');
+            const violationDiv = document.createElement('div');
+            violationDiv.className = 'violation-log';
+            violationDiv.innerHTML = `<strong>[${timestamp}] ${type}:</strong> ${message}`;
+            logDiv.appendChild(violationDiv);
+            
+            updateCounters();
+            
+            // Show dialog after 1st and 2nd violations
+            const typeCount = violations.filter(v => v.type === type).length;
+            if (typeCount <= 2) {
+                showViolationDialog(type, typeCount);
+            } else if (typeCount >= 3) {
+                alert(`MAX VIOLATIONS REACHED FOR ${type}! Quiz would be auto-submitted!`);
+            }
+        }
+
+        function updateCounters() {
+            document.getElementById('tabCount').textContent = violations.filter(v => v.type === 'Tab Switch').length;
+            document.getElementById('altTabCount').textContent = violations.filter(v => v.type === 'Alt+Tab').length;
+            document.getElementById('totalViolations').textContent = violations.length;
+        }
+
+        function showViolationDialog(type, attempt) {
+            document.getElementById('violationType').textContent = type;
+            document.getElementById('attemptCount').textContent = attempt;
+            document.getElementById('testDialog').style.display = 'block';
+            
+            console.log(`🚨 Showing dialog: ${type}, attempt ${attempt}/3`);
+        }
+
+        function hideTestDialog() {
+            document.getElementById('testDialog').style.display = 'none';
+        }
+
+        function showTestDialog() {
+            showViolationDialog('Manual Test', 1);
+        }
+
+        function simulateTabSwitch() {
+            logViolation('Tab Switch', 'Manual simulation - tab switch detected');
+        }
+
+        function simulateAltTab() {
+            logViolation('Alt+Tab', 'Manual simulation - Alt+Tab detected');
+        }
+
+        function clearLog() {
+            violations = [];
+            document.getElementById('violationLog').innerHTML = '<h3>Violation Log</h3>';
+            updateCounters();
+        }
+
+        // Real tab switch detection
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                isPageVisible = false;
+                console.log('🔍 Page became hidden (tab switch detected)');
+            } else {
+                if (!isPageVisible) {
+                    console.log('🔍 Page became visible (returning from tab switch)');
+                    logViolation('Tab Switch', 'Real detection - visibility change detected');
+                }
+                isPageVisible = true;
+            }
+        });
+
+        // Alt+Tab detection
+        document.addEventListener('keydown', function(e) {
+            if (e.altKey && e.key === 'Tab') {
+                e.preventDefault();
+                console.log('🔍 Alt+Tab detected');
+                logViolation('Alt+Tab', 'Real detection - Alt+Tab key combination');
+            }
+        });
+
+        // Window focus/blur detection
+        window.addEventListener('blur', function() {
+            console.log('🔍 Window lost focus');
+        });
+
+        window.addEventListener('focus', function() {
+            console.log('🔍 Window gained focus');
+        });
+
+        console.log('🎯 Security detection test page loaded');
+        console.log('👀 Try switching tabs or pressing Alt+Tab to test detection');
+    </script>
+</body>
+</html>

@@ -35,38 +35,41 @@ const DeanTeachers = () => {
     try {
       setLoading(true);
       
-      // Get dean's school first
-      const userRes = await axios.get(`/api/admin/users/${currentUser._id}`, {
+      // Use Dean-specific endpoints instead of admin endpoints
+      const response = await axios.get('/api/dean/teachers', {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      const schoolId = userRes.data.school;
-      
-      if (schoolId) {
-        // Get school details
-        const schoolRes = await axios.get(`/api/schools/${schoolId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setSchool(schoolRes.data);
-        
-        // Get teachers in this school
-        const response = await axios.get(`/api/admin/teachers?school=${schoolId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setTeachers(response.data);
+      if (response.data.success) {
+        setTeachers(response.data.teachers);
+        setSchool(response.data.school);
       } else {
-        setError('No school assigned to your account');
+        setError(response.data.message || 'Failed to fetch teachers');
       }
     } catch (error) {
       console.error('Error fetching teachers:', error);
-      setError('Failed to fetch teachers');
+      if (error.response?.status === 403) {
+        setError('Access denied. Dean role required.');
+      } else if (error.response?.status === 400) {
+        setError('Dean is not assigned to any school');
+      } else {
+        setError('Failed to fetch teachers');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const getInitials = (firstName, lastName) => {
-    return `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase();
+  const getInitials = (teacher) => {
+    if (teacher.firstName && teacher.lastName) {
+      return `${teacher.firstName[0]}${teacher.lastName[0]}`.toUpperCase();
+    } else if (teacher.name) {
+      const nameParts = teacher.name.split(' ');
+      return nameParts.length > 1 
+        ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase()
+        : teacher.name.substring(0, 2).toUpperCase();
+    }
+    return 'NA';
   };
 
   if (loading) {
@@ -134,11 +137,11 @@ const DeanTeachers = () => {
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                           <Avatar sx={{ bgcolor: 'primary.main' }}>
-                            {getInitials(teacher.firstName, teacher.lastName)}
+                            {getInitials(teacher)}
                           </Avatar>
                           <Box>
                             <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                              {teacher.firstName} {teacher.lastName}
+                              {teacher.name || `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim()}
                             </Typography>
                             <Typography variant="body2" color="textSecondary">
                               {teacher.email}

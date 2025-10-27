@@ -43,11 +43,13 @@ import {
   Class as ClassIcon
 } from '@mui/icons-material';
 import axios from 'axios';
+import CrossSchoolApprovalBoard from '../../components/dean/CrossSchoolApprovalBoard';
 
 const DeanAnnouncements = () => {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [options, setOptions] = useState(null);
+  const [mainTab, setMainTab] = useState(0); // 0 = Create Announcements, 1 = Cross-School Approvals
   
   // Form state
   const [formData, setFormData] = useState({
@@ -519,25 +521,39 @@ const DeanAnnouncements = () => {
         <Typography variant="h4" gutterBottom>
           Dean Announcements
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={handleOpen}
-          sx={{ bgcolor: '#1976d2' }}
-        >
-          Create Announcement
-        </Button>
+        {mainTab === 0 && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={handleOpen}
+            sx={{ bgcolor: '#1976d2' }}
+          >
+            Create Announcement
+          </Button>
+        )}
       </Box>
 
-      {/* Main content - could show existing announcements list here */}
-      <Card>
-        <CardContent>
-          <Typography variant="body1" color="textSecondary">
-            Use the "Create Announcement" button to send targeted announcements to HODs, Teachers, and Students in your school.
-            You can select specific departments, individual teachers, and sections for precise targeting.
-          </Typography>
-        </CardContent>
-      </Card>
+      {/* Tabs for Create vs Cross-School Approvals */}
+      <Tabs value={mainTab} onChange={(e, newValue) => setMainTab(newValue)} sx={{ mb: 3 }}>
+        <Tab label="Create Announcements" />
+        <Tab label="Cross-School Approvals" />
+      </Tabs>
+
+      {/* Tab Content */}
+      {mainTab === 0 && (
+        <Card>
+          <CardContent>
+            <Typography variant="body1" color="textSecondary">
+              Use the "Create Announcement" button to send targeted announcements to HODs, Teachers, and Students in your school.
+              You can select specific departments, individual teachers, and sections for precise targeting.
+            </Typography>
+          </CardContent>
+        </Card>
+      )}
+
+      {mainTab === 1 && (
+        <CrossSchoolApprovalBoard />
+      )}
 
       {/* Create Announcement Dialog */}
       <Dialog

@@ -10,10 +10,7 @@ import {
   MenuItem, 
   Select, 
   FormControl, 
-  InputLabel,
-  Chip,
-  OutlinedInput,
-  ListItemText
+  InputLabel
 } from '@mui/material';
 import axios from 'axios';
 
@@ -34,17 +31,14 @@ const AddTeacherForm = ({ onAdd }) => {
     password: '', 
     permissions: [],
     school: '',
-    department: '',
-    sectionsAssigned: []
+    department: ''
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [touched, setTouched] = useState({});
   const [schools, setSchools] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [sections, setSections] = useState([]);
   const [filteredDepartments, setFilteredDepartments] = useState([]);
-  const [filteredSections, setFilteredSections] = useState([]);
 
   const token = localStorage.getItem('token');
 
@@ -59,9 +53,8 @@ const AddTeacherForm = ({ onAdd }) => {
         
         const schoolsPromise = axios.get('/api/schools', { headers: { Authorization: `Bearer ${token}` } });
         const departmentsPromise = axios.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } });
-        const sectionsPromise = axios.get('/api/sections', { headers: { Authorization: `Bearer ${token}` } });
 
-        const [schoolsRes, departmentsRes, sectionsRes] = await Promise.all([
+        const [schoolsRes, departmentsRes] = await Promise.all([
           schoolsPromise.catch(err => {
             console.error('Schools API failed:', err);
             return { data: [] };
@@ -69,22 +62,15 @@ const AddTeacherForm = ({ onAdd }) => {
           departmentsPromise.catch(err => {
             console.error('Departments API failed:', err);
             return { data: [] };
-          }),
-          sectionsPromise.catch(err => {
-            console.error('Sections API failed:', err);
-            return { data: [] };
           })
         ]);
         
         console.log('Schools data:', schoolsRes.data);
-        console.log('First school structure:', schoolsRes.data[0]);
         console.log('Departments data:', departmentsRes.data);
-        console.log('Sections data:', sectionsRes.data);
         
         // Safely set the data with fallbacks
         setSchools(Array.isArray(schoolsRes.data) ? schoolsRes.data : []);
         setDepartments(Array.isArray(departmentsRes.data) ? departmentsRes.data : []);
-        setSections(Array.isArray(sectionsRes.data) ? sectionsRes.data : []);
       } catch (err) {
         console.error('Error fetching data:', err);
         console.error('Error details:', err.response?.data);
@@ -93,7 +79,7 @@ const AddTeacherForm = ({ onAdd }) => {
     fetchData();
   }, [token]);
 
-  // Filter departments and sections when school/department changes
+  // Filter departments when school changes
   useEffect(() => {
     if (form.school && Array.isArray(departments)) {
       const filtered = departments.filter(dept => 
@@ -101,46 +87,15 @@ const AddTeacherForm = ({ onAdd }) => {
       );
       setFilteredDepartments(filtered);
       
-      // Reset department and sections if they don't belong to selected school
+      // Reset department if it doesn't belong to selected school
       if (form.department && !filtered.find(d => d && d._id === form.department)) {
-        setForm(prev => ({ ...prev, department: '', sectionsAssigned: [] }));
+        setForm(prev => ({ ...prev, department: '' }));
       }
     } else {
       setFilteredDepartments([]);
-      setFilteredSections([]);
-      setForm(prev => ({ ...prev, department: '', sectionsAssigned: [] }));
+      setForm(prev => ({ ...prev, department: '' }));
     }
   }, [form.school, departments]);
-
-  // Filter sections when department changes
-  useEffect(() => {
-    if (form.department && Array.isArray(sections)) {
-      console.log('Department selected:', form.department);
-      console.log('Filtering sections for department...');
-      
-      // Filter sections by department (handle both string ID and populated object)
-      const filtered = sections.filter(section => {
-        if (!section || !section.department) return false;
-        const sectionDepId = typeof section.department === 'string' ? section.department : section.department._id;
-        return sectionDepId === form.department;
-      });
-      console.log('Sections for this department:', filtered);
-      setFilteredSections(filtered);
-      
-      // Reset sections if they don't belong to selected department
-      if (form.sectionsAssigned.length > 0) {
-        const validSections = form.sectionsAssigned.filter(sectionId => 
-          filtered.find(s => s && s._id === sectionId)
-        );
-        if (validSections.length !== form.sectionsAssigned.length) {
-          setForm(prev => ({ ...prev, sectionsAssigned: validSections }));
-        }
-      }
-    } else {
-      setFilteredSections([]);
-      setForm(prev => ({ ...prev, sectionsAssigned: [] }));
-    }
-  }, [form.department, sections]);
 
   const handleChange = e => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -179,7 +134,7 @@ const AddTeacherForm = ({ onAdd }) => {
     try {
       await onAdd(form);
       setSuccess('Teacher added successfully');
-      setForm({ name: '', email: '', password: '', permissions: [], school: '', department: '', sectionsAssigned: [] });
+      setForm({ name: '', email: '', password: '', permissions: [], school: '', department: '' });
       setTouched({});
     } catch (err) {
       setError(err.message || 'Failed to add teacher');
@@ -191,8 +146,9 @@ const AddTeacherForm = ({ onAdd }) => {
       {error && <Alert severity="error">{error}</Alert>}
       {success && <Alert severity="success">{success}</Alert>}
       <Alert severity="info" sx={{ mb: 2 }}>
-        A unique Teacher ID (format: T####) will be automatically generated upon creation.
-        Teachers are assigned to departments and can be assigned to sections later based on course requirements.
+        A unique UID (5-digit format: 00001, 00002) will be automatically generated upon creation.
+        <br />
+        Teachers are assigned to school and department. Section and course assignments should be done separately via the Section-Course-Teacher relationship.
       </Alert>
       <TextField
         label="Name"
@@ -277,39 +233,6 @@ const AddTeacherForm = ({ onAdd }) => {
           ))}
         </Select>
         {touched.department && !form.department && <Alert severity="error" sx={{ mt: 1 }}>Department is required</Alert>}
-      </FormControl>
-
-      <FormControl fullWidth margin="normal" disabled={!form.department}>
-        <InputLabel>Sections (Optional)</InputLabel>
-        <Select
-          multiple
-          value={form.sectionsAssigned}
-          onChange={(e) => setForm(prev => ({ ...prev, sectionsAssigned: e.target.value }))}
-          input={<OutlinedInput label="Sections (Optional)" />}
-          renderValue={(selected) => (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              {selected.map((value) => {
-                const section = Array.isArray(filteredSections) ? filteredSections.find(s => s && s._id === value) : null;
-                return (
-                  <Chip 
-                    key={value} 
-                    label={section && section.name ? `${section.name} - ${section.course?.title || 'No Course'}` : value} 
-                    size="small" 
-                  />
-                );
-              })}
-            </Box>
-          )}
-        >
-          {Array.isArray(filteredSections) && filteredSections.map(section => (
-            section && section._id && section.name ? (
-              <MenuItem key={section._id} value={section._id}>
-                <Checkbox checked={form.sectionsAssigned.indexOf(section._id) > -1} />
-                <ListItemText primary={`${section.name} - ${section.course?.title || 'No Course'}`} />
-              </MenuItem>
-            ) : null
-          ))}
-        </Select>
       </FormControl>
       
       <FormGroup row sx={{ mt: 2 }}>

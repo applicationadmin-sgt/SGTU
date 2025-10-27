@@ -45,6 +45,7 @@ import {
   getAllSchools, 
   getAvailableDeansForSchool 
 } from '../../api/hierarchyApi';
+import BulkUploadDeans from '../../components/admin/BulkUploadDeans';
 
 const DeanManagement = () => {
   const [deans, setDeans] = useState([]);
@@ -247,6 +248,26 @@ const DeanManagement = () => {
     setSnackbar({ open: true, message, severity });
   };
 
+  const handleBulkDeanUpload = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await axios.post(
+      '/api/admin/deans/bulk-upload',
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    
+    // Refresh deans and schools
+    await Promise.all([fetchDeans(), fetchSchoolsData()]);
+    return response.data;
+  };
+
   const openResetDialog = (dean) => {
     setResetDeanId(dean._id);
     setResetDeanName(dean.name || dean.email);
@@ -305,6 +326,17 @@ const DeanManagement = () => {
             Assign Dean to School
           </Button>
         </Box>
+      </Box>
+
+      {/* Bulk Upload Deans */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+          Bulk Dean Creation
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Create multiple Deans at once and assign to schools using CSV file
+        </Typography>
+        <BulkUploadDeans onUpload={handleBulkDeanUpload} />
       </Box>
 
       {/* Schools with Dean Assignments */}

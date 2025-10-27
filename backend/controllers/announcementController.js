@@ -26,22 +26,27 @@ const getUserHierarchyContext = async (userId) => {
 const getTargetRecipients = async (sender, targetAudience) => {
   let recipients = [];
   
+  console.log('🎯 getTargetRecipients called with targetAudience:', JSON.stringify(targetAudience, null, 2));
+  
   try {
     // All users (admin only)
     if (targetAudience.allUsers) {
       recipients = await User.find({ isActive: true }).select('_id');
+      console.log(`✅ All users targeting: ${recipients.length} users`);
       return recipients.map(r => r._id);
     }
     
     // Global announcements (dean to all schools)
     if (targetAudience.isGlobal) {
       recipients = await User.find({ isActive: true }).select('_id');
+      console.log(`✅ Global targeting: ${recipients.length} users`);
       return recipients.map(r => r._id);
     }
     
     // Role/School/Department intersection targeting (for dean/hod use cases)
     const attributeFilters = [];
     if (targetAudience.targetRoles && targetAudience.targetRoles.length > 0) {
+      console.log(`📌 Target roles specified: ${targetAudience.targetRoles.join(', ')}`);
       // Support both new roles array and legacy role field
       attributeFilters.push({ 
         $or: [
@@ -51,9 +56,11 @@ const getTargetRecipients = async (sender, targetAudience) => {
       });
     }
     if (targetAudience.targetSchools && targetAudience.targetSchools.length > 0) {
+      console.log(`📌 Target schools specified: ${targetAudience.targetSchools.length} schools`);
       attributeFilters.push({ school: { $in: targetAudience.targetSchools } });
     }
     if (targetAudience.targetDepartments && targetAudience.targetDepartments.length > 0) {
+      console.log(`📌 Target departments specified: ${targetAudience.targetDepartments.length} departments`);
       attributeFilters.push({ department: { $in: targetAudience.targetDepartments } });
     }
     if (attributeFilters.length > 0) {
@@ -61,11 +68,13 @@ const getTargetRecipients = async (sender, targetAudience) => {
         isActive: true,
         $and: attributeFilters
       }).select('_id');
+      console.log(`✅ Attribute filters matched ${filteredUsers.length} users`);
       recipients.push(...filteredUsers.map(u => u._id));
     }
     
     // Section-based targeting
     if (targetAudience.targetSections && targetAudience.targetSections.length > 0) {
+      console.log(`📌 Target sections specified: ${targetAudience.targetSections.length} sections`);
       const sections = await Section.find({
         _id: { $in: targetAudience.targetSections }
       }).populate('students', '_id').populate('teacher', '_id');
@@ -76,13 +85,22 @@ const getTargetRecipients = async (sender, targetAudience) => {
           recipients.push(section.teacher._id);
         }
       });
+      console.log(`✅ Section targeting added ${sections.length} sections worth of users`);
     }
     
     // Course-based targeting with role filtering
     if (targetAudience.targetCourses && targetAudience.targetCourses.length > 0) {
+      console.log(`📌 Target courses specified: ${targetAudience.targetCourses.length} courses`);
+      console.log(`   - includeStudents: ${targetAudience.includeStudents}`);
+      console.log(`   - includeTeachers: ${targetAudience.includeTeachers}`);
+      
       const courseSections = await Section.find({
         courses: { $in: targetAudience.targetCourses }
       }).populate('students', '_id').populate('teacher', '_id');
+      
+      console.log(`   - Found ${courseSections.length} sections with these courses`);
+      
+      const courseSectionIds = courseSections.map(s => s._id);
       
       courseSections.forEach(section => {
         // Include students if specified
@@ -94,6 +112,28 @@ const getTargetRecipients = async (sender, targetAudience) => {
           recipients.push(section.teacher._id);
         }
       });
+      
+      console.log(`   - Added recipients from course sections`);
+      
+      // Also get teachers who have these sections in their assignedSections
+      if (targetAudience.includeTeachers && courseSectionIds.length > 0) {
+        console.log(`   - Looking for teachers with assignedSections in:`, courseSectionIds.map(id => id.toString()));
+        const teachersWithSections = await User.find({
+          $or: [
+            { roles: { $in: ['teacher'] } },
+            { role: 'teacher' }
+          ],
+          assignedSections: { $in: courseSectionIds },
+          isActive: true
+        }).select('_id name email');
+        
+        console.log(`   - Found ${teachersWithSections.length} teachers assigned to these sections:`);
+        teachersWithSections.forEach(t => {
+          console.log(`     * ${t.name} (${t._id})`);
+        });
+        
+        recipients.push(...teachersWithSections.map(t => t._id));
+      }
       
       // Also get users directly enrolled in courses (not just through sections)
       if (targetAudience.includeStudents) {
@@ -123,12 +163,18 @@ const getTargetRecipients = async (sender, targetAudience) => {
     
     // Specific users
     if (targetAudience.specificUsers && targetAudience.specificUsers.length > 0) {
+      console.log(`📌 Specific users specified: ${targetAudience.specificUsers.length} users`);
       recipients.push(...targetAudience.specificUsers);
     }
+    
+    console.log(`📊 Total recipients before deduplication: ${recipients.length}`);
     
     // Remove duplicates and sender
     const uniqueRecipients = [...new Set(recipients.map(r => r.toString()))]
       .filter(r => r !== sender.toString());
+    
+    console.log(`✅ Final unique recipients (excluding sender): ${uniqueRecipients.length}`);
+    console.log(`👥 Final recipient IDs:`, uniqueRecipients);
     
     return uniqueRecipients;
   } catch (error) {
@@ -141,11 +187,13 @@ const getTargetRecipients = async (sender, targetAudience) => {
 exports.createAnnouncement = async (req, res) => {
   try {
     const senderId = req.user._id;
-    const senderRole = req.user.role;
+    const senderRoles = req.user.roles || [req.user.role];
+    const senderRole = req.user.role; // Keep for legacy compatibility
     const { title, message, targetAudience, priority, scheduledFor, expiresAt, requiresApproval } = req.body;
     
     // Debug logging
     console.log('Creating announcement with targetAudience:', JSON.stringify(targetAudience, null, 2));
+    console.log('Sender roles:', senderRoles);
     
     // Get sender's hierarchy context
     const context = await getUserHierarchyContext(senderId);
@@ -154,7 +202,14 @@ exports.createAnnouncement = async (req, res) => {
     let allowedToCreate = false;
     let needsApproval = false;
     
-    switch (senderRole) {
+    // Determine primary role (prioritize: admin > dean > hod > teacher > student)
+    let primaryRole = 'student';
+    if (senderRoles.includes('admin')) primaryRole = 'admin';
+    else if (senderRoles.includes('dean')) primaryRole = 'dean';
+    else if (senderRoles.includes('hod')) primaryRole = 'hod';
+    else if (senderRoles.includes('teacher')) primaryRole = 'teacher';
+    
+    switch (primaryRole) {
       case 'admin':
         allowedToCreate = true;
         break;
@@ -274,7 +329,7 @@ exports.createAnnouncement = async (req, res) => {
     
     // Prepare cross-school data if needed
     let crossSchoolData = {};
-    if (senderRole === 'dean' && targetAudience.targetSchools && targetAudience.targetSchools.length > 0) {
+    if (primaryRole === 'dean' && targetAudience.targetSchools && targetAudience.targetSchools.length > 0) {
       const targetSchoolIds = targetAudience.targetSchools.map(id => id.toString());
       const deanSchoolId = context.school?._id?.toString();
       const otherSchools = targetSchoolIds.filter(id => id !== deanSchoolId);
@@ -291,12 +346,26 @@ exports.createAnnouncement = async (req, res) => {
       }
     }
     // Create announcement
+    
+    // Calculate recipients based on targetAudience
+    const calculatedRecipients = await getTargetRecipients(senderId, targetAudience);
+    console.log(`📋 Calculated ${calculatedRecipients.length} recipients for announcement`);
+    console.log(`👥 Recipients IDs:`, calculatedRecipients.map(r => r.toString()));
+    console.log(`📝 TargetAudience received:`, JSON.stringify(targetAudience, null, 2));
+    
     const announcement = new Announcement({
       sender: senderId,
-      role: senderRole,
+      role: primaryRole, // Use primary role for announcement
       title,
       message,
-      targetAudience,
+      targetAudience: {
+        ...targetAudience,
+        // Add calculated specific users to ensure visibility
+        specificUsers: [
+          ...(targetAudience.specificUsers || []),
+          ...calculatedRecipients
+        ]
+      },
       recipients: targetAudience.targetRoles || [], // Populate legacy field for backward compatibility
       priority: priority || 'normal',
       scheduledFor: scheduledFor ? new Date(scheduledFor) : undefined,
@@ -306,7 +375,7 @@ exports.createAnnouncement = async (req, res) => {
       ...crossSchoolData,
       submittedForApproval: needsApproval,
       approvalRequestedAt: needsApproval ? new Date() : undefined,
-      hodReviewRequired: senderRole === 'teacher' && needsApproval
+      hodReviewRequired: primaryRole === 'teacher' && needsApproval
     });
     
     await announcement.save();
@@ -315,7 +384,7 @@ exports.createAnnouncement = async (req, res) => {
     (async () => {
       try {
         if (needsApproval) {
-          if (senderRole === 'teacher') {
+          if (primaryRole === 'teacher') {
             // Teacher flow: notify HOD(s) for approval
             const hods = await User.find({
               $or: [
@@ -330,11 +399,11 @@ exports.createAnnouncement = async (req, res) => {
                 type: 'announcement_approval',
                 recipient: hod._id,
                 message: `New announcement from ${req.user.name} requires your approval: "${title}"`,
-                data: { announcementId: announcement._id, senderRole },
+                data: { announcementId: announcement._id, senderRole: primaryRole },
                 announcement: announcement._id
               });
             }
-          } else if (senderRole === 'dean' && crossSchoolData.crossSchoolRequest) {
+          } else if (primaryRole === 'dean' && crossSchoolData.crossSchoolRequest) {
             // Cross-school dean flow: notify target school dean for approval
             await NotificationController.createNotification({
               type: 'cross_school_announcement_approval',
@@ -342,7 +411,7 @@ exports.createAnnouncement = async (req, res) => {
               message: `Cross-school announcement request from ${req.user.name}: "${title}" requires your approval`,
               data: { 
                 announcementId: announcement._id, 
-                senderRole,
+                senderRole: primaryRole,
                 requestingDean: req.user.name,
                 requestingSchool: context.school?.name,
                 targetSchool: announcement.originalRequestedSchool
@@ -352,18 +421,23 @@ exports.createAnnouncement = async (req, res) => {
           }
         } else {
           // Immediate publish (admin/dean/hod): notify recipients
+          console.log('🔔 Getting target recipients for announcement:', title);
+          console.log('📋 Target Audience:', JSON.stringify(targetAudience, null, 2));
           const recipients = await getTargetRecipients(senderId, targetAudience);
+          console.log(`📤 Found ${recipients.length} recipients:`, recipients.map(r => r.toString()));
           // Avoid notifying the sender
           const recipientsToNotify = recipients.filter(r => r.toString() !== senderId.toString());
+          console.log(`✉️ Sending notifications to ${recipientsToNotify.length} recipients (excluding sender)`);
           for (const rid of recipientsToNotify) {
             await NotificationController.createNotification({
               type: 'announcement',
               recipient: rid,
-              message: `New ${senderRole} announcement: ${title}`,
+              message: `New ${primaryRole} announcement: ${title}`,
               data: { announcementId: announcement._id, priority: announcement.priority },
               announcement: announcement._id
             });
           }
+          console.log('✅ Notifications sent successfully');
         }
       } catch (notifyErr) {
         console.error('Non-blocking: failed to dispatch notifications for announcement:', notifyErr?.message || notifyErr);
@@ -433,7 +507,7 @@ exports.getAnnouncements = async (req, res) => {
       const targetConditions = [
         { 'targetAudience.allUsers': true },
         { 'targetAudience.targetRoles': filterRole },
-        { 'targetAudience.specificUsers': userId }
+        { 'targetAudience.specificUsers': userId } // Array contains userId
       ];
       
       // If no activeRole specified and user is not admin, fall back to checking all user roles
@@ -449,11 +523,23 @@ exports.getAnnouncements = async (req, res) => {
         targetConditions.push({ 'targetAudience.targetDepartments': context.department._id });
       }
       
+      console.log(`🔍 Fetching announcements for user ${userId} with role ${filterRole}`);
+      console.log(`📋 Target conditions count: ${targetConditions.length}`);
+      
       if (context.sections && context.sections.length > 0) {
         targetConditions.push({ 
           'targetAudience.targetSections': { 
             $in: context.sections.map(s => s._id) 
           } 
+        });
+      }
+      
+      // Include approved cross-school announcements targeted to user's school
+      if (context.school) {
+        targetConditions.push({ 
+          crossSchoolRequest: true,
+          approvalStatus: 'approved',
+          originalRequestedSchool: context.school._id
         });
       }
       
@@ -471,9 +557,10 @@ exports.getAnnouncements = async (req, res) => {
       .limit(parseInt(limit))
       .populate('sender', 'name email role teacherId')
       .populate('approvedBy', 'name email role')
+      .populate('approvalHistory.approvedBy', 'name email role')
       .populate('targetAudience.targetSchools', 'name code')
       .populate('targetAudience.targetDepartments', 'name code')
-  .populate('targetAudience.targetSections', 'name courses')
+      .populate('targetAudience.targetSections', 'name courses')
       .populate('targetAudience.targetCourses', 'title courseCode');
     
     const total = await Announcement.countDocuments(query);
@@ -500,7 +587,7 @@ exports.moderateAnnouncement = async (req, res) => {
     const { id } = req.params;
     const { action, note } = req.body; // action: 'approve' or 'reject'
     const moderatorId = req.user._id;
-    const moderatorRole = req.user.role;
+    const moderatorRoles = req.user.roles || [req.user.role];
     
     const announcement = await Announcement.findById(id).populate('sender');
     if (!announcement) {
@@ -510,9 +597,9 @@ exports.moderateAnnouncement = async (req, res) => {
     // Check permissions
     let canModerate = false;
     
-    if (moderatorRole === 'admin') {
+    if (moderatorRoles.includes('admin')) {
       canModerate = true;
-    } else if (moderatorRole === 'hod') {
+    } else if (moderatorRoles.includes('hod')) {
       // HOD can moderate announcements from teachers in their department
       const teacher = await User.findById(announcement.sender._id);
       const moderator = await User.findById(moderatorId);
@@ -549,7 +636,8 @@ exports.moderateAnnouncement = async (req, res) => {
 exports.getTargetingOptions = async (req, res) => {
   try {
     const userId = req.user._id;
-    const userRole = req.user.role;
+    const userRoles = req.user.roles || [req.user.role];
+    const userRole = req.user.role; // Keep for backward compatibility
     
     const context = await getUserHierarchyContext(userId);
     let options = {
@@ -560,7 +648,14 @@ exports.getTargetingOptions = async (req, res) => {
       courses: []
     };
     
-    switch (userRole) {
+    // Determine primary role for targeting (prioritize: admin > dean > hod > teacher > student)
+    let primaryRole = 'student';
+    if (userRoles.includes('admin')) primaryRole = 'admin';
+    else if (userRoles.includes('dean')) primaryRole = 'dean';
+    else if (userRoles.includes('hod')) primaryRole = 'hod';
+    else if (userRoles.includes('teacher')) primaryRole = 'teacher';
+    
+    switch (primaryRole) {
       case 'admin':
     options.roles = ['admin', 'dean', 'hod', 'teacher', 'student'];
     options.schools = await School.find({ isActive: true }).select('name code');
@@ -680,10 +775,14 @@ exports.getTargetingOptions = async (req, res) => {
           // Get all sections in HOD's department
           const departmentSections = await Section.find({
             department: context.department._id
-          }).select('name courses students teacher');
+          }).select('name courses teacher teachers');
           options.sections = departmentSections;
           
           console.log('Department Sections found:', departmentSections.length);
+          console.log('Section details:');
+          departmentSections.forEach(sec => {
+            console.log(`  - ${sec.name}: courses=${JSON.stringify(sec.courses || [])}, teacher=${sec.teacher}, teachers=${JSON.stringify(sec.teachers || [])}`);
+          });
           
           // Get all courses in HOD's department
           const departmentCourses = await Course.find({
@@ -694,7 +793,7 @@ exports.getTargetingOptions = async (req, res) => {
           
           console.log('Department Courses found:', departmentCourses.length, departmentCourses.map(c => c.title));
           
-          // Get all teachers in HOD's department with their courses (from legacy coursesAssigned)
+          // Get all teachers in HOD's department with their sections
           const departmentTeachers = await User.find({
             department: context.department._id,
             $or: [
@@ -702,28 +801,53 @@ exports.getTargetingOptions = async (req, res) => {
               { role: 'teacher' }
             ],
             isActive: true
-          }).select('name email teacherId coursesAssigned assignedSections').populate('coursesAssigned', 'title courseCode');
+          }).select('name email teacherId assignedSections').populate('assignedSections', 'name courses');
           
-          // Enhanced teacher data with course information
+          // Enhanced teacher data with section information
           options.teachers = departmentTeachers.map(teacher => ({
             _id: teacher._id,
             name: teacher.name,
             email: teacher.email,
             teacherId: teacher.teacherId,
-            // normalize to `courses` for downstream logic
-            courses: teacher.coursesAssigned || [],
-            courseNames: teacher.coursesAssigned ? teacher.coursesAssigned.map(c => c.title).join(', ') : 'No courses assigned'
+            assignedSections: teacher.assignedSections || [], // Keep as assignedSections for compatibility
+            sectionNames: teacher.assignedSections ? teacher.assignedSections.map(s => s.name).join(', ') : 'No sections assigned'
           }));
           
-          // Get all students in HOD's department with their course enrollments
-          const departmentStudents = await User.find({
-            $or: [
-              { roles: { $in: ['student'] } },
-              { role: 'student' }
-            ],
-            isActive: true,
-            department: context.department._id
-          }).select('name email regNo coursesAssigned assignedSections').populate('coursesAssigned', 'title courseCode').populate('assignedSections', 'name');
+          // Get all students in HOD's department sections (not just by department field)
+          // First get all section IDs in the department
+          const departmentSectionIds = departmentSections.map(s => s._id);
+          
+          // Populate sections with students to get all enrolled students
+          const populatedSections = await Section.find({
+            _id: { $in: departmentSectionIds }
+          }).populate('students', 'name email regNo assignedSections isActive');
+          
+          // Collect unique students from all sections in the department
+          const studentMap = new Map();
+          populatedSections.forEach(section => {
+            if (section.students && Array.isArray(section.students)) {
+              section.students.forEach(student => {
+                if (student.isActive !== false) { // Include active students or those without isActive field
+                  studentMap.set(student._id.toString(), student);
+                }
+              });
+            }
+          });
+          
+          // Convert map to array and populate assignedSections
+          const departmentStudents = Array.from(studentMap.values());
+          
+          // Populate assignedSections for each student
+          for (let student of departmentStudents) {
+            if (student.assignedSections && student.assignedSections.length > 0) {
+              await student.populate('assignedSections', 'name courses');
+            }
+          }
+          
+          console.log(`\n👥 Total students in department (from sections): ${departmentStudents.length}`);
+          departmentStudents.forEach(student => {
+            console.log(`  - ${student.name} (${student.regNo}): assignedSections=${JSON.stringify(student.assignedSections ? student.assignedSections.map(s => s.name) : [])}`)
+          });
           
           // Enhanced student data with course and section information
           options.students = departmentStudents.map(student => ({
@@ -731,10 +855,7 @@ exports.getTargetingOptions = async (req, res) => {
             name: student.name,
             email: student.email,
             regNo: student.regNo,
-            // normalize to `courses` and `sections` for downstream logic
-            courses: student.coursesAssigned || [],
-            sections: student.assignedSections || [],
-            courseNames: student.coursesAssigned ? student.coursesAssigned.map(c => c.title).join(', ') : 'No courses enrolled',
+            assignedSections: student.assignedSections || [], // Keep as assignedSections for compatibility
             sectionNames: student.assignedSections ? student.assignedSections.map(s => s.name).join(', ') : 'No sections assigned'
           }));
           
@@ -758,35 +879,38 @@ exports.getTargetingOptions = async (req, res) => {
               Array.isArray(section.courses) && section.courses.some(cId => cId.toString() === course._id.toString())
             );
             
-            // Collect teachers from sections
-            const sectionTeachers = new Set();
-            courseSections.forEach(section => {
-              if (section.teacher) {
-                sectionTeachers.add(section.teacher.toString());
+            console.log(`\n🔍 Processing course: ${course.title} (${course._id})`);
+            console.log(`  📚 Sections with this course: ${courseSections.length}`);
+            courseSections.forEach(sec => {
+              console.log(`    - ${sec.name} (${sec._id})`);
+            });
+            
+            const sectionIds = courseSections.map(s => s._id.toString());
+            console.log(`  🔑 Section IDs: ${JSON.stringify(sectionIds)}`);
+            
+            console.log(`  🔎 Checking ${options.teachers.length} teachers...`);
+            options.teachers.forEach(t => {
+              if (Array.isArray(t.assignedSections)) {
+                const teacherSections = t.assignedSections.map(s => s._id ? s._id.toString() : s.toString());
+                console.log(`    ${t.name}: ${JSON.stringify(teacherSections)}, match: ${teacherSections.some(ts => sectionIds.includes(ts))}`);
               }
             });
             
-            // Collect students from sections
-            const sectionStudents = new Set();
-            courseSections.forEach(section => {
-              if (section.students) {
-                section.students.forEach(student => {
-                  sectionStudents.add(student.toString());
-                });
-              }
-            });
-            
-            // Find teacher details for this course
+            // Find teachers assigned to these sections
             teachersByCourse[course._id].teachers = options.teachers.filter(teacher => 
-              sectionTeachers.has(teacher._id.toString()) ||
-              teacher.courses.some(tc => tc._id.toString() === course._id.toString())
+              Array.isArray(teacher.assignedSections) && 
+              teacher.assignedSections.some(s => sectionIds.includes(s._id ? s._id.toString() : s.toString()))
             );
             
-            // Find student details for this course
+            console.log(`  ✅ Teachers assigned: ${teachersByCourse[course._id].teachers.length}`);
+            
+            // Find students assigned to these sections
             studentsByCourse[course._id].students = options.students.filter(student => 
-              sectionStudents.has(student._id.toString()) ||
-              student.courses.some(sc => sc._id.toString() === course._id.toString())
+              Array.isArray(student.assignedSections) && 
+              student.assignedSections.some(s => sectionIds.includes(s._id ? s._id.toString() : s.toString()))
             );
+            
+            console.log(`  ✅ Students assigned: ${studentsByCourse[course._id].students.length}`);
           });
           
           options.teachersByCourse = teachersByCourse;
@@ -812,7 +936,7 @@ exports.getTargetingOptions = async (req, res) => {
         break;
     }
     
-    console.log('Final targeting options for role:', userRole, {
+    console.log('Final targeting options for role:', primaryRole, {
       coursesCount: options.courses?.length || 0,
       teachersByCoursesCount: Object.keys(options.teachersByCourse || {}).length,
       studentsByCoursesCount: Object.keys(options.studentsByCourse || {}).length,
@@ -832,21 +956,27 @@ exports.toggleTeacherPermission = async (req, res) => {
   try {
     const { teacherId } = req.params;
     const hodId = req.user._id;
-    const hodRole = req.user.role;
+    const hodRoles = req.user.roles || [req.user.role];
     
-    if (hodRole !== 'hod' && hodRole !== 'admin') {
+    if (!hodRoles.includes('hod') && !hodRoles.includes('admin')) {
       return res.status(403).json({ message: 'Only HODs can manage teacher permissions' });
     }
     
     const teacher = await User.findById(teacherId);
     const hod = await User.findById(hodId);
     
-    if (!teacher || teacher.role !== 'teacher') {
+    if (!teacher) {
       return res.status(404).json({ message: 'Teacher not found' });
     }
     
+    // Check if user is a teacher (support multi-role)
+    const teacherRoles = teacher.roles || [teacher.role];
+    if (!teacherRoles.includes('teacher')) {
+      return res.status(404).json({ message: 'User is not a teacher' });
+    }
+    
     // Check if HOD and teacher are in same department (unless admin)
-    if (hodRole === 'hod' && 
+    if (hodRoles.includes('hod') && !hodRoles.includes('admin') &&
         (!teacher.department || !hod.department || 
          teacher.department.toString() !== hod.department.toString())) {
       return res.status(403).json({ 
@@ -876,9 +1006,9 @@ exports.toggleTeacherPermission = async (req, res) => {
 exports.getPendingApprovals = async (req, res) => {
   try {
     const userId = req.user._id;
-    const userRole = req.user.role;
+    const userRoles = req.user.roles || [req.user.role];
     
-    if (userRole !== 'hod') {
+    if (!userRoles.includes('hod')) {
       return res.status(403).json({ message: 'Only HODs can view pending approvals' });
     }
     
@@ -917,15 +1047,15 @@ exports.getPendingApprovals = async (req, res) => {
   }
 };
 
-// Approve or reject teacher announcement (HOD only)
+  // Approve or reject teacher announcement (HOD only)
 exports.approveTeacherAnnouncement = async (req, res) => {
   try {
     const { id } = req.params;
     const { action, note } = req.body; // action: 'approve' or 'reject'
     const userId = req.user._id;
-    const userRole = req.user.role;
+    const userRoles = req.user.roles || [req.user.role];
     
-    if (userRole !== 'hod') {
+    if (!userRoles.includes('hod')) {
       return res.status(403).json({ message: 'Only HODs can approve announcements' });
     }
     
@@ -944,13 +1074,75 @@ exports.approveTeacherAnnouncement = async (req, res) => {
       });
     }
     
+    // Store previous status for history
+    const previousStatus = announcement.approvalStatus;
+    
     // Update approval status
     announcement.approvalStatus = action === 'approve' ? 'approved' : 'rejected';
     announcement.approvedBy = userId;
     announcement.approvalNote = note;
     announcement.hodReviewRequired = false;
     
+    // Add to approval history
+    if (!announcement.approvalHistory) {
+      announcement.approvalHistory = [];
+    }
+    
+    announcement.approvalHistory.push({
+      approvedBy: userId,
+      approverRole: 'hod',
+      action: action === 'approve' ? 'approved' : 'rejected',
+      actionDate: new Date(),
+      note: note || '',
+      previousStatus: previousStatus
+    });
+    
     await announcement.save();
+    
+    // If approved, send notifications to recipients
+    if (action === 'approve') {
+      console.log('🔔 Sending notifications for approved teacher announcement:', announcement.title);
+      
+      // Get recipients based on targetAudience
+      const recipients = await getTargetRecipients(announcement.sender._id, announcement.targetAudience);
+      
+      console.log(`📤 Sending notifications to ${recipients.length} recipients`);
+      
+      // Send notifications to all recipients (fire-and-forget)
+      (async () => {
+        try {
+          const recipientsToNotify = recipients.filter(r => r.toString() !== announcement.sender._id.toString());
+          for (const rid of recipientsToNotify) {
+            await NotificationController.createNotification({
+              type: 'announcement',
+              recipient: rid,
+              message: `New ${announcement.role} announcement: ${announcement.title}`,
+              data: { announcementId: announcement._id, priority: announcement.priority },
+              announcement: announcement._id
+            });
+          }
+          console.log('✅ Notifications sent successfully');
+        } catch (notifyErr) {
+          console.error('❌ Error sending notifications for approved announcement:', notifyErr);
+        }
+      })();
+      
+      // Also notify the teacher that their announcement was approved
+      await NotificationController.createNotification({
+        type: 'announcement_approved',
+        recipient: announcement.sender._id,
+        message: `Your announcement "${announcement.title}" has been approved by ${req.user.name}`,
+        data: { announcementId: announcement._id }
+      });
+    } else {
+      // Notify the teacher that their announcement was rejected
+      await NotificationController.createNotification({
+        type: 'announcement_rejected',
+        recipient: announcement.sender._id,
+        message: `Your announcement "${announcement.title}" was rejected. ${note ? 'Reason: ' + note : ''}`,
+        data: { announcementId: announcement._id, note }
+      });
+    }
     
     // Populate the updated announcement
     const updatedAnnouncement = await Announcement.findById(id)
@@ -968,17 +1160,15 @@ exports.approveTeacherAnnouncement = async (req, res) => {
     console.error('Error approving announcement:', err);
     res.status(500).json({ message: err.message });
   }
-};
-
-// Dean: Approve or reject cross-school announcement requests
+};// Dean: Approve or reject cross-school announcement requests
 exports.approveCrossSchoolAnnouncement = async (req, res) => {
   try {
     const { id } = req.params;
     const { action, approvalNote } = req.body; // action: 'approve' or 'reject'
     const deanId = req.user._id;
-    const deanRole = req.user.role;
+    const deanRoles = req.user.roles || [req.user.role];
     
-    if (deanRole !== 'dean') {
+    if (!deanRoles.includes('dean')) {
       return res.status(403).json({ message: 'Only deans can approve cross-school announcements' });
     }
     
@@ -1006,15 +1196,60 @@ exports.approveCrossSchoolAnnouncement = async (req, res) => {
       return res.status(400).json({ message: 'This announcement has already been processed' });
     }
     
+    // Store previous status for history
+    const previousStatus = announcement.approvalStatus;
+    
     // Update announcement status
     announcement.approvalStatus = action === 'approve' ? 'approved' : 'rejected';
     announcement.approvedBy = deanId;
     announcement.approvalNote = approvalNote;
     
+    // Add to approval history
+    if (!announcement.approvalHistory) {
+      announcement.approvalHistory = [];
+    }
+    
+    announcement.approvalHistory.push({
+      approvedBy: deanId,
+      approverRole: 'dean',
+      action: action === 'approve' ? 'approved' : 'rejected',
+      actionDate: new Date(),
+      note: approvalNote || '',
+      previousStatus: previousStatus
+    });
+    
     await announcement.save();
     
+    // If approved, send notifications to recipients
+    if (action === 'approve') {
+      console.log('🔔 Sending notifications for approved cross-school announcement:', announcement.title);
+      
+      // Get recipients based on targetAudience
+      const recipients = await getTargetRecipients(announcement.sender._id, announcement.targetAudience);
+      
+      console.log(`📤 Sending notifications to ${recipients.length} recipients`);
+      
+      // Send notifications to all recipients (fire-and-forget)
+      (async () => {
+        try {
+          const recipientsToNotify = recipients.filter(r => r.toString() !== announcement.sender._id.toString());
+          for (const rid of recipientsToNotify) {
+            await NotificationController.createNotification({
+              type: 'announcement',
+              recipient: rid,
+              message: `New cross-school announcement: ${announcement.title}`,
+              data: { announcementId: announcement._id, priority: announcement.priority },
+              announcement: announcement._id
+            });
+          }
+          console.log('✅ Cross-school notifications sent successfully');
+        } catch (notifyErr) {
+          console.error('❌ Error sending cross-school notifications:', notifyErr);
+        }
+      })();
+    }
+    
     // Send notification to requesting dean
-    const NotificationController = require('./notificationController');
     await NotificationController.createNotification({
       type: 'announcement_decision',
       recipient: announcement.sender._id,
@@ -1047,9 +1282,9 @@ exports.approveCrossSchoolAnnouncement = async (req, res) => {
 exports.getPendingCrossSchoolRequests = async (req, res) => {
   try {
     const deanId = req.user._id;
-    const deanRole = req.user.role;
+    const deanRoles = req.user.roles || [req.user.role];
     
-    if (deanRole !== 'dean') {
+    if (!deanRoles.includes('dean')) {
       return res.status(403).json({ message: 'Only deans can view cross-school requests' });
     }
     
@@ -1077,10 +1312,10 @@ exports.getPendingCrossSchoolRequests = async (req, res) => {
 exports.getAnnouncementHistory = async (req, res) => {
   try {
     const { id } = req.params;
-    const userRole = req.user.role;
+    const userRoles = req.user.roles || [req.user.role];
     
     // Only admins can view edit history
-    if (userRole !== 'admin') {
+    if (!userRoles.includes('admin')) {
       return res.status(403).json({ message: 'Not authorized to view edit history' });
     }
     
@@ -1099,6 +1334,116 @@ exports.getAnnouncementHistory = async (req, res) => {
     });
   } catch (err) {
     console.error('Error getting announcement history:', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Get HOD's approval history (all announcements they have approved/rejected)
+exports.getHODApprovalHistory = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const userRoles = req.user.roles || [req.user.role];
+    const { page = 1, limit = 20, action } = req.query; // action: 'approved', 'rejected', or 'all'
+    
+    if (!userRoles.includes('hod') && !userRoles.includes('admin')) {
+      return res.status(403).json({ message: 'Only HODs can view their approval history' });
+    }
+    
+    // Build query to find announcements where this HOD has taken action
+    const query = {
+      'approvalHistory.approvedBy': userId
+    };
+    
+    // If specific action filter is requested
+    if (action && action !== 'all') {
+      query['approvalHistory.action'] = action;
+    }
+    
+    const skip = (page - 1) * limit;
+    
+    // Find all announcements where this HOD appears in approval history
+    const announcements = await Announcement.find(query)
+      .sort({ 'approvalHistory.actionDate': -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('sender', 'name email role teacherId')
+      .populate('approvalHistory.approvedBy', 'name email role')
+      .populate('targetAudience.targetSections', 'name')
+      .populate('targetAudience.targetCourses', 'title courseCode');
+    
+    // Filter and format to show only this HOD's approval actions
+    const formattedAnnouncements = announcements.map(announcement => {
+      const hodApprovals = announcement.approvalHistory.filter(
+        h => h.approvedBy._id.toString() === userId.toString()
+      );
+      
+      return {
+        _id: announcement._id,
+        title: announcement.title,
+        message: announcement.message,
+        sender: announcement.sender,
+        targetAudience: announcement.targetAudience,
+        currentStatus: announcement.approvalStatus,
+        priority: announcement.priority,
+        createdAt: announcement.createdAt,
+        myApprovals: hodApprovals.map(approval => ({
+          action: approval.action,
+          actionDate: approval.actionDate,
+          note: approval.note,
+          previousStatus: approval.previousStatus
+        }))
+      };
+    });
+    
+    const total = await Announcement.countDocuments(query);
+    
+    res.json({
+      approvalHistory: formattedAnnouncements,
+      pagination: {
+        current: parseInt(page),
+        total: Math.ceil(total / limit),
+        count: formattedAnnouncements.length,
+        totalRecords: total
+      }
+    });
+    
+  } catch (err) {
+    console.error('Error getting HOD approval history:', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Get approval history for a specific announcement
+exports.getAnnouncementApprovalHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userRoles = req.user.roles || [req.user.role];
+    
+    // Only HODs and admins can view approval history
+    if (!userRoles.includes('hod') && !userRoles.includes('admin')) {
+      return res.status(403).json({ message: 'Not authorized to view approval history' });
+    }
+    
+    const announcement = await Announcement.findById(id)
+      .populate('sender', 'name email role teacherId')
+      .populate('approvalHistory.approvedBy', 'name email role');
+      
+    if (!announcement) {
+      return res.status(404).json({ message: 'Announcement not found' });
+    }
+    
+    res.json({
+      announcement: {
+        _id: announcement._id,
+        title: announcement.title,
+        sender: announcement.sender,
+        currentStatus: announcement.approvalStatus,
+        createdAt: announcement.createdAt
+      },
+      approvalHistory: announcement.approvalHistory || []
+    });
+  } catch (err) {
+    console.error('Error getting announcement approval history:', err);
     res.status(500).json({ message: err.message });
   }
 };

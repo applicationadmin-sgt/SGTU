@@ -2,7 +2,10 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ 
+  dest: 'uploads/',
+  limits: {}  // No file size limits
+});
 
 const { auth, authorizeRoles, switchRole } = require('../middleware/auth');
 const adminController = require('../controllers/adminController');
@@ -11,6 +14,7 @@ const analyticsController = require('../controllers/analyticsController');
 const settingController = require('../controllers/settingController');
 const unitController = require('../controllers/unitController');
 const { authorizePermissions } = require('../middleware/auth');
+const { logDetailedOperation } = require('../middleware/detailedAuditMiddleware');
 
 // Debug route (no auth for testing)
 router.get('/debug/videos', adminController.debugVideos);
@@ -18,8 +22,18 @@ router.get('/debug/videos', adminController.debugVideos);
 // All routes protected by admin role
 router.use(auth, authorizeRoles('admin'));
 
-// Dashboard activity feed
+// Dashboard activity feed (basic - for backwards compatibility)
 router.get('/audit-logs/recent', adminController.getRecentAuditLogs);
+
+// COMPREHENSIVE AUDIT LOG ROUTES
+router.get('/audit-logs/advanced', adminController.getAdvancedAuditLogs);
+router.get('/audit-logs', adminController.getAuditLogs);
+router.get('/audit-logs/statistics', adminController.getAuditLogStatistics);
+router.get('/audit-logs/suspicious', adminController.getSuspiciousActivities);
+router.get('/audit-logs/pending-reviews', adminController.getPendingReviews);
+router.put('/audit-logs/:id/review', adminController.markAsReviewed);
+router.get('/audit-logs/export', adminController.exportAuditLogs);
+router.get('/audit-logs/user/:userId', adminController.getUserActivityHistory);
 
 // Bulk messaging (email or notification)
 router.post('/bulk-message', authorizeRoles('admin'), adminController.bulkMessage);
@@ -31,13 +45,13 @@ router.get('/analytics/export', analyticsController.exportAnalyticsCSV);
 router.post('/add-admin', authorizeRoles('admin'), adminController.addAdmin);
 // Global settings
 router.get('/settings', settingController.getSettings);
-router.post('/settings', settingController.updateSetting);
+router.post('/settings', logDetailedOperation('UPDATE_SETTINGS'), settingController.updateSetting);
 // Change own password
-router.post('/change-password', adminController.changeOwnPassword);
+router.post('/change-password', logDetailedOperation('CHANGE_PASSWORD'), adminController.changeOwnPassword);
 // Bulk assign courses via CSV
-router.post('/course/bulk-assign', upload.single('file'), adminController.bulkAssignCourses);
+router.post('/course/bulk-assign', upload.single('file'), logDetailedOperation('BULK_ASSIGN_COURSES'), adminController.bulkAssignCourses);
 // Bulk upload courses via CSV
-router.post('/course/bulk', upload.single('file'), adminController.bulkUploadCourses);
+router.post('/course/bulk', upload.single('file'), logDetailedOperation('BULK_UPLOAD_COURSES'), adminController.bulkUploadCourses);
 // Get all courses
 router.get('/courses', adminController.getAllCourses);
 // Get courses by department
@@ -69,11 +83,11 @@ router.get('/departments', async (req, res) => {
 // Get teachers by department (for HOD)
 router.get('/teachers/department', adminController.getTeachersByDepartment);
 // Super admin: Create announcement for teachers and/or students
-router.post('/announcement', adminController.createAnnouncement);
+router.post('/announcement', logDetailedOperation('CREATE_ANNOUNCEMENT'), adminController.createAnnouncement);
 // Edit announcement
-router.put('/announcement/:id', adminController.updateAnnouncement);
+router.put('/announcement/:id', logDetailedOperation('UPDATE_ANNOUNCEMENT'), adminController.updateAnnouncement);
 // Delete announcement
-router.delete('/announcement/:id', adminController.deleteAnnouncement);
+router.delete('/announcement/:id', logDetailedOperation('DELETE_ANNOUNCEMENT'), adminController.deleteAnnouncement);
 
 // Admin: Toggle teacher announcement permission
 router.patch('/teacher/:teacherId/announce-permission', adminController.toggleTeacherAnnounce);
@@ -85,32 +99,32 @@ router.get('/announcement', require('../controllers/announcementController').get
 router.get('/teachers/search', adminController.searchTeachers);
 
 // Teacher management
-router.post('/teacher', authorizePermissions('manage_teachers'), adminController.addTeacher);
-router.post('/teacher/bulk', authorizePermissions('manage_teachers'), upload.single('file'), adminController.bulkUploadTeachers);
-router.post('/teacher/reset-password', authorizePermissions('manage_teachers'), adminController.resetTeacherPassword);
-router.patch('/teacher/:id/deactivate', authorizePermissions('manage_teachers'), adminController.deactivateTeacher);
+router.post('/teacher', authorizePermissions('manage_teachers'), logDetailedOperation('CREATE_TEACHER'), adminController.addTeacher);
+router.post('/teacher/bulk', authorizePermissions('manage_teachers'), upload.single('file'), logDetailedOperation('BULK_UPLOAD_TEACHERS'), adminController.bulkUploadTeachers);
+router.post('/teacher/reset-password', authorizePermissions('manage_teachers'), logDetailedOperation('RESET_PASSWORD'), adminController.resetTeacherPassword);
+router.patch('/teacher/:id/deactivate', authorizePermissions('manage_teachers'), logDetailedOperation('DEACTIVATE_TEACHER'), adminController.deactivateTeacher);
 router.get('/teachers', adminController.getAllTeachers);
 
 // Student management
-router.post('/student', adminController.createStudent);
-router.post('/student/bulk', upload.single('file'), adminController.bulkUploadStudents);
-router.post('/student/assign-courses', adminController.assignCourses); // batch assign
+router.post('/student', logDetailedOperation('CREATE_STUDENT'), adminController.createStudent);
+router.post('/student/bulk', upload.single('file'), logDetailedOperation('BULK_UPLOAD_STUDENTS'), adminController.bulkUploadStudents);
+router.post('/student/assign-courses', logDetailedOperation('ASSIGN_COURSES_TO_STUDENT'), adminController.assignCourses); // batch assign
 router.get('/student/:studentId/assignment-history', adminController.getAssignmentHistory);
-router.patch('/student/:id', adminController.editStudent);
-router.delete('/student/:id', adminController.removeStudent);
+router.patch('/student/:id', logDetailedOperation('UPDATE_STUDENT'), adminController.editStudent);
+router.delete('/student/:id', logDetailedOperation('DELETE_STUDENT'), adminController.removeStudent);
 
 // Course management
-router.post('/course', adminController.createCourse);
-router.patch('/course/:id', adminController.editCourse);
-router.delete('/course/:id', adminController.deleteCourse);
+router.post('/course', logDetailedOperation('CREATE_COURSE'), adminController.createCourse);
+router.patch('/course/:id', logDetailedOperation('UPDATE_COURSE'), adminController.editCourse);
+router.delete('/course/:id', logDetailedOperation('DELETE_COURSE'), adminController.deleteCourse);
 
 // Unit management
-router.post('/course/:id/unit', require('../controllers/unitController').createUnit);
+router.post('/course/:id/unit', logDetailedOperation('CREATE_UNIT'), require('../controllers/unitController').createUnit);
 router.get('/course/:id/units', require('../controllers/unitController').getCourseUnits);
 
 // Unit deadline management
-router.patch('/unit/:unitId', require('../controllers/unitController').updateUnit);
-router.patch('/unit/:unitId/deadline', require('../controllers/unitController').updateUnitDeadline);
+router.patch('/unit/:unitId', logDetailedOperation('UPDATE_UNIT'), require('../controllers/unitController').updateUnit);
+router.patch('/unit/:unitId/deadline', logDetailedOperation('UPDATE_UNIT_DEADLINE'), require('../controllers/unitController').updateUnitDeadline);
 router.get('/unit/:unitId/deadline', require('../controllers/unitController').getUnitDeadline);
 
 // Course details, videos, and students - new endpoints
@@ -156,9 +170,9 @@ router.get('/courses/available', async (req, res) => {
 });
 
 // Video management
-router.post('/video/upload', upload.single('file'), videoController.uploadVideo);
-router.delete('/video/:id', videoController.removeVideo);
-router.patch('/video/:id/warn', videoController.warnVideo);
+router.post('/video/upload', upload.single('file'), logDetailedOperation('UPLOAD_VIDEO'), videoController.uploadVideo);
+router.delete('/video/:id', logDetailedOperation('DELETE_VIDEO'), videoController.removeVideo);
+router.patch('/video/:id/warn', logDetailedOperation('WARN_VIDEO'), videoController.warnVideo);
 
 // Analytics
 router.get('/analytics/overview', analyticsController.getOverview);
@@ -177,18 +191,20 @@ router.get('/analytics/student', analyticsController.searchStudent); // ?regNo=.
 router.get('/analytics/teacher/:teacherId', analyticsController.getTeacherAnalytics);
 
 // Dean Management Routes
-router.post('/deans', adminController.createDean);
+router.post('/deans', logDetailedOperation('CREATE_DEAN'), adminController.createDean);
 router.get('/deans', adminController.getAllDeans);
-router.put('/deans/:id', adminController.updateDean);
-router.delete('/deans/:id', adminController.deleteDean);
+router.put('/deans/:id', logDetailedOperation('UPDATE_DEAN'), adminController.updateDean);
+router.delete('/deans/:id', logDetailedOperation('DELETE_DEAN'), adminController.deleteDean);
+router.post('/deans/bulk', upload.single('file'), logDetailedOperation('BULK_UPLOAD_DEANS'), adminController.bulkUploadDeans);
 // Reset dean password
-router.post('/deans/reset-password', adminController.resetDeanPassword);
+router.post('/deans/reset-password', logDetailedOperation('RESET_PASSWORD'), adminController.resetDeanPassword);
 
 // HOD Management Routes
-router.post('/hods', adminController.createHOD);
+router.post('/hods', logDetailedOperation('CREATE_HOD'), adminController.createHOD);
 router.get('/hods', adminController.getAllHODs);
-router.put('/hods/:id', adminController.updateHOD);
-router.delete('/hods/:id', adminController.deleteHOD);
+router.put('/hods/:id', logDetailedOperation('UPDATE_HOD'), adminController.updateHOD);
+router.delete('/hods/:id', logDetailedOperation('DELETE_HOD'), adminController.deleteHOD);
+router.post('/hods/bulk', upload.single('file'), logDetailedOperation('BULK_UPLOAD_HODS'), adminController.bulkUploadHODs);
 
 // Security lock management for unit quizzes
 const StudentProgress = require('../models/StudentProgress');
@@ -217,7 +233,7 @@ router.get('/course/:courseId/unit/:unitId/locks', async (req, res) => {
 	}
 });
 
-router.post('/course/:courseId/unit/:unitId/unlock', async (req, res) => {
+router.post('/course/:courseId/unit/:unitId/unlock', logDetailedOperation('UNLOCK_UNIT'), async (req, res) => {
 	try {
 		const { courseId, unitId } = req.params;
 		const { studentId } = req.body;
@@ -333,7 +349,7 @@ router.get('/locks', async (req, res) => {
 });
 
 // Grant extra attempts for a specific student and unit
-router.post('/course/:courseId/unit/:unitId/grant-attempts', async (req, res) => {
+router.post('/course/:courseId/unit/:unitId/grant-attempts', logDetailedOperation('GRANT_QUIZ_ATTEMPTS'), async (req, res) => {
 	try {
 		const { courseId, unitId } = req.params;
 		const { studentId, extraAttempts = 1 } = req.body;
@@ -369,8 +385,15 @@ router.get('/sections/all', adminController.getAllSections);
 router.get('/sections/:sectionId/courses', adminController.getSectionCourses);
 
 // Admin teacher-section-course assignment (bypasses HOD role requirement)
-router.post('/assign-teacher-to-section-course', adminController.adminAssignTeacherToSectionCourse);
-router.post('/remove-teacher-from-section-course', adminController.adminRemoveTeacherFromSectionCourse);
+router.post('/assign-teacher-to-section-course', logDetailedOperation('ASSIGN_TEACHER_TO_COURSE'), adminController.adminAssignTeacherToSectionCourse);
+router.post('/remove-teacher-from-section-course', logDetailedOperation('REMOVE_TEACHER_FROM_COURSE'), adminController.adminRemoveTeacherFromSectionCourse);
+
+// Bulk uploads for departments, sections, schools, and assignments
+router.post('/schools/bulk-upload', upload.single('file'), logDetailedOperation('BULK_UPLOAD_SCHOOLS'), adminController.bulkUploadSchools);
+router.post('/department/bulk', upload.single('file'), logDetailedOperation('BULK_UPLOAD_DEPARTMENTS'), adminController.bulkUploadDepartments);
+router.post('/section/bulk', upload.single('file'), logDetailedOperation('BULK_UPLOAD_SECTIONS'), adminController.bulkUploadSections);
+router.post('/section/bulk-course-assignment', upload.single('file'), logDetailedOperation('ASSIGN_COURSES_TO_SECTION'), adminController.bulkAssignCoursesToSections);
+router.post('/section/bulk-teacher-assignment', upload.single('file'), logDetailedOperation('BULK_ASSIGN_TEACHERS'), adminController.bulkAssignTeachersToSections);
 
 module.exports = router;
 

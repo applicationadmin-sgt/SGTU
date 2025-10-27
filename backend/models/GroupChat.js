@@ -24,6 +24,36 @@ const groupChatSchema = new mongoose.Schema({
     required: true,
     maxlength: 1000 // Limiting to ~200 words (average 5 chars per word)
   },
+  messageType: {
+    type: String,
+    enum: ['text', 'file', 'image', 'document', 'emoji'],
+    default: 'text'
+  },
+  // Individual file fields (for single file messages)
+  fileUrl: {
+    type: String
+  },
+  fileName: {
+    type: String
+  },
+  fileSize: {
+    type: Number
+  },
+  mimeType: {
+    type: String
+  },
+  // Legacy attachments array (for multiple files, if needed in future)
+  attachments: [{
+    fileName: String,
+    fileUrl: String,
+    fileType: String,
+    fileSize: Number
+  }],
+  replyTo: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'GroupChat',
+    default: null
+  },
   timestamp: { 
     type: Date, 
     default: Date.now,
@@ -53,7 +83,26 @@ const groupChatSchema = new mongoose.Schema({
   },
   flaggedReason: { 
     type: String 
-  }
+  },
+  reactions: [{
+    emoji: {
+      type: String,
+      required: true
+    },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    userName: {
+      type: String,
+      required: true
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now
+    }
+  }]
 }, {
   timestamps: true,
   collection: 'groupchats'
@@ -105,27 +154,40 @@ groupChatSchema.methods.canShowDeleteButton = function(user) {
 // Static method for content filtering
 groupChatSchema.statics.filterContent = function(message) {
   const vulgarWords = [
-    // English vulgar words
-    'fuck', 'shit', 'damn', 'bitch', 'asshole', 'bastard', 'crap', 'piss',
-    'whore', 'slut', 'stupid', 'idiot', 'moron', 'retard', 'gay', 'lesbian',
-    // Bengali vulgar words (common ones)
-    'chuda', 'magir', 'bal', 'khankir', 'tor ma', 'kuttar baccha', 'haramjada',
-    'madarchod', 'bhenchod', 'randi', 'gadha', 'ullu', 'pagol', 'mitchil',
-    // Hindi vulgar words (common ones)  
-    'madarchod', 'behenchod', 'chutiya', 'randi', 'harami', 'kamina', 'gadha',
-    'bakchod', 'gaandu', 'kutte', 'saala', 'bhosadi', 'lauda', 'lund'
+    // English vulgar words (expanded)
+    'fuck', 'fck', 'fuk', 'f**k', 'shit', 'sht', 'damn', 'dmn', 'bitch', 'btch', 'b*tch',
+    'asshole', 'ass', 'bastard', 'crap', 'piss', 'whore', 'slut', 'dick', 'cock', 'penis',
+    'pussy', 'vagina', 'sex', 'porn', 'motherfucker', 'mofo', 'nigga', 'nigger', 'faggot',
+    'fag', 'retard', 'retarded', 'stupid', 'idiot', 'moron', 'dumb', 'dumbass', 'loser',
+    // Hindi vulgar words (expanded)
+    'madarchod', 'mc', 'madharchod', 'behenchod', 'bc', 'behen chod', 'bhen chod',
+    'chutiya', 'chutia', 'chut', 'lund', 'lauda', 'loda', 'land', 'bhosadi', 'bhosda',
+    'randi', 'rande', 'harami', 'haramzada', 'kamina', 'kamine', 'kutte', 'kutta', 'kuta',
+    'saala', 'sala', 'saali', 'gandu', 'gaandu', 'gand', 'gaand', 'bakchod', 'bkl',
+    'chod', 'chodna', 'goli maar', 'mar ja', 'kutte ki aulad', 'nalayak', 'badtameez',
+    // Bengali vulgar words (expanded)
+    'chuda', 'choda', 'magir', 'magi', 'bal', 'baal', 'khankir', 'khanki', 'tor ma',
+    'kuttar baccha', 'kutti', 'haramjada', 'haramzada', 'shala', 'sala', 'boka', 'pagol',
+    'mitchil', 'gadha', 'gadhi', 'ullu', 'bewakoof', 'pagla',
+    // Urdu vulgar words
+    'harami', 'kutta', 'kameena', 'nalayak', 'badtameez', 'ghatia', 'gandagi',
+    // Common variations and spellings
+    'fck', 'wtf', 'stfu', 'gtfo', 'sob', 'pos', 'mf', 'mtf', 'kys', 'kill yourself'
   ];
 
-  let filteredMessage = message.toLowerCase();
+  let filteredMessage = message;
   let flagged = false;
   let flaggedWords = [];
 
   vulgarWords.forEach(word => {
-    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    // Create regex that matches word boundaries and variations
+    const regex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
     if (regex.test(filteredMessage)) {
       flagged = true;
-      flaggedWords.push(word);
-      filteredMessage = filteredMessage.replace(regex, '*'.repeat(word.length));
+      if (!flaggedWords.includes(word)) {
+        flaggedWords.push(word);
+      }
+      filteredMessage = filteredMessage.replace(regex, '***');
     }
   });
 
@@ -136,6 +198,8 @@ groupChatSchema.statics.filterContent = function(message) {
     flaggedWords: flaggedWords
   };
 };
+
+// Virtual for display name logic (for backward compatibility)
 
 // Virtual for display name logic (for backward compatibility)
 groupChatSchema.virtual('senderName').get(function() {

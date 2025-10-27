@@ -30,6 +30,12 @@ router.patch('/:id/cross-school-approve', auth, announcementController.approveCr
 // Get pending cross-school announcements for dean approval
 router.get('/pending-cross-school', auth, announcementController.getPendingCrossSchoolRequests);
 
+// Get HOD's approval history - HOD/Admin only (MUST be before /:id routes)
+router.get('/my-approvals/history', auth, announcementController.getHODApprovalHistory);
+
+// Get approval history for a specific announcement - HOD/Admin only
+router.get('/:id/approval-history', auth, announcementController.getAnnouncementApprovalHistory);
+
 // Get edit history for a specific announcement - Admin only
 router.get('/:id/history', auth, announcementController.getAnnouncementHistory);
 

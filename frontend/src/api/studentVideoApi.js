@@ -154,3 +154,16 @@ export const getAllDeadlineWarnings = async (token) => {
     throw error;
   }
 };
+
+// Get video resume position for a student
+export const getVideoResumePosition = async (videoId, token) => {
+  try {
+    const response = await axios.get(`/api/student/video/${videoId}/resume-position`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error getting video resume position:', error);
+    throw error;
+  }
+};

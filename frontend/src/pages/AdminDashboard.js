@@ -51,7 +51,9 @@ import AdminQuizUnlockDashboard from '../components/admin/AdminQuizUnlockDashboa
 import AdminProfile from '../components/AdminProfile';
 import UserRoleManagement from './admin/UserRoleManagement';
 import RoleManagement from './admin/RoleManagement';
+import AdvancedAuditLogDashboard from '../components/admin/AdvancedAuditLogDashboard';
 import { useLocation } from 'react-router-dom';
+import ChatDashboard from '../components/ChatDashboard';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -65,6 +67,21 @@ const AdminDashboard = () => {
 
   // Profile menu state
   const [profileAnchorEl, setProfileAnchorEl] = useState(null);
+
+  // Sidebar collapsed state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
+
+  // Listen for sidebar toggle events
+  useEffect(() => {
+    const handleSidebarToggle = (event) => {
+      setSidebarCollapsed(event.detail.collapsed);
+    };
+    
+    window.addEventListener('sidebarToggle', handleSidebarToggle);
+    return () => window.removeEventListener('sidebarToggle', handleSidebarToggle);
+  }, []);
 
   // Event handlers
   const handleProfileClick = (event) => {
@@ -406,12 +423,23 @@ const AdminDashboard = () => {
       </Box>
 
       {/* Sidebar with top margin for fixed header */}
-      <Box sx={{ mt: '64px', width: '280px', flexShrink: 0 }}>
+      <Box sx={{ 
+        mt: '64px', 
+        width: sidebarCollapsed ? '80px' : '280px', 
+        flexShrink: 0,
+        transition: 'width 0.3s'
+      }}>
         <Sidebar currentUser={currentUser} />
       </Box>
       
       {/* Main Content Area with margin for sidebar and header */}
-      <Box sx={{ flexGrow: 1, mt: '64px', ml: 0 }}>
+      <Box sx={{ 
+        flexGrow: 1, 
+        mt: '64px', 
+        ml: 0,
+        width: `calc(100% - ${sidebarCollapsed ? 80 : 280}px)`,
+        transition: 'width 0.3s'
+      }}>
         <Box 
           component="main" 
           sx={{ 
@@ -665,6 +693,7 @@ const AdminDashboard = () => {
               } />
               <Route path="teachers" element={<TeacherManagement currentUser={user} />} />
               <Route path="students" element={<StudentManagement />} />
+              <Route path="chats" element={<ChatDashboard />} />
               <Route path="courses" element={<CourseManagement />} />
               <Route path="schools" element={<SchoolManagement />} />
               <Route path="departments" element={<DepartmentManagement />} />
@@ -681,7 +710,7 @@ const AdminDashboard = () => {
               <Route path="announcements" element={<AnnouncementPage role="admin" />} />
               <Route path="profile" element={<AdminProfile />} />
               {currentUser?.role === 'admin' && <Route path="user-roles" element={<UserRoleManagement />} />}
-              {currentUser?.role === 'admin' && <Route path="roles" element={<RoleManagement />} />}
+              {currentUser?.role === 'admin' && <Route path="roles" element={<AdvancedAuditLogDashboard />} />}
               <Route path="*" element={<Navigate to="/admin/dashboard" />} />
             </Routes>
           </Box>

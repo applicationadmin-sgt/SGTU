@@ -5,7 +5,7 @@ const User = require('./models/User');
 
 async function diagnoseIssue() {
     try {
-        await mongoose.connect('mongodb+srv://Cluster37906:ZOtRFZe8MctGOp7L@cluster0.flx5j.mongodb.net/campus_link_db?retryWrites=true&w=majority');
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/sgtlms');
         console.log('🔍 DIAGNOSING THE PERMANENT ISSUE\n');
         
         // Get student

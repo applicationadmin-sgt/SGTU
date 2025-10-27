@@ -45,12 +45,15 @@ import {
   Check as CheckIcon,
   School as SchoolIcon,
   ContentCopy as ContentCopyIcon,
-  LibraryBooks as LibraryBooksIcon
+  LibraryBooks as LibraryBooksIcon,
+  Settings as SettingsIcon,
+  Quiz as QuizIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { parseJwt } from '../../utils/jwt';
 import QuizUploadForm from '../../components/teacher/QuizUploadForm';
+import QuizConfigurationDialog from '../../components/common/QuizConfigurationDialog';
 
 const TeacherQuizzes = () => {
   const navigate = useNavigate();
@@ -70,6 +73,9 @@ const TeacherQuizzes = () => {
   const [expandedQuizPool, setExpandedQuizPool] = useState(null);
   const [quizPoolQuestions, setQuizPoolQuestions] = useState({});
   const [poolDetailsDialog, setPoolDetailsDialog] = useState({ open: false, pool: null });
+  const [quizConfigDialogOpen, setQuizConfigDialogOpen] = useState(false);
+  const [selectedConfigUnit, setSelectedConfigUnit] = useState(null);
+  const [uploadedQuestions, setUploadedQuestions] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -85,14 +91,13 @@ const TeacherQuizzes = () => {
       });
       setCourses(coursesResponse.data);
 
-      // If teacher has courses, fetch quizzes for the first course
+      // If teacher has courses, fetch data for the first course
       if (coursesResponse.data.length > 0) {
         const firstCourseId = coursesResponse.data[0]._id;
         setSelectedCourse(firstCourseId);
         await Promise.all([
-          fetchQuizzes(firstCourseId),
-          fetchQuizPools(firstCourseId),
-          fetchUnits(firstCourseId)
+          fetchUnits(firstCourseId),
+          fetchUploadedQuestions(firstCourseId)
         ]);
       }
 
@@ -152,13 +157,24 @@ const TeacherQuizzes = () => {
     }
   };
 
+  const fetchUploadedQuestions = async (courseId) => {
+    try {
+      const response = await axios.get(`/api/quizzes/teacher/uploaded-questions/${courseId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUploadedQuestions(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      console.error('Error fetching uploaded questions:', err);
+      setUploadedQuestions([]);
+    }
+  };
+
   const handleCourseChange = async (courseId) => {
     setSelectedCourse(courseId);
-    setTabValue(0); // Reset to quizzes tab
+    setTabValue(0); // Reset to first tab
     await Promise.all([
-      fetchQuizzes(courseId),
-      fetchQuizPools(courseId),
-      fetchUnits(courseId)
+      fetchUnits(courseId),
+      fetchUploadedQuestions(courseId)
     ]);
   };
 
@@ -183,6 +199,16 @@ const TeacherQuizzes = () => {
 
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
+  };
+
+  const handleOpenQuizConfig = (unit) => {
+    setSelectedConfigUnit(unit);
+    setQuizConfigDialogOpen(true);
+  };
+
+  const handleCloseQuizConfig = () => {
+    setQuizConfigDialogOpen(false);
+    setSelectedConfigUnit(null);
   };
 
   const fetchQuizPoolQuestions = async (poolId) => {
@@ -277,7 +303,7 @@ const TeacherQuizzes = () => {
             </TextField>
           </Paper>
 
-          {/* Tabs for Quizzes and Quiz Pools */}
+          {/* Tabs for Quizzes */}
           <Paper sx={{ mb: 3 }}>
             <Tabs 
               value={tabValue} 
@@ -287,28 +313,28 @@ const TeacherQuizzes = () => {
             >
               <Tab 
                 icon={<QuestionIcon />} 
-                label="Quizzes" 
+                label="My Uploaded Questions" 
                 iconPosition="start"
               />
               <Tab 
-                icon={<LibraryBooksIcon />} 
-                label="Quiz Pools" 
+                icon={<SettingsIcon />} 
+                label="Quiz Settings" 
                 iconPosition="start"
               />
             </Tabs>
           </Paper>
 
-          {/* Quiz Statistics (Only shown on Quizzes tab) */}
+          {/* Quiz Statistics (Only shown on first tab) */}
           {tabValue === 0 && (
             <Grid container spacing={3} sx={{ mb: 3 }}>
               <Grid item xs={12} md={4}>
                 <Card>
                   <CardContent>
                     <Typography variant="h6" color="text.secondary" gutterBottom>
-                      Total Quizzes
+                      Total Uploaded Questions
                     </Typography>
                     <Typography variant="h3">
-                      {quizzes.length}
+                      {uploadedQuestions.length}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -317,10 +343,10 @@ const TeacherQuizzes = () => {
                 <Card>
                   <CardContent>
                     <Typography variant="h6" color="text.secondary" gutterBottom>
-                      Active Quizzes
+                      Active Questions
                     </Typography>
                     <Typography variant="h3">
-                      {quizzes.filter(q => q.isActive).length}
+                      {uploadedQuestions.filter(q => q.status === 'Added to Pool').length}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -329,10 +355,10 @@ const TeacherQuizzes = () => {
                 <Card>
                   <CardContent>
                     <Typography variant="h6" color="text.secondary" gutterBottom>
-                      Total Questions
+                      Inactive Questions
                     </Typography>
                     <Typography variant="h3">
-                      {quizzes.reduce((total, quiz) => total + (quiz.questionCount || 0), 0)}
+                      {uploadedQuestions.filter(q => q.status === 'Inactive').length}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -340,86 +366,61 @@ const TeacherQuizzes = () => {
             </Grid>
           )}
 
-          {/* Quizzes Tab Content */}
+          {/* My Uploaded Questions Tab Content */}
           {tabValue === 0 && (
             <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom>
-                Quizzes
+              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                <QuizIcon sx={{ mr: 1 }} color="primary" />
+                My Uploaded Questions
               </Typography>
 
-              {quizzes.length > 0 ? (
+              {uploadedQuestions.length > 0 ? (
                 <TableContainer>
                   <Table>
                     <TableHead>
                       <TableRow>
-                        <TableCell>Title</TableCell>
-                        <TableCell>Description</TableCell>
-                        <TableCell>Video</TableCell>
-                        <TableCell align="right">Questions</TableCell>
-                        <TableCell align="right">Points</TableCell>
+                        <TableCell>Unit</TableCell>
+                        <TableCell>Question</TableCell>
+                        <TableCell>Type</TableCell>
                         <TableCell align="center">Status</TableCell>
-                        <TableCell align="center">Actions</TableCell>
+                        <TableCell>Upload Date</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {quizzes.map((quiz) => (
-                        <TableRow key={quiz._id} hover>
+                      {uploadedQuestions.map((question, idx) => (
+                        <TableRow key={idx} hover>
                           <TableCell>
-                            <Typography variant="body1" fontWeight="medium">
-                              {quiz.title}
+                            <Typography variant="body2" fontWeight="medium">
+                              {question.unitTitle || 'N/A'}
                             </Typography>
                           </TableCell>
                           <TableCell>
-                            <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                              {quiz.description || 'No description'}
+                            <Typography variant="body2" noWrap sx={{ maxWidth: 400 }}>
+                              {question.questionText?.substring(0, 80)}...
                             </Typography>
                           </TableCell>
                           <TableCell>
-                            <Typography variant="body2">
-                              {quiz.video?.title || 'N/A'}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            {quiz.questionCount || 0}
-                          </TableCell>
-                          <TableCell align="right">
-                            {quiz.totalPoints || 0}
-                          </TableCell>
-                          <TableCell align="center">
                             <Chip
-                              label={quiz.isActive ? 'Active' : 'Inactive'}
-                              color={quiz.isActive ? 'success' : 'default'}
+                              label={question.questionType || 'MCQ'}
                               size="small"
+                              variant="outlined"
                             />
                           </TableCell>
                           <TableCell align="center">
-                            <Tooltip title="View Analytics">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleViewAnalytics(quiz._id)}
-                                color="primary"
-                              >
-                                <AnalyticsIcon />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Edit Quiz">
-                              <IconButton
-                                size="small"
-                                onClick={() => navigate(`/teacher/edit-quiz/${quiz._id}`)}
-                                color="secondary"
-                              >
-                                <EditIcon />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Delete Quiz">
-                              <IconButton
-                                size="small"
-                                onClick={() => setDeleteDialog({ open: true, quiz })}
-                                color="error"
-                              >
-                                <DeleteIcon />
-                              </IconButton>
-                            </Tooltip>
+                            <Chip
+                              label={question.status || 'Pending'}
+                              color={
+                                question.status === 'Added to Pool' ? 'success' :
+                                question.status === 'Rejected' ? 'error' :
+                                'warning'
+                              }
+                              size="small"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">
+                              {question.createdAt ? new Date(question.createdAt).toLocaleDateString() : 'N/A'}
+                            </Typography>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -428,105 +429,76 @@ const TeacherQuizzes = () => {
                 </TableContainer>
               ) : (
                 <Alert severity="info">
-                  No quizzes found for this course. Create your first quiz to get started.
+                  No uploaded questions found. Upload questions to see them here.
                 </Alert>
               )}
             </Paper>
           )}
 
-          {/* Quiz Pools Tab Content */}
+          {/* Quiz Settings Tab */}
           {tabValue === 1 && (
             <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom>
-                Quiz Pools with Answers
+              <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+                <SettingsIcon color="primary" />
+                Quiz Configuration by Unit
               </Typography>
 
-              {quizPools.length > 0 ? (
-                <Box>
+              <Alert severity="info" sx={{ mb: 3 }}>
+                <Typography variant="body2">
+                  <strong>Configure quiz settings per unit and section.</strong> Set custom time limits, number of questions, and other parameters. 
+                  If not configured, quizzes will use default settings: <strong>30 minutes, 10 questions</strong>.
+                </Typography>
+              </Alert>
+
+              {units.length > 0 ? (
+                <Grid container spacing={3}>
                   {units.map((unit) => {
-                    const unitPools = quizPools.filter(pool => pool.unit === unit._id);
-                    if (unitPools.length === 0) return null;
-                    
+                    const selectedCourseData = courses.find(c => c._id === selectedCourse);
                     return (
-                      <Box key={unit._id} sx={{ mb: 3 }}>
-                        <Typography variant="h6" sx={{ mb: 1, display: 'flex', alignItems: 'center' }}>
-                          <SchoolIcon sx={{ mr: 1 }} color="primary" />
-                          {unit.title}
-                        </Typography>
-                        
-                        {unitPools.map((pool) => (
-                          <Accordion 
-                            key={pool._id}
-                            expanded={expandedQuizPool === pool._id}
-                            onChange={() => handleExpandPool(pool._id)}
-                            sx={{ mb: 1 }}
-                          >
-                            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                              <Typography sx={{ width: '40%', flexShrink: 0 }}>
-                                <strong>{pool.title}</strong>
-                              </Typography>
-                              <Typography sx={{ color: 'text.secondary' }}>
-                                {pool.questions?.length || 0} questions
-                              </Typography>
-                            </AccordionSummary>
-                            <AccordionDetails>
-                              {quizPoolQuestions[pool._id] ? (
-                                quizPoolQuestions[pool._id].length > 0 ? (
-                                  <List>
-                                    {quizPoolQuestions[pool._id].map((question, index) => (
-                                      <React.Fragment key={question._id || index}>
-                                        <ListItem alignItems="flex-start">
-                                          <ListItemText
-                                            primary={
-                                              <Typography variant="subtitle1">
-                                                Q{index + 1}: {question.text}
-                                              </Typography>
-                                            }
-                                            secondary={
-                                              <Box sx={{ mt: 1 }}>
-                                                {question.options?.map((option, optIndex) => (
-                                                  <Box key={optIndex} sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-                                                    {option.isCorrect && <CheckIcon color="success" fontSize="small" sx={{ mr: 1 }} />}
-                                                    <Typography
-                                                      variant="body2"
-                                                      color={option.isCorrect ? 'success.main' : 'text.primary'}
-                                                      sx={{ fontWeight: option.isCorrect ? 'bold' : 'regular' }}
-                                                    >
-                                                      {String.fromCharCode(65 + optIndex)}. {option.text}
-                                                    </Typography>
-                                                  </Box>
-                                                ))}
-                                                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                                  <strong>Explanation:</strong> {question.explanation || 'No explanation provided'}
-                                                </Typography>
-                                              </Box>
-                                            }
-                                          />
-                                        </ListItem>
-                                        {index < quizPoolQuestions[pool._id].length - 1 && <Divider component="li" />}
-                                      </React.Fragment>
-                                    ))}
-                                  </List>
-                                ) : (
-                                  <Alert severity="info" sx={{ mt: 2 }}>
-                                    No questions found in this quiz pool. Add quizzes to this pool to see questions.
-                                  </Alert>
-                                )
-                              ) : (
-                                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-                                  <CircularProgress size={24} />
-                                </Box>
-                              )}
-                            </AccordionDetails>
-                          </Accordion>
-                        ))}
-                      </Box>
+                      <Grid item xs={12} md={6} key={unit._id}>
+                        <Card sx={{ 
+                          height: '100%',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          '&:hover': {
+                            boxShadow: 3,
+                            borderColor: 'primary.main'
+                          }
+                        }}>
+                          <CardContent>
+                            <Typography variant="h6" gutterBottom>
+                              {unit.title}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" paragraph>
+                              {unit.description || 'No description'}
+                            </Typography>
+                            
+                            {selectedCourseData && selectedCourseData.sections && (
+                              <Box sx={{ mb: 2 }}>
+                                <Typography variant="caption" color="text.secondary">
+                                  Sections: {selectedCourseData.sections.length}
+                                </Typography>
+                              </Box>
+                            )}
+
+                            <Button
+                              variant="contained"
+                              color="primary"
+                              fullWidth
+                              startIcon={<SettingsIcon />}
+                              onClick={() => handleOpenQuizConfig(unit)}
+                            >
+                              Configure Quiz Settings
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      </Grid>
                     );
                   })}
-                </Box>
+                </Grid>
               ) : (
                 <Alert severity="info">
-                  No quiz pools found for this course.
+                  No units found for this course. Create units first to configure quiz settings.
                 </Alert>
               )}
             </Paper>
@@ -557,6 +529,19 @@ const TeacherQuizzes = () => {
               </Button>
             </DialogActions>
           </Dialog>
+
+          {/* Quiz Configuration Dialog */}
+          {selectedConfigUnit && selectedCourse && (
+            <QuizConfigurationDialog
+              open={quizConfigDialogOpen}
+              onClose={handleCloseQuizConfig}
+              courseId={selectedCourse}
+              unitId={selectedConfigUnit._id}
+              unitTitle={selectedConfigUnit.title}
+              sections={courses.find(c => c._id === selectedCourse)?.sections || []}
+              userRole="teacher"
+            />
+          )}
         </>
       )}
     </Box>

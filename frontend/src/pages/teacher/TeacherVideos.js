@@ -262,11 +262,16 @@ const TeacherVideos = () => {
   };
   
   return (
-    <div>
-      <Typography variant="h4" gutterBottom>
+    <Box sx={{ p: { xs: 2, sm: 3 } }}>
+      <Typography variant="h4" gutterBottom sx={{
+        fontSize: { xs: '1.5rem', sm: '2rem', md: '2.125rem' }
+      }}>
         My Videos
       </Typography>
-      <Typography variant="subtitle1" gutterBottom>
+      <Typography variant="subtitle1" gutterBottom sx={{
+        fontSize: { xs: '0.875rem', sm: '1rem' },
+        mb: { xs: 2, sm: 3 }
+      }}>
         Manage your course videos
       </Typography>
       
@@ -296,44 +301,75 @@ const TeacherVideos = () => {
           ) : (
             <Grid container spacing={3}>
               {videos.map((video) => (
-                <Grid item xs={12} sm={6} md={4} key={video._id}>
-                  <Card>
+                <Grid item xs={12} sm={6} md={4} lg={3} key={video._id}>
+                  <Card sx={{
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column'
+                  }}>
                     <CardMedia
                       component="div"
                       sx={{ 
-                        height: 140, 
+                        height: { xs: 180, sm: 140 }, 
                         backgroundColor: 'rgba(0, 0, 0, 0.1)',
                         display: 'flex',
                         justifyContent: 'center',
                         alignItems: 'center'
                       }}
                     >
-                      <PlayCircleOutlineIcon fontSize="large" />
+                      <PlayCircleOutlineIcon fontSize="large" sx={{ fontSize: { xs: '3rem', sm: '2.5rem' } }} />
                     </CardMedia>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>
+                    <CardContent sx={{ flexGrow: 1 }}>
+                      <Typography variant="h6" gutterBottom sx={{
+                        fontSize: { xs: '1rem', sm: '1.25rem' }
+                      }}>
                         {video.title}
                       </Typography>
-                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                      <Typography 
+                        variant="body2" 
+                        color="text.secondary" 
+                        gutterBottom
+                        sx={{
+                          fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical'
+                        }}
+                      >
                         {video.description || 'No description'}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary" display="block">
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{
+                        fontSize: { xs: '0.7rem', sm: '0.75rem' }
+                      }}>
                         Course: {video.courseName} ({video.courseCode})
                       </Typography>
                       {video.unitTitle && (
-                        <Typography variant="caption" color="text.secondary" display="block">
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{
+                          fontSize: { xs: '0.7rem', sm: '0.75rem' }
+                        }}>
                           Unit: {video.unitTitle}
                         </Typography>
                       )}
-                      <Typography variant="caption" color="text.secondary" display="block">
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{
+                        fontSize: { xs: '0.7rem', sm: '0.75rem' }
+                      }}>
                         Duration: {video.duration ? `${Math.floor(video.duration / 60)}:${video.duration % 60}` : 'Unknown'}
                       </Typography>
                     </CardContent>
-                    <CardActions sx={{ justifyContent: 'space-between' }}>
+                    <CardActions sx={{ 
+                      justifyContent: 'space-between',
+                      px: { xs: 1, sm: 2 },
+                      pb: { xs: 1, sm: 2 }
+                    }}>
                       <Button 
                         size="small" 
                         startIcon={<PlayCircleOutlineIcon />}
                         onClick={() => handlePlayVideo(video)}
+                        sx={{
+                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                        }}
                       >
                         Play
                       </Button>
@@ -342,7 +378,7 @@ const TeacherVideos = () => {
                         color="error"
                         onClick={() => handleRemoveRequest(video._id)}
                       >
-                        <DeleteIcon />
+                        <DeleteIcon fontSize="small" />
                       </IconButton>
                     </CardActions>
                   </Card>
@@ -472,7 +508,7 @@ const TeacherVideos = () => {
         onClose={handleCloseVideoDialog}
         video={selectedVideo}
       />
-    </div>
+    </Box>
   );
 };
 

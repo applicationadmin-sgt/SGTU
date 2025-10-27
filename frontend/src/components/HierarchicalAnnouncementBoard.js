@@ -49,6 +49,7 @@ import { formatDistanceToNow } from 'date-fns';
 
 const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
   const [announcements, setAnnouncements] = useState([]);
+  const [myHistory, setMyHistory] = useState([]); // Announcements created/approved by user
   const [pendingAnnouncements, setPendingAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [createDialog, setCreateDialog] = useState(false);
@@ -57,6 +58,14 @@ const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [targetingOptions, setTargetingOptions] = useState({});
   const [selectedCourse, setSelectedCourse] = useState('all'); // For HOD course filtering
+  
+  // Date filter state
+  const [dateFilter, setDateFilter] = useState({
+    fromDate: null,
+    toDate: null
+  });
+  const [allAnnouncements, setAllAnnouncements] = useState([]); // Store all announcements for filtering
+  const [allMyHistory, setAllMyHistory] = useState([]); // Store all history for filtering
   
   // Form state for creating announcements
   const [form, setForm] = useState({
@@ -80,6 +89,7 @@ const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
   // Load announcements and targeting options
   useEffect(() => {
     loadAnnouncements();
+    loadMyHistory();
     loadTargetingOptions();
     if (user.role === 'hod') {
       loadPendingAnnouncements();
@@ -107,12 +117,64 @@ const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
 
       if (response.ok) {
         const data = await response.json();
-        setAnnouncements(data.announcements || []);
+        const loadedAnnouncements = data.announcements || [];
+        
+        // Filter out announcements created by the current user (those go to history)
+        const receivedAnnouncements = loadedAnnouncements.filter(
+          ann => ann.sender?._id !== user._id
+        );
+        
+        setAllAnnouncements(receivedAnnouncements); // Store all received
+        setAnnouncements(receivedAnnouncements); // Display all initially
       }
     } catch (error) {
       console.error('Error loading announcements:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMyHistory = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Get announcements created by user
+      const createdResponse = await fetch(`/api/announcements?createdBy=${user._id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      // Get announcements approved by user
+      const approvedResponse = await fetch(`/api/announcements?approvedBy=${user._id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const createdData = createdResponse.ok ? await createdResponse.json() : { announcements: [] };
+      const approvedData = approvedResponse.ok ? await approvedResponse.json() : { announcements: [] };
+      
+      // Combine and deduplicate
+      const combinedHistory = [
+        ...(createdData.announcements || []),
+        ...(approvedData.announcements || [])
+      ];
+      
+      // Remove duplicates by _id
+      const uniqueHistory = Array.from(
+        new Map(combinedHistory.map(item => [item._id, item])).values()
+      );
+      
+      // Sort by date (newest first)
+      uniqueHistory.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      
+      setAllMyHistory(uniqueHistory);
+      setMyHistory(uniqueHistory);
+    } catch (error) {
+      console.error('Error loading history:', error);
     }
   };
 
@@ -145,6 +207,57 @@ const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
     } catch (error) {
       console.error('Error loading pending announcements:', error);
     }
+  };
+
+  // Filter announcements by date range
+  const handleApplyDateFilter = () => {
+    if (!dateFilter.fromDate && !dateFilter.toDate) {
+      // No filter, show all
+      setAnnouncements(allAnnouncements);
+      setMyHistory(allMyHistory);
+      return;
+    }
+
+    const filtered = allAnnouncements.filter(announcement => {
+      const announcementDate = new Date(announcement.createdAt);
+      
+      if (dateFilter.fromDate && dateFilter.toDate) {
+        // Both dates selected
+        return announcementDate >= new Date(dateFilter.fromDate) && 
+               announcementDate <= new Date(dateFilter.toDate);
+      } else if (dateFilter.fromDate) {
+        // Only from date
+        return announcementDate >= new Date(dateFilter.fromDate);
+      } else if (dateFilter.toDate) {
+        // Only to date
+        return announcementDate <= new Date(dateFilter.toDate);
+      }
+      return true;
+    });
+
+    const filteredHistory = allMyHistory.filter(announcement => {
+      const announcementDate = new Date(announcement.createdAt);
+      
+      if (dateFilter.fromDate && dateFilter.toDate) {
+        return announcementDate >= new Date(dateFilter.fromDate) && 
+               announcementDate <= new Date(dateFilter.toDate);
+      } else if (dateFilter.fromDate) {
+        return announcementDate >= new Date(dateFilter.fromDate);
+      } else if (dateFilter.toDate) {
+        return announcementDate <= new Date(dateFilter.toDate);
+      }
+      return true;
+    });
+
+    setAnnouncements(filtered);
+    setMyHistory(filteredHistory);
+  };
+
+  // Clear date filter
+  const handleClearDateFilter = () => {
+    setDateFilter({ fromDate: null, toDate: null });
+    setAnnouncements(allAnnouncements);
+    setMyHistory(allMyHistory);
   };
 
   const handleTargetingChange = (field, value) => {
@@ -285,6 +398,60 @@ const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
           </Button>
         </Box>
 
+        {/* Date Filter */}
+        <Paper sx={{ p: 2, mb: 3 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12}>
+              <Typography variant="subtitle1" fontWeight={600}>
+                Filter by Date Range
+              </Typography>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <DateTimePicker
+                label="From Date"
+                value={dateFilter.fromDate}
+                onChange={(newValue) => setDateFilter(prev => ({ ...prev, fromDate: newValue }))}
+                renderInput={(params) => <TextField {...params} fullWidth size="small" />}
+                slotProps={{ textField: { fullWidth: true, size: 'small' } }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <DateTimePicker
+                label="To Date"
+                value={dateFilter.toDate}
+                onChange={(newValue) => setDateFilter(prev => ({ ...prev, toDate: newValue }))}
+                renderInput={(params) => <TextField {...params} fullWidth size="small" />}
+                slotProps={{ textField: { fullWidth: true, size: 'small' } }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button 
+                  variant="contained" 
+                  onClick={handleApplyDateFilter}
+                  fullWidth
+                >
+                  Apply Filter
+                </Button>
+                <Button 
+                  variant="outlined" 
+                  onClick={handleClearDateFilter}
+                  fullWidth
+                >
+                  Clear
+                </Button>
+              </Box>
+            </Grid>
+            {(dateFilter.fromDate || dateFilter.toDate) && (
+              <Grid item xs={12}>
+                <Alert severity="info">
+                  Showing {announcements.length} of {allAnnouncements.length} announcements
+                </Alert>
+              </Grid>
+            )}
+          </Grid>
+        </Paper>
+
         {/* Tabs for different views */}
         <Paper sx={{ mb: 3 }}>
           <Tabs
@@ -293,7 +460,8 @@ const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
             indicatorColor="primary"
             textColor="primary"
           >
-            <Tab label="All Announcements" />
+            <Tab label="Received Announcements" />
+            <Tab label="My History" />
             {user.role === 'hod' && (
               <Tab 
                 label={
@@ -306,7 +474,7 @@ const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
           </Tabs>
         </Paper>
 
-        {/* Announcements List */}
+        {/* Received Announcements Tab */}
         {activeTab === 0 && (
           <Grid container spacing={3}>
             {loading ? (
@@ -317,7 +485,7 @@ const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
               </Grid>
             ) : announcements.length === 0 ? (
               <Grid item xs={12}>
-                <Alert severity="info">No announcements found.</Alert>
+                <Alert severity="info">No announcements received from others.</Alert>
               </Grid>
             ) : (
               announcements.map((announcement) => (
@@ -329,7 +497,7 @@ const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
                           <PersonIcon fontSize="small" />
                           <Typography variant="body2">
-                            {announcement.sender?.name} ({announcement.role?.toUpperCase()})
+                            From: {announcement.sender?.name} ({announcement.role?.toUpperCase()})
                           </Typography>
                           <ScheduleIcon fontSize="small" sx={{ ml: 2 }} />
                           <Typography variant="body2">
@@ -346,70 +514,19 @@ const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
                         </Box>
                       }
                       action={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Chip 
-                            label={announcement.priority?.toUpperCase()} 
-                            color={getPriorityColor(announcement.priority)}
-                            size="small"
-                          />
-                          <Chip 
-                            label={announcement.approvalStatus?.toUpperCase()} 
-                            color={getStatusColor(announcement.approvalStatus)}
-                            size="small"
-                          />
-                          {announcement.isPinned && <PinIcon color="primary" />}
-                        </Box>
+                        <Chip 
+                          label={announcement.priority?.toUpperCase() || 'NORMAL'} 
+                          color={
+                            announcement.priority === 'critical' ? 'error' : 
+                            announcement.priority === 'high' ? 'warning' : 
+                            'default'
+                          }
+                          size="small"
+                        />
                       }
                     />
                     <CardContent>
-                      <Typography variant="body1" paragraph>
-                        {announcement.message}
-                      </Typography>
-                      
-                      {/* Show targeting information */}
-                      {announcement.targetAudience && (
-                        <Box sx={{ mt: 2, p: 2, backgroundColor: 'grey.50', borderRadius: 1 }}>
-                          <Typography variant="subtitle2" gutterBottom>
-                            Target Audience:
-                          </Typography>
-                          {announcement.targetAudience.allUsers && (
-                            <Chip label="All Users" color="primary" size="small" sx={{ mr: 1, mb: 1 }} />
-                          )}
-                          {announcement.targetAudience.isGlobal && (
-                            <Chip label="Global (All Schools)" color="secondary" size="small" sx={{ mr: 1, mb: 1 }} />
-                          )}
-                          {announcement.targetAudience.targetRoles?.map(role => (
-                            <Chip key={role} label={role.toUpperCase()} size="small" sx={{ mr: 1, mb: 1 }} />
-                          ))}
-                          {announcement.targetAudience.targetSchools?.map(school => (
-                            <Chip key={school._id} label={school.name} startIcon={<SchoolIcon />} size="small" sx={{ mr: 1, mb: 1 }} />
-                          ))}
-                          {announcement.targetAudience.targetDepartments?.map(dept => (
-                            <Chip key={dept._id} label={dept.name} startIcon={<DepartmentIcon />} size="small" sx={{ mr: 1, mb: 1 }} />
-                          ))}
-                          {announcement.targetAudience.targetSections?.map(section => (
-                            <Chip key={section._id} label={section.name} startIcon={<SectionIcon />} size="small" sx={{ mr: 1, mb: 1 }} />
-                          ))}
-                        </Box>
-                      )}
-
-                      {/* Actions for admins/hods */}
-                      {(user.role === 'admin' || user.role === 'hod') && announcement.approvalStatus === 'pending' && (
-                        <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="success"
-                            startIcon={<ApproveIcon />}
-                            onClick={() => {
-                              setSelectedAnnouncement(announcement);
-                              setModerationDialog(true);
-                            }}
-                          >
-                            Review
-                          </Button>
-                        </Box>
-                      )}
+                      <Typography variant="body1">{announcement.message}</Typography>
                     </CardContent>
                   </Card>
                 </Grid>
@@ -418,8 +535,69 @@ const HierarchicalAnnouncementBoard = ({ user, currentRole }) => {
           </Grid>
         )}
 
-        {/* Pending Approvals Tab */}
-        {activeTab === 1 && user.role === 'hod' && (
+        {/* My History Tab */}
+        {activeTab === 1 && (
+          <Grid container spacing={3}>
+            {loading ? (
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                  <CircularProgress />
+                </Box>
+              </Grid>
+            ) : myHistory.length === 0 ? (
+              <Grid item xs={12}>
+                <Alert severity="info">No announcements created or approved by you.</Alert>
+              </Grid>
+            ) : (
+              myHistory.map((announcement) => (
+                <Grid item xs={12} key={announcement._id}>
+                  <Card>
+                    <CardHeader
+                      title={announcement.title}
+                      subheader={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                          <PersonIcon fontSize="small" />
+                          <Typography variant="body2">
+                            {announcement.sender?._id === user._id ? 'Created by you' : `Approved by you (Created by: ${announcement.sender?.name})`}
+                          </Typography>
+                          <ScheduleIcon fontSize="small" sx={{ ml: 2 }} />
+                          <Typography variant="body2">
+                            {formatDistanceToNow(new Date(announcement.createdAt), { addSuffix: true })}
+                          </Typography>
+                          {announcement.targetAudience?.isGlobal && (
+                            <>
+                              <GlobalIcon fontSize="small" sx={{ ml: 2, color: 'primary.main' }} />
+                              <Typography variant="body2" color="primary">
+                                Global Announcement
+                              </Typography>
+                            </>
+                          )}
+                        </Box>
+                      }
+                      action={
+                        <Chip 
+                          label={announcement.priority?.toUpperCase() || 'NORMAL'} 
+                          color={
+                            announcement.priority === 'critical' ? 'error' : 
+                            announcement.priority === 'high' ? 'warning' : 
+                            'default'
+                          }
+                          size="small"
+                        />
+                      }
+                    />
+                    <CardContent>
+                      <Typography variant="body1">{announcement.message}</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))
+            )}
+          </Grid>
+        )}
+
+        {/* Pending Approvals for HOD */}
+        {user.role === 'hod' && activeTab === 2 && (
           <Grid container spacing={3}>
             {pendingAnnouncements.length === 0 ? (
               <Grid item xs={12}>

@@ -84,7 +84,7 @@ const TeacherCourses = () => {
                           </Typography>
                           {course.coordinators && course.coordinators.length > 0 && (
                             <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
-                              Coordinator{course.coordinators.length > 1 ? 's' : ''}: {course.coordinators.map(cc => cc.name || cc.email || cc.teacherId).join(', ')}
+                              Coordinator{course.coordinators.length > 1 ? 's' : ''}: {course.coordinators.map(cc => cc.name || cc.email || cc.uid || cc.teacherId).join(', ')}
                             </Typography>
                           )}
                           <Typography variant="body2" sx={{ mt: 1 }}>

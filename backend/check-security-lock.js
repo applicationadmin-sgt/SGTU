@@ -4,7 +4,7 @@ const Unit = require('./models/Unit');
 const StudentProgress = require('./models/StudentProgress');
 
 // Connect to MongoDB
-mongoose.connect('mongodb+srv://dipanwitakundu02_db_user:qItA3GEvqVBiGaYJ@cluster0.ak3b8nt.mongodb.net/', {
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/sgtlms', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });

@@ -7,8 +7,9 @@ exports.getNotifications = async (req, res) => {
     // Debug: trace incoming user
     if (!req.user) {
       console.warn('getNotifications: req.user missing');
+      return res.status(401).json({ error: 'User not authenticated' });
     }
-    const { page = 1, limit = 50 } = req.query;
+    const { page = 1, limit = 50 } = req.query; // Increased default from 5 to 50
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const query = { recipient: req.user._id };
     const [items, total] = await Promise.all([
@@ -16,7 +17,10 @@ exports.getNotifications = async (req, res) => {
       Notification.countDocuments(query)
     ]);
     // Debug counts
-    console.log(`Notifications fetched for user ${req.user?._id}: ${items.length}/${total}`);
+    console.log(`📬 Notifications fetched for user ${req.user?._id} (${req.user?.name}): ${items.length}/${total} total`);
+    if (items.length > 0) {
+      console.log(`   - Latest notification: "${items[0].message}" (${items[0].read ? 'read' : 'UNREAD'})`);
+    }
     res.json({ notifications: items, total, page: parseInt(page) });
   } catch (err) {
     console.error('getNotifications error:', err.message);
@@ -63,7 +67,14 @@ exports.markAllRead = async (req, res) => {
 
 // Create notification (utility)
 exports.createNotification = async ({ type, recipient, message, data, announcement, replyId }) => {
-  await Notification.create({ type, recipient, message, data, announcement, replyId });
+  try {
+    const notification = await Notification.create({ type, recipient, message, data, announcement, replyId });
+    console.log(`✉️ Notification created: ID=${notification._id}, Recipient=${recipient}, Type=${type}, Message="${message}"`);
+    return notification;
+  } catch (err) {
+    console.error(`❌ Failed to create notification for recipient ${recipient}:`, err.message);
+    throw err;
+  }
 };
 
 // Generate inactivity notifications (to be run as a scheduled job)

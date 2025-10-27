@@ -1721,3 +1721,48 @@ exports.getStudentQuizResults = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// Get teacher's uploaded questions
+exports.getTeacherUploadedQuestions = async (req, res) => {
+  try {
+    const teacherId = req.user._id;
+    const { courseId } = req.params;
+
+    // Find all quizzes created by this teacher for this course
+    const quizzes = await Quiz.find({
+      createdBy: teacherId,
+      course: courseId
+    })
+      .populate('unit', 'title')
+      .populate('course', 'title courseCode')
+      .sort({ createdAt: -1 });
+
+    // Extract all questions with metadata
+    const uploadedQuestions = [];
+    
+    quizzes.forEach(quiz => {
+      if (quiz.questions && quiz.questions.length > 0) {
+        quiz.questions.forEach(question => {
+          uploadedQuestions.push({
+            questionText: question.questionText,
+            questionType: 'MCQ', // Default type
+            options: question.options,
+            correctOption: question.correctOption,
+            points: question.points,
+            unitTitle: quiz.unit?.title || 'N/A',
+            courseTitle: quiz.course?.title || 'N/A',
+            quizTitle: quiz.title,
+            status: quiz.isActive ? 'Added to Pool' : 'Inactive',
+            createdAt: quiz.createdAt,
+            quizId: quiz._id
+          });
+        });
+      }
+    });
+
+    res.json(uploadedQuestions);
+  } catch (error) {
+    console.error('Error getting teacher uploaded questions:', error);
+    res.status(500).json({ message: error.message });
+  }
+};

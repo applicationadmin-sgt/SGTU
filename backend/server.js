@@ -36,8 +36,9 @@ app.use(helmet({
 // Gzip compression for JSON/text responses
 app.use(compression());
 
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ limit: '1mb', extended: true }));
+// Remove file size limits for video uploads
+app.use(express.json({ limit: '50gb' }));
+app.use(express.urlencoded({ limit: '50gb', extended: true }));
 
 // Increase header size limits to handle large requests
 app.use((req, res, next) => {
@@ -71,7 +72,6 @@ const teacherRoutes = require('./routes/teacher');
 const hodRoutes = require('./routes/hod');
 const deanRoutes = require('./routes/dean');
 const hodAnnouncementHistoryRoutes = require('./routes/hodAnnouncementHistory');
-// ...existing code...
 const quizRoutes = require('./routes/quiz');
 const quizPoolRoutes = require('./routes/quizPool');
 const unitRoutes = require('./routes/unit');
@@ -89,10 +89,22 @@ const quizSecurityRoutes = require('./routes/quizSecurity');
 const secureQuizRoutes = require('./routes/secureQuiz');
 const ccRoutes = require('./routes/cc');
 const quizUnlockRoutes = require('./routes/quizUnlock');
-const liveClassRoutes = require('./routes/liveClass');
-const scalableLiveClassRoutes = require('./routes/scalableLiveClass');
+// Live class routes removed - moved to independent video call module
 const groupChatRoutes = require('./routes/groupChat');
 const teacherAssignmentRoutes = require('./routes/teacherAssignments');
+const certificateRoutes = require('./routes/certificate');
+const teacherAnalyticsRoutes = require('./routes/teacherAnalytics');
+const hodAnalyticsRoutes = require('./routes/hodAnalytics');
+const studentIndividualAnalyticsRoutes = require('./routes/studentIndividualAnalytics');
+const sectionAnalyticsRoutes = require('./routes/sectionAnalytics');
+const deanSectionAnalyticsRoutes = require('./routes/deanSectionAnalytics');
+const deanDepartmentRoutes = require('./routes/deanDepartment');
+const deanCourseRoutes = require('./routes/deanCourse');
+const quizConfigurationRoutes = require('./routes/quizConfiguration');
+
+// Import and use COMPREHENSIVE audit log middleware - tracks EVERY user action
+const comprehensiveAuditLogger = require('./middleware/comprehensiveAuditLogger');
+app.use(comprehensiveAuditLogger);
 
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
@@ -127,11 +139,19 @@ app.use('/api/student/quiz', quizRoutes); // Student quiz routes
 app.use('/api/student', secureQuizRoutes); // Secure quiz routes
 app.use('/api/cc', ccRoutes); // Course Coordinator routes
 app.use('/api/quiz-unlock', quizUnlockRoutes); // Quiz unlock system routes
-app.use('/api/live-classes', liveClassRoutes); // Live class routes
-app.use('/api/live-classes', scalableLiveClassRoutes); // Scalable live class routes
+// Live class routes removed - moved to independent video call module
 app.use('/api/group-chat', groupChatRoutes); // Group chat routes
 app.use('/api/video-unlock', require('./routes/videoUnlock')); // Video unlock system routes
 app.use('/api/teacher-assignments', teacherAssignmentRoutes); // Enhanced teacher assignment system
+app.use('/api/certificates', certificateRoutes); // Certificate system routes
+app.use('/api/teacher-analytics', teacherAnalyticsRoutes); // Teacher analytics routes
+app.use('/api/hod-analytics', hodAnalyticsRoutes); // HOD analytics routes
+app.use('/api/student-analytics', studentIndividualAnalyticsRoutes); // Student individual analytics routes
+app.use('/api/section-analytics', sectionAnalyticsRoutes); // Section analytics routes (Dean)
+app.use('/api/dean-section-analytics', deanSectionAnalyticsRoutes); // Dean section analytics routes
+app.use('/api/dean', deanDepartmentRoutes); // Dean department analytics routes
+app.use('/api/dean', deanCourseRoutes); // Dean course analytics routes
+app.use('/api/quiz-configuration', quizConfigurationRoutes); // Quiz configuration routes
 
 // Connect to MongoDB using only the .env file configuration
 mongoose.connect(process.env.MONGO_URI)
@@ -184,15 +204,7 @@ app.get('/health', async (req, res) => {
       },
     };
 
-    // Add Mediasoup service status
-    if (global.mediasoupService) {
-      health.mediasoup = await global.mediasoupService.healthCheck();
-    }
-
-    // Add Socket service status
-    if (global.scalableSocketService) {
-      health.socket = await global.scalableSocketService.healthCheck();
-    }
+    // Live class services removed - moved to independent video call module
 
     res.json(health);
   } catch (error) {
@@ -216,13 +228,7 @@ app.get('/metrics', async (req, res) => {
       },
     };
 
-    if (global.mediasoupService) {
-      metrics.mediasoup = global.mediasoupService.getStats();
-    }
-
-    if (global.scalableSocketService) {
-      metrics.socket = global.scalableSocketService.getStats();
-    }
+    // Live class metrics removed - moved to independent video call module
 
     res.json(metrics);
   } catch (error) {
@@ -275,7 +281,7 @@ app.use((err, req, res, next) => {
     // Multer error handling
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ 
-        message: 'File too large. Maximum size is 100MB.' 
+        message: 'File upload error. Please check your file and try again.' 
       });
     }
     return res.status(400).json({ message: err.message });
@@ -328,66 +334,9 @@ const io = new Server(server, {
   }
 });
 
-// Initialize Scalable Services for 10,000+ concurrent users
-let mediasoupService = null;
-let scalableSocketService = null;
-
-async function initializeScalableServices() {
-  try {
-    // Initialize Mediasoup SFU Service
-    const MediasoupService = require('./services/MediasoupService');
-    mediasoupService = new MediasoupService();
-    await mediasoupService.initialize();
-    
-    // Initialize Scalable Socket Service with Redis clustering
-    const ScalableSocketService = require('./services/ScalableSocketService');
-    scalableSocketService = new ScalableSocketService(server, io);
-    await scalableSocketService.initialize(mediasoupService);
-    
-    console.log('🚀 Scalable services initialized successfully');
-    
-    // Expose services globally for API routes
-    global.mediasoupService = mediasoupService;
-    global.scalableSocketService = scalableSocketService;
-    
-  } catch (error) {
-    console.error('❌ Failed to initialize scalable services:', error);
-    // Fallback to basic Socket.IO if scalable services fail
-    console.log('📡 Falling back to basic Socket.IO services...');
-    initializeBasicServices();
-  }
-}
+// Live class services removed - moved to independent video call module
 
 function initializeBasicServices() {
-  // Initialize Scalable Services
-  try {
-    const ScalableSocketService = require('./services/ScalableSocketService');
-    const MediasoupService = require('./services/MediasoupService');
-    
-    // Initialize Mediasoup Service
-    global.mediasoupService = new MediasoupService();
-    global.mediasoupService.initialize().then(() => {
-      console.log('✅ Mediasoup SFU service initialized');
-    }).catch(err => {
-      console.error('❌ Failed to initialize Mediasoup:', err);
-    });
-    
-    // Initialize Scalable Socket Service
-    global.scalableSocketService = new ScalableSocketService(io);
-    global.scalableSocketService.initialize().then(() => {
-      console.log('✅ Scalable Socket.IO service initialized (Redis clustered)');
-    }).catch(err => {
-      console.error('❌ Failed to initialize Scalable Socket:', err);
-    });
-    
-  } catch (error) {
-    console.warn('⚠️ Scalable services not available, using fallback mode:', error.message);
-    // Fallback to legacy socket if scalable services fail
-    // const initializeLiveClassSocket = require('./socket/liveClassSocket');
-    // initializeLiveClassSocket(server, io);
-    console.log('💡 Legacy socket service disabled - using scalable system only');
-  }
-
   // Initialize Group Chat Socket (using shared Socket.IO instance)
   const initializeGroupChatSocket = require('./socket/groupChatSocket');
   initializeGroupChatSocket(io);
@@ -400,11 +349,11 @@ server.listen(PORT, '0.0.0.0', async () => {
   const generateTeacherIds = require('./migrations/generateTeacherIds');
   await generateTeacherIds();
   
-  // Initialize scalable services after server starts
-  await initializeScalableServices();
+  // Initialize basic services (group chat only)
+  initializeBasicServices();
   
   console.log(`🔐 HTTPS Server running on port ${PORT}`);
   console.log(`   Access via: https://192.168.7.20:${PORT}`);
   console.log(`   Access via: https://localhost:${PORT}`);
-  console.log(`🎯 Scalable Live Classroom System Ready - Supporting 10,000+ concurrent users`);
+  console.log(`🎯 SGT-LMS Backend Ready - Live classes moved to independent video call module`);
 });

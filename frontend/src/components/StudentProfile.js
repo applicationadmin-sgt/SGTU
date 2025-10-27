@@ -164,7 +164,7 @@ const StudentProfile = () => {
               />
               
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Student ID: {profile?.studentId || profile?.regNo || 'Not assigned'}
+                UID: {profile?.uid || profile?.studentId || profile?.regNo || 'Not assigned'}
               </Typography>
 
               {profile?.createdAt && (
@@ -202,8 +202,8 @@ const StudentProfile = () => {
                       <BadgeIcon color="primary" />
                     </ListItemIcon>
                     <ListItemText 
-                      primary="Student ID" 
-                      secondary={profile?.studentId || profile?.regNo || 'Not assigned'} 
+                      primary="UID" 
+                      secondary={profile?.uid || profile?.studentId || profile?.regNo || 'Not assigned'} 
                     />
                   </ListItem>
                   <ListItem>

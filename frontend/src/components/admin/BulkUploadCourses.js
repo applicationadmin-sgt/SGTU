@@ -32,15 +32,21 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 
-const REQUIRED_FIELDS = ['title', 'description', 'teacherid'];
+const REQUIRED_FIELDS = ['title', 'description'];
 
 // Helper function to generate sample CSV content
 const generateSampleCSV = () => {
-  return `title,description,teacherId,courseCode
-Advanced Mathematics,Advanced calculus and algebra course,T0001,C000001
-Physics 101,Introduction to classical mechanics,T0002,
-Computer Science Fundamentals,Basic programming concepts,T0003,
-Introduction to Literature,Survey of world literature,T0001,C000004`;
+  return `title,description,courseCode,credits,school,department,semester,level,prerequisite,isActive
+Data Structures and Algorithms,Advanced data structures and algorithm design,CS101,4,School of Engineering,Computer Science Engineering,Fall,intermediate,CS100,true
+Database Management Systems,Relational database design and SQL,CS102,4,School of Engineering,Computer Science Engineering,Fall,intermediate,CS101,true
+Web Development,Full-stack web development with MERN,CS103,3,School of Engineering,Computer Science Engineering,Spring,beginner,,true
+Operating Systems,Process management and system calls,CS104,4,School of Engineering,Computer Science Engineering,Fall,advanced,CS101;CS102,true
+Computer Networks,Network protocols and architectures,CS105,4,School of Engineering,Computer Science Engineering,Spring,intermediate,CS104,true
+Software Engineering,Software development lifecycle,SE101,3,School of Engineering,Computer Science Engineering,Fall,beginner,,true
+Digital Electronics,Combinational and sequential circuits,EC201,4,School of Engineering,Electronics Engineering,Fall,beginner,,true
+Microprocessors,8086 architecture and programming,EC202,4,School of Engineering,Electronics Engineering,Spring,intermediate,EC201,true
+Marketing Management,Strategic marketing concepts,MBA101,3,School of Management,Management Studies,Fall,beginner,,true
+Financial Accounting,Basic accounting principles,MBA102,3,School of Management,Management Studies,Fall,beginner,,true`;
 };
 
 // Helper function to download sample CSV
@@ -106,21 +112,39 @@ const BulkUploadCourses = ({ onUpload }) => {
               errors.push({ row: idx + 2, message: 'Missing field: title' });
             }
             
-            // Teacher ID validation (should start with T followed by numbers)
-            if (normalizedRow.teacherid) {
-              const teacherIds = normalizedRow.teacherid.split(',').map(id => id.trim());
-              teacherIds.forEach(id => {
-                if (id && !id.match(/^T\d{4}$/)) {
-                  errors.push({ row: idx + 2, message: `Invalid teacher ID format: ${id}. Should be in format T#### (e.g., T0001)` });
-                }
-              });
+            if (!normalizedRow.description || normalizedRow.description.trim() === '') {
+              errors.push({ row: idx + 2, message: 'Missing field: description' });
             }
             
-            // Course code validation if provided
-            if (normalizedRow.coursecode && normalizedRow.coursecode.trim() !== '') {
-              const courseCode = normalizedRow.coursecode.trim();
-              if (!courseCode.match(/^C\d{6}$/)) {
-                errors.push({ row: idx + 2, message: `Invalid course code format: ${courseCode}. Should be in format C###### (e.g., C000001)` });
+            if (!normalizedRow.school || normalizedRow.school.trim() === '') {
+              errors.push({ row: idx + 2, message: 'Missing field: school' });
+            }
+            
+            if (!normalizedRow.department || normalizedRow.department.trim() === '') {
+              errors.push({ row: idx + 2, message: 'Missing field: department' });
+            }
+            
+            // Validate credits if provided (should be a number)
+            if (normalizedRow.credits && normalizedRow.credits.trim() !== '') {
+              const credits = parseInt(normalizedRow.credits.trim(), 10);
+              if (isNaN(credits) || credits < 1 || credits > 10) {
+                errors.push({ row: idx + 2, message: `Invalid credits: ${normalizedRow.credits}. Should be a number between 1-10` });
+              }
+            }
+            
+            // Validate level if provided
+            if (normalizedRow.level && normalizedRow.level.trim() !== '') {
+              const level = normalizedRow.level.trim().toLowerCase();
+              if (!['beginner', 'intermediate', 'advanced'].includes(level)) {
+                errors.push({ row: idx + 2, message: `Invalid level: ${normalizedRow.level}. Must be: beginner, intermediate, or advanced` });
+              }
+            }
+            
+            // Validate isActive if provided
+            if (normalizedRow.isactive && normalizedRow.isactive.trim() !== '') {
+              const isActive = normalizedRow.isactive.trim().toLowerCase();
+              if (!['true', 'false'].includes(isActive)) {
+                errors.push({ row: idx + 2, message: `Invalid isActive: ${normalizedRow.isactive}. Must be: true or false` });
               }
             }
           });
@@ -345,11 +369,12 @@ const BulkUploadCourses = ({ onUpload }) => {
             <Typography variant="subtitle2" gutterBottom>
               Required CSV Format:
             </Typography>
-            <TableContainer component={Paper} sx={{ maxWidth: 600 }}>
+            <TableContainer component={Paper} sx={{ maxWidth: 900 }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ fontWeight: 'bold' }}>Field</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Required</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>Description</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>Example</TableCell>
                   </TableRow>
@@ -357,27 +382,73 @@ const BulkUploadCourses = ({ onUpload }) => {
                 <TableBody>
                   <TableRow>
                     <TableCell>title</TableCell>
-                    <TableCell>Course title (required)</TableCell>
-                    <TableCell>Advanced Mathematics</TableCell>
+                    <TableCell>✅ Yes</TableCell>
+                    <TableCell>Course title</TableCell>
+                    <TableCell>Data Structures and Algorithms</TableCell>
                   </TableRow>
                   <TableRow>
                     <TableCell>description</TableCell>
+                    <TableCell>✅ Yes</TableCell>
                     <TableCell>Course description</TableCell>
-                    <TableCell>An in-depth course covering advanced topics</TableCell>
+                    <TableCell>Advanced data structures...</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>teacherId</TableCell>
-                    <TableCell>Teacher IDs (format: T####, comma-separated for multiple)</TableCell>
-                    <TableCell>T0001,T0003</TableCell>
+                    <TableCell>school</TableCell>
+                    <TableCell>✅ Yes</TableCell>
+                    <TableCell>School name (for lookup)</TableCell>
+                    <TableCell>School of Engineering</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>department</TableCell>
+                    <TableCell>✅ Yes</TableCell>
+                    <TableCell>Department name (within school)</TableCell>
+                    <TableCell>Computer Science Engineering</TableCell>
                   </TableRow>
                   <TableRow>
                     <TableCell>courseCode</TableCell>
-                    <TableCell>Optional course code (format: C######). If left empty, a unique code will be generated automatically.</TableCell>
-                    <TableCell>C000001</TableCell>
+                    <TableCell>⚪ Optional</TableCell>
+                    <TableCell>Custom code (auto-generated if empty)</TableCell>
+                    <TableCell>CS101, EC201, MBA101</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>credits</TableCell>
+                    <TableCell>⚪ Optional</TableCell>
+                    <TableCell>Credit hours (1-10, default: 3)</TableCell>
+                    <TableCell>3, 4</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>semester</TableCell>
+                    <TableCell>⚪ Optional</TableCell>
+                    <TableCell>Semester offered</TableCell>
+                    <TableCell>Fall, Spring, Summer</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>level</TableCell>
+                    <TableCell>⚪ Optional</TableCell>
+                    <TableCell>Course difficulty (default: beginner)</TableCell>
+                    <TableCell>beginner, intermediate, advanced</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>prerequisite</TableCell>
+                    <TableCell>⚪ Optional</TableCell>
+                    <TableCell>Required courses (semicolon-separated codes)</TableCell>
+                    <TableCell>CS100;CS101</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>isActive</TableCell>
+                    <TableCell>⚪ Optional</TableCell>
+                    <TableCell>Whether course is active (default: true)</TableCell>
+                    <TableCell>true, false</TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
             </TableContainer>
+            <Alert severity="info" sx={{ mt: 2 }}>
+              <Typography variant="body2">
+                <strong>Note:</strong> Teachers are NOT assigned during course creation. 
+                Use the Section-Course-Teacher assignment workflow to assign teachers to courses within specific sections.
+              </Typography>
+            </Alert>
           </Box>
         </CardContent>
       </Collapse>

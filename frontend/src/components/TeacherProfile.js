@@ -246,8 +246,8 @@ const TeacherProfile = () => {
                     <BadgeIcon color="primary" />
                   </ListItemIcon>
                   <ListItemText
-                    primary="Teacher ID"
-                    secondary={profile.personalInfo.teacherId || 'Not Assigned'}
+                    primary="UID"
+                    secondary={profile.personalInfo.uid || profile.personalInfo.teacherId || 'Not Assigned'}
                   />
                 </ListItem>
                 
@@ -312,9 +312,9 @@ const TeacherProfile = () => {
                           <Typography variant="caption" color="text.secondary">
                             {profile.hod.email}
                           </Typography>
-                          {profile.hod.teacherId && (
+                          {(profile.hod.uid || profile.hod.teacherId) && (
                             <Typography variant="caption" display="block" color="text.secondary">
-                              ID: {profile.hod.teacherId}
+                              UID: {profile.hod.uid || profile.hod.teacherId}
                             </Typography>
                           )}
                         </Box>

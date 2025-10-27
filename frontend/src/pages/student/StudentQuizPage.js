@@ -12,6 +12,7 @@ import {
   FormLabel,
   LinearProgress,
   Alert,
+  AlertTitle,
   Box,
   Card,
   CardContent,
@@ -23,16 +24,33 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Divider,
+  Tooltip,
+  IconButton,
+  Collapse
 } from '@mui/material';
 import FlagIcon from '@mui/icons-material/Flag';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import QuizIcon from '@mui/icons-material/Quiz';
+import SecurityIcon from '@mui/icons-material/Security';
+import WarningIcon from '@mui/icons-material/Warning';
+import ErrorIcon from '@mui/icons-material/Error';
+import InfoIcon from '@mui/icons-material/Info';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import axios from 'axios';
 import { Link as RouterLink } from 'react-router-dom';
 import { restoreUserFromToken, isAuthenticated, getCurrentUser } from '../../utils/authService';
+import SecurityViolationDialog from '../../components/student/SecurityViolationDialog';
+import { 
+  performComprehensiveSecurityCheck, 
+  detectRemoteConnections, 
+  disableBrowserExtensions,
+  getExtensionDisableInstructions 
+} from '../../utils/securityUtils';
 
 const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
   const { attemptId, courseId } = useParams();
@@ -131,6 +149,22 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
   const [showWarning, setShowWarning] = useState(false);
   const [warningCountdown, setWarningCountdown] = useState(0);
   const [windowMinimizeCount, setWindowMinimizeCount] = useState(0);
+  const [currentViolationType, setCurrentViolationType] = useState('');
+  const [showViolationDetails, setShowViolationDetails] = useState(false);
+  const [violationAttempts, setViolationAttempts] = useState({
+    'tab-switch': 0,
+    'alt-tab': 0,
+    'fullscreen-exit': 0,
+    'window-minimize': 0,
+    'suspicious-timing': 0,
+    'keyboard-shortcut': 0,
+    'context-menu': 0,
+    'clipboard': 0,
+    'remote-connection': 0,
+    'browser-extensions': 0,
+    'devtools-open-heuristic': 0
+  });
+  const MAX_ATTEMPTS = 8; // Maximum attempts allowed for each violation type (increased from 3 to 8 for less restrictive security)
   const quizContainerRef = useRef(null);
   const keyBlockCountRef = useRef(0);
   const awayTimerRef = useRef(null);
@@ -138,17 +172,29 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
   const fsExitCountRef = useRef(0);
   const prevFsRef = useRef(false);
   const quizActiveRef = useRef(true);
-  const lastVisHiddenRef = useRef(false);
+  const wasHiddenRef = useRef(false);
   const warningTimerRef = useRef(null);
+  
+  // Enhanced security states
+  const [securityCheck, setSecurityCheck] = useState(null);
+  const [securityBlocked, setSecurityBlocked] = useState(false);
+  const [remoteConnectionWarning, setRemoteConnectionWarning] = useState(false);
+  const [extensionWarning, setExtensionWarning] = useState(false);
+  const [securityRecommendations, setSecurityRecommendations] = useState([]);
 
-  // Monitor tab switch count for auto-submit
+  // Monitor violation attempts for auto-submit (using the new system)
   useEffect(() => {
-    console.log('🔢 TAB SWITCH COUNT CHANGED TO:', tabSwitchCount);
-    if (tabSwitchCount >= 3 && !autoSubmitted && !submitted) {
+    const totalTabSwitches = (violationAttempts['tab-switch'] || 0) + (violationAttempts['alt-tab'] || 0);
+    console.log('🔢 TOTAL TAB SWITCHES:', totalTabSwitches);
+    
+    if (totalTabSwitches >= 3 && !autoSubmitted && !submitted) {
       console.log('🚫 TAB SWITCH LIMIT EXCEEDED! Triggering auto-submit...');
-      triggerAutoSubmit(`Tab switch limit exceeded (${tabSwitchCount}/3)`);
+      triggerAutoSubmit(`Tab switch limit exceeded (${totalTabSwitches}/3)`);
     }
-  }, [tabSwitchCount, autoSubmitted, submitted]);
+  }, [violationAttempts, autoSubmitted, submitted]);
+  
+  // Legacy tab switch count monitoring is no longer needed
+  // The new violationAttempts system handles all tab switch detection
 
   // Security state persistence functions
   const getSecurityStateKey = () => `quiz_security_${attemptId}`;
@@ -161,6 +207,7 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
       fsExitCount: customValues.fsExitCount !== undefined ? customValues.fsExitCount : fsExitCountRef.current,
       keyBlockCount: customValues.keyBlockCount !== undefined ? customValues.keyBlockCount : keyBlockCountRef.current,
       windowMinimizeCount: customValues.windowMinimizeCount || windowMinimizeCount,
+      violationAttempts: customValues.violationAttempts || violationAttempts,
       timestamp: Date.now()
     };
     localStorage.setItem(getSecurityStateKey(), JSON.stringify(securityState));
@@ -177,6 +224,17 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
         setTabSwitchCount(state.tabSwitchCount || 0);
         setWarningCount(state.warningCount || 0);
         setWindowMinimizeCount(state.windowMinimizeCount || 0);
+        setViolationAttempts(state.violationAttempts || {
+          'tab-switch': 0,
+          'alt-tab': 0,
+          'fullscreen-exit': 0,
+          'window-minimize': 0,
+          'suspicious-timing': 0,
+          'keyboard-shortcut': 0,
+          'context-menu': 0,
+          'clipboard': 0,
+          'devtools-open-heuristic': 0
+        });
         fsExitCountRef.current = state.fsExitCount || 0;
         keyBlockCountRef.current = state.keyBlockCount || 0;
         console.log('🔒 Security state restored:', state);
@@ -194,54 +252,110 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
   };
 
   const showSecurityWarning = (violationType, message) => {
-    if (warningCount >= 3) {
-      // Already reached max warnings, auto-submit immediately
-      triggerAutoSubmit('Maximum security warnings reached');
-      return;
-    }
+    console.log(`🚨🚨🚨 SHOW SECURITY WARNING CALLED: ${violationType} - ${message}`);
     
-    const newWarningCount = warningCount + 1;
-    setWarningCount(newWarningCount);
-    setShowWarning(true);
-    setWarningCountdown(15);
-    
-    addViolation(violationType, { 
-      warning: newWarningCount, 
-      message,
-      countdown: 15
+    // Debug: Check current states
+    console.log('🔍 Current states before update:', {
+      showWarning,
+      currentViolationType,
+      autoSubmitted,
+      submitted,
+      violationAttempts
     });
     
-    // Save security state immediately with the new warning count
-    saveSecurityState({ warningCount: newWarningCount });
-    
-    // Clear any existing warning timer
-    if (warningTimerRef.current) {
-      clearInterval(warningTimerRef.current);
-    }
-    
-    // Start countdown timer
-    let countdown = 15;
-    warningTimerRef.current = setInterval(() => {
-      countdown--;
-      setWarningCountdown(countdown);
+    // Update violation attempt count for this specific type
+    setViolationAttempts(prev => {
+      const newAttempts = {
+        ...prev,
+        [violationType]: (prev[violationType] || 0) + 1
+      };
       
-      if (countdown <= 0) {
-        clearInterval(warningTimerRef.current);
-        setShowWarning(false);
+      const currentAttempt = newAttempts[violationType];
+      console.log(`📊 ${violationType} attempt: ${currentAttempt}/${MAX_ATTEMPTS}`);
+      
+      // Check if this violation type has reached max attempts
+      if (currentAttempt >= MAX_ATTEMPTS) {
+        console.log(`🚫 ${violationType} max attempts reached! Auto-submitting...`);
         
-        if (newWarningCount >= 3) {
-          triggerAutoSubmit('Three security warnings - final warning expired');
-        }
+        // Add the final violation that triggered the limit
+        const finalViolation = { 
+          type: violationType, 
+          details: { 
+            attempt: currentAttempt,
+            maxAttempts: MAX_ATTEMPTS,
+            message,
+            trigger: 'max_attempts_reached'
+          }, 
+          at: Date.now() 
+        };
+        const updatedViolations = [...violations, finalViolation];
+        
+        // Save state before auto-submit
+        saveSecurityState({ violationAttempts: newAttempts, violations: updatedViolations });
+        
+        // Trigger auto-submit with the current violations
+        setTimeout(() => {
+          triggerAutoSubmit(
+            `Maximum attempts for ${violationType} reached (${currentAttempt}/${MAX_ATTEMPTS})`,
+            null, // currentTabCount 
+            updatedViolations // pass the violations we just created
+          );
+        }, 100); // Small delay to ensure state is saved
+        
+        return newAttempts;
       }
-    }, 1000);
+      
+      // Show the popup with current attempt info
+      console.log(`✅ Setting dialog to show: violationType=${violationType}, currentAttempt=${currentAttempt}`);
+      setCurrentViolationType(violationType);
+      setShowWarning(true);
+      setWarningCountdown(15);
+      
+      console.log('✅ Dialog state should now be: showWarning=true, currentViolationType=' + violationType);
+      
+      // Add violation to history
+      addViolation(violationType, { 
+        attempt: currentAttempt,
+        maxAttempts: MAX_ATTEMPTS,
+        message,
+        countdown: 15
+      });
+      
+      // Save security state immediately with the new attempt count
+      saveSecurityState({ violationAttempts: newAttempts });
+      
+      // Clear any existing warning timer
+      if (warningTimerRef.current) {
+        clearInterval(warningTimerRef.current);
+      }
+      
+      // Start countdown timer
+      let countdown = 15;
+      console.log('⏰ Starting countdown timer at 15 seconds');
+      warningTimerRef.current = setInterval(() => {
+        countdown--;
+        console.log('⏰ Countdown:', countdown);
+        setWarningCountdown(countdown);
+        
+        if (countdown <= 0) {
+          console.log('⏰ Countdown finished - hiding dialog');
+          clearInterval(warningTimerRef.current);
+          setShowWarning(false);
+        }
+      }, 1000);
+      
+      return newAttempts;
+    });
   };
 
   const dismissWarning = () => {
+    console.log('🚨 dismissWarning called - hiding dialog');
     if (warningTimerRef.current) {
       clearInterval(warningTimerRef.current);
     }
     setShowWarning(false);
     setWarningCountdown(0);
+    setCurrentViolationType('');
   };
 
   const addViolation = (type, details = {}) => {
@@ -253,10 +367,14 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
     saveSecurityState({ violations: newViolations });
   };
 
-  const triggerAutoSubmit = (reason, currentTabCount = null) => {
-    if (autoSubmitted || submitted) return;
+  const triggerAutoSubmit = (reason, currentTabCount = null, existingViolations = null) => {
+    if (autoSubmitted || submitted || submitting) {
+      console.log('⚠️ Auto-submit blocked - already submitted or in progress:', { autoSubmitted, submitted, submitting });
+      return;
+    }
+    console.log('🚨 Triggering auto-submit:', reason);
     setAutoSubmitted(true);
-    addViolation('auto-submit', { reason });
+    
     // Clear any warning timers
     if (warningTimerRef.current) {
       clearInterval(warningTimerRef.current);
@@ -265,12 +383,24 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
     
     // Use the provided tab count or current state
     const actualTabCount = currentTabCount !== null ? currentTabCount : tabSwitchCount;
-    console.log(`🚨 Auto-submit triggered with tab count: ${actualTabCount}`);
+    console.log(`🚨 Auto-submit triggered with tab count: ${actualTabCount}. Reason: ${reason}`);
     
-    // Defer slightly to let violation record flush to state
-    setTimeout(() => {
-      handleSubmitQuiz(true, actualTabCount);
-    }, 250);
+    // Use existing violations if provided, otherwise use current state
+    const baseViolations = existingViolations || violations;
+    
+    // Add the auto-submit violation
+    const autoSubmitViolation = { type: 'auto-submit', details: { reason }, at: Date.now() };
+    const finalViolations = [...baseViolations, autoSubmitViolation];
+    
+    console.log(`🔍 Auto-submit violations being sent:`, finalViolations);
+    console.log(`🔍 Total violations count: ${finalViolations.length}`);
+    
+    // Update state and submit immediately with the collected violations
+    setViolations(finalViolations);
+    saveSecurityState({ violations: finalViolations, tabSwitchCount: actualTabCount });
+    
+    // Submit with the violations we just collected
+    handleSubmitQuizWithViolations(finalViolations, actualTabCount);
   };
 
   // Simple fullscreen support for legacy page
@@ -332,7 +462,7 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
         saveSecurityState({ fsExitCount: fsExitCountRef.current });
         showSecurityWarning(
           'fullscreen-exit', 
-          `Warning ${warningCount + 1}/3: You exited fullscreen mode. Return to fullscreen immediately.`
+          'You exited fullscreen mode. The quiz must be taken in fullscreen mode.'
         );
       }
       prevFsRef.current = fs;
@@ -376,10 +506,19 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
   // Security: monitor tab switching, keyboard, context menu, clipboard, and basic devtools
   useEffect(() => {
     quizActiveRef.current = !submitted;
+    console.log('🎯 Quiz active state changed:', {
+      submitted,
+      quizActiveRef: quizActiveRef.current
+    });
   }, [submitted]);
 
   useEffect(() => {
-    if (!quizActiveRef.current) return;
+    console.log('🔐 Security monitoring effect - quizActive:', quizActiveRef.current, 'submitted:', submitted);
+    if (!quizActiveRef.current) {
+      console.log('⚠️ Security monitoring DISABLED - quiz not active (submitted:', submitted, ')');
+      return;
+    }
+    console.log('✅ Security monitoring ENABLED - Attaching event listeners...');
 
     const startAwayTimer = () => {
       awayStartRef.current = Date.now();
@@ -388,7 +527,7 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
       awayTimerRef.current = setTimeout(() => {
         showSecurityWarning(
           'suspicious-timing', 
-          `Warning ${warningCount + 1}/3: You've been away from the quiz for too long.`
+          'You have been away from the quiz for too long. Stay focused on the quiz at all times.'
         );
       }, 15000);
     };
@@ -401,61 +540,123 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
     };
 
     const onVisibility = () => {
-      if (document.hidden) {
-        lastVisHiddenRef.current = true;
+      const currentlyHidden = document.hidden;
+      const wasHidden = wasHiddenRef.current;
+      
+      console.log('👀 Visibility change detected:', { 
+        currentlyHidden,
+        wasHidden,
+        quizActive: quizActiveRef.current,
+        submitted,
+        autoSubmitted,
+        timestamp: new Date().toLocaleTimeString()
+      });
+      
+      // Update the ref to current state
+      wasHiddenRef.current = currentlyHidden;
+      
+      if (currentlyHidden) {
+        console.log('📱 Tab became hidden');
         startAwayTimer();
+        
         // Additional check for minimization when page becomes hidden
         if (window.outerHeight <= 100 || window.outerWidth <= 100) {
           showSecurityWarning(
             'window-minimize', 
-            `Warning ${warningCount + 1}/3: Do not minimize the browser window during the quiz.`
+            'Do not minimize the browser window during the quiz.'
           );
         }
       } else {
-        if (lastVisHiddenRef.current) {
-          lastVisHiddenRef.current = false;
+        console.log('👁️ Tab became visible');
+        
+        // If tab was hidden and now becomes visible, that's a tab switch
+        if (wasHidden) {
+          console.log('✅ TAB SWITCH DETECTED! (was hidden, now visible)');
+          
           const awayMs = awayStartRef.current ? Date.now() - awayStartRef.current : 0;
           clearAwayTimer();
-          setTabSwitchCount((c) => {
-            const next = c + 1;
-            console.log(`🔢 TAB SWITCH DETECTED! Count: ${c} -> ${next}`);
-            
-            // Save the new count immediately with the updated value
-            setTimeout(() => saveSecurityState({ tabSwitchCount: next }), 0);
-            
-            // Check if we've reached the limit for auto-submit
-            if (next >= 3) {
-              console.log('🚫 TAB SWITCH LIMIT REACHED! Auto-submitting...');
-              triggerAutoSubmit(`Maximum tab switches reached (${next})`, next);
-              return next;
-            }
-            
-            showSecurityWarning(
-              'tab-switch', 
-              `Warning ${warningCount + 1}/3: You switched tabs or windows. Stay on the quiz page.`
-            );
-            return next;
-          });
+          
+          // Show warning popup - this will handle the counting
+          showSecurityWarning(
+            'tab-switch', 
+            'You switched tabs or windows. Stay on the quiz page at all times.'
+          );
+        } else {
+          console.log('❌ No tab switch - tab was not previously hidden (probably initial load)');
         }
       }
     };
 
     const onBlur = () => {
-      // Some browsers don't mark hidden; treat blur as potential away
-      if (!document.hidden) startAwayTimer();
-      // Also check for window minimization
-      if (document.visibilityState === 'hidden' || window.outerHeight === 0 || window.outerWidth === 0) {
-        showSecurityWarning(
-          'window-minimize', 
-          `Warning ${warningCount + 1}/3: Do not minimize the browser window during the quiz.`
-        );
-      }
+      console.log('🔍 Window blur detected - checking if user actually switched away...');
+      
+      // Check for recent system key presses that might indicate Alt+Tab or Windows key navigation
+      const recentSystemKeyPress = window.lastSystemKeyPress && (Date.now() - window.lastSystemKeyPress < 500);
+      
+      // Add a shorter delay for system key scenarios, longer for regular blur
+      const delay = recentSystemKeyPress ? 50 : 250;
+      
+      setTimeout(() => {
+        // Enhanced detection for various navigation scenarios
+        const isActuallyHidden = document.hidden || document.visibilityState === 'hidden';
+        const isMinimized = window.outerHeight === 0 || window.outerWidth === 0;
+        const lostFocus = !document.hasFocus();
+        const inFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || 
+                                document.mozFullScreenElement || document.msFullscreenElement);
+        
+        // In fullscreen mode, be more sensitive to focus changes
+        const shouldTrigger = inFullscreen ? 
+          (isActuallyHidden || isMinimized || lostFocus) :
+          (isActuallyHidden || isMinimized);
+        
+        if (shouldTrigger) {
+          console.log('🚨 Confirmed: User actually switched away from quiz');
+          console.log('📊 Detection details:', {
+            isActuallyHidden,
+            isMinimized,
+            lostFocus,
+            inFullscreen,
+            recentSystemKeyPress,
+            lastSystemKey: window.lastSystemKeyType
+          });
+          
+          // Enhanced violation categorization
+          let violationType = 'tab-switch';
+          let message = 'Tab switching detected. Stay focused on the quiz.';
+          
+          if (isMinimized) {
+            violationType = 'window-minimize';
+            message = 'Do not minimize the browser window during the quiz.';
+          } else if (recentSystemKeyPress) {
+            if (window.lastSystemKeyType === 'alt-tab') {
+              violationType = 'alt-tab';
+              message = 'Alt+Tab navigation detected. Do not switch between applications during the quiz.';
+            } else if (window.lastSystemKeyType === 'windows-key') {
+              violationType = 'windows-key';
+              message = 'Windows key navigation detected. Do not use system shortcuts during the quiz.';
+            }
+          } else if (inFullscreen && lostFocus) {
+            violationType = 'fullscreen-navigation';
+            message = 'Navigation away from fullscreen quiz detected. Stay in the quiz window.';
+          }
+          
+          showSecurityWarning(violationType, message);
+          
+          // Start away timer
+          if (!document.hidden) startAwayTimer();
+        } else {
+          console.log('✅ False alarm: Window blur but quiz still visible, ignoring');
+        }
+      }, delay);
     };
     const onFocus = () => {
+      console.log('✅ Window focus detected (user returned to quiz window)');
+      
       if (awayStartRef.current) {
         const awayMs = Date.now() - awayStartRef.current;
         clearAwayTimer();
         addViolation('window-focus-return', { awayMs });
+        console.log(`👀 User returned to quiz after being away for ${awayMs}ms`);
       }
     };
 
@@ -464,29 +665,64 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
       const ctrl = e.ctrlKey || e.metaKey;
       const shift = e.shiftKey;
       const alt = e.altKey;
+      const keyCode = e.keyCode || e.which;
+      
+      // Track system key presses for enhanced blur detection
+      if (alt && k === 'tab') {
+        console.log('🚨 Alt+Tab detected in keydown!');
+        window.lastSystemKeyPress = Date.now();
+        window.lastSystemKeyType = 'alt-tab';
+        e.preventDefault();
+        showSecurityWarning('alt-tab', 'Alt+Tab navigation detected. Do not switch between applications during the quiz.');
+        return false;
+      }
+      
+      // Track Windows/Meta key presses
+      if (k === 'meta' || k === 'os' || keyCode === 91 || keyCode === 92) {
+        console.log('🚨 Windows key detected!');
+        window.lastSystemKeyPress = Date.now();
+        window.lastSystemKeyType = 'windows-key';
+        // Don't prevent default here as it might cause issues, but track it
+        setTimeout(() => {
+          // Check if focus was lost after Windows key press
+          if (!document.hasFocus() || document.hidden) {
+            showSecurityWarning('windows-key', 'Windows key navigation detected. Do not use system shortcuts during the quiz.');
+          }
+        }, 100);
+      }
+      
+      // Track Ctrl+Shift+Tab (reverse tab switching)
+      if (ctrl && shift && k === 'tab') {
+        console.log('🚨 Ctrl+Shift+Tab detected!');
+        window.lastSystemKeyPress = Date.now();
+        window.lastSystemKeyType = 'ctrl-shift-tab';
+        e.preventDefault();
+        showSecurityWarning('keyboard-shortcut', 'Ctrl+Shift+Tab navigation detected. Do not switch between tabs during the quiz.');
+        return false;
+      }
+      
+      // Track F11 (fullscreen toggle)
+      if (k === 'f11' || keyCode === 122) {
+        console.log('🚨 F11 fullscreen toggle detected!');
+        window.lastSystemKeyPress = Date.now();
+        window.lastSystemKeyType = 'f11';
+        // Check if exiting fullscreen
+        setTimeout(() => {
+          const inFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || 
+                                  document.mozFullScreenElement || document.msFullscreenElement);
+          if (!inFullscreen) {
+            showSecurityWarning('fullscreen-exit', 'Exiting fullscreen mode is not allowed during the quiz.');
+          }
+        }, 100);
+      }
       
       // Alt+Tab (tab switching)
       if (alt && k === 'tab') {
-        setTabSwitchCount(prevCount => {
-          const newTabCount = prevCount + 1;
-          console.log(`🔢 ALT+TAB DETECTED! Count: ${prevCount} -> ${newTabCount}`);
-          
-          // Save the new tab switch count immediately with updated value
-          setTimeout(() => saveSecurityState({ tabSwitchCount: newTabCount }), 0);
-          
-          // Check if we've reached the limit for auto-submit
-          if (newTabCount >= 3) {
-            console.log('🚫 ALT+TAB LIMIT REACHED! Auto-submitting...');
-            triggerAutoSubmit(`Maximum tab switches reached via Alt+Tab (${newTabCount})`, newTabCount);
-            return newTabCount;
-          }
-          
-          showSecurityWarning(
-            'alt-tab', 
-            `Warning ${warningCount + 1}/3: Alt+Tab detected. Stay focused on the quiz.`
-          );
-          return newTabCount;
-        });
+        // Show warning popup - this will handle the counting
+        showSecurityWarning(
+          'alt-tab', 
+          'Alt+Tab detected. Stay focused on the quiz without switching applications.'
+        );
         return 'alt-tab';
       }
       
@@ -510,26 +746,45 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
         e.stopPropagation();
         keyBlockCountRef.current += 1;
         addViolation('keyboard-shortcut', { category, key: e.key, count: keyBlockCountRef.current });
-        if (keyBlockCountRef.current >= 5) triggerAutoSubmit('Repeated forbidden shortcuts');
+        showSecurityWarning(
+          'keyboard-shortcut',
+          `Forbidden keyboard shortcut detected: ${e.key}. Do not use developer tools or system shortcuts.`
+        );
       }
     };
 
     const onContextMenu = (e) => {
       e.preventDefault();
       addViolation('context-menu');
+      showSecurityWarning(
+        'context-menu',
+        'Right-click is disabled during the quiz. Do not attempt to open the context menu.'
+      );
     };
 
     const onCopy = (e) => {
       e.preventDefault();
       addViolation('clipboard', { action: 'copy' });
+      showSecurityWarning(
+        'clipboard',
+        'Copy operation is not allowed during the quiz.'
+      );
     };
     const onPaste = (e) => {
       e.preventDefault();
       addViolation('clipboard', { action: 'paste' });
+      showSecurityWarning(
+        'clipboard',
+        'Paste operation is not allowed during the quiz.'
+      );
     };
     const onCut = (e) => {
       e.preventDefault();
       addViolation('clipboard', { action: 'cut' });
+      showSecurityWarning(
+        'clipboard',
+        'Cut operation is not allowed during the quiz.'
+      );
     };
 
     let resizeFlagged = false;
@@ -540,6 +795,10 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
       if ((wDiff > 160 || hDiff > 160) && !resizeFlagged) {
         resizeFlagged = true;
         addViolation('devtools-open-heuristic', { wDiff, hDiff });
+        showSecurityWarning(
+          'devtools-open-heuristic',
+          'Developer tools may be open. Close all developer tools immediately.'
+        );
       }
       
       // Check for window minimization (outer dimensions become 0 or very small)
@@ -550,11 +809,12 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
         saveSecurityState({ windowMinimizeCount: newMinimizeCount });
         showSecurityWarning(
           'window-minimize', 
-          `Warning ${warningCount + 1}/3: Do not minimize or resize the browser window too small.`
+          'Do not minimize or resize the browser window too small.'
         );
       }
     };
 
+    console.log('📋 Attaching security event listeners...');
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onFocus);
@@ -564,8 +824,10 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
     document.addEventListener('paste', onPaste, { capture: true });
     document.addEventListener('cut', onCut, { capture: true });
     window.addEventListener('resize', onResize);
+    console.log('✅ Security event listeners attached successfully!');
 
     return () => {
+      console.log('🧹 Cleaning up security event listeners...');
       clearAwayTimer();
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('blur', onBlur);
@@ -732,6 +994,68 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
     }
   }, [attemptId, token, navigate, location]);
 
+  // Comprehensive security check when quiz loads
+  useEffect(() => {
+    const runSecurityCheck = async () => {
+      if (!quiz) return;
+      
+      console.log('🔒 Running comprehensive security check...');
+      
+      try {
+        const securityResult = await performComprehensiveSecurityCheck();
+        setSecurityCheck(securityResult);
+        
+        console.log('🔍 Security check results:', securityResult);
+        
+        // Handle security violations
+        if (securityResult.blocking) {
+          console.error('🚫 Quiz blocked due to security violations');
+          setSecurityBlocked(true);
+          setError('Quiz cannot proceed due to security violations. Please resolve the security issues and try again.');
+          return;
+        }
+        
+        // Handle warnings
+        if (securityResult.violations.length > 0) {
+          securityResult.violations.forEach(violation => {
+            if (violation.type === 'REMOTE_CONNECTION_DETECTED') {
+              setRemoteConnectionWarning(true);
+              showSecurityWarning(
+                'remote-connection',
+                'Remote desktop software detected. Please close all remote connection applications.'
+              );
+            } else if (violation.type === 'EXTENSIONS_DETECTED') {
+              setExtensionWarning(true);
+              showSecurityWarning(
+                'browser-extensions',
+                'Browser extensions detected. Consider using incognito mode for better security.'
+              );
+            }
+          });
+        }
+        
+        // Set recommendations
+        setSecurityRecommendations(securityResult.recommendations);
+        
+        // Try to disable extensions if possible
+        const extensionsDisabled = await disableBrowserExtensions();
+        if (!extensionsDisabled) {
+          console.warn('⚠️ Could not disable browser extensions automatically');
+        }
+        
+      } catch (error) {
+        console.error('Security check failed:', error);
+        setSecurityRecommendations([{
+          type: 'SECURITY_CHECK_ERROR',
+          message: 'Could not verify security environment',
+          priority: 'MEDIUM'
+        }]);
+      }
+    };
+    
+    runSecurityCheck();
+  }, [quiz]);
+
   // Timer countdown driven by endsAtTs to survive refresh and avoid drift
   useEffect(() => {
     if (!endsAtTs || submitted) return;
@@ -867,9 +1191,21 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
     });
   };
 
-  const handleSubmitQuiz = async (auto = false, overrideTabCount = null) => {
+  // Helper function to submit quiz with specific violations (avoids race conditions)
+  const handleSubmitQuizWithViolations = async (specificViolations, tabCount) => {
+    return handleSubmitQuiz(true, tabCount, specificViolations);
+  };
+
+  const handleSubmitQuiz = async (auto = false, overrideTabCount = null, specificViolations = null) => {
+    // Prevent multiple submissions
+    if (submitted || submitting) {
+      console.log('⚠️ Submission already in progress or completed, ignoring');
+      return;
+    }
+    
     try {
       setSubmitting(true);
+      console.log('🚀 Starting quiz submission...', { auto, overrideTabCount, hasSpecificViolations: !!specificViolations });
       
       // Convert answers to the expected format
       const formattedAnswers = Object.entries(answers).map(([questionId, selectedOption]) => ({
@@ -888,19 +1224,23 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
         console.log('Auto-submit: Added empty answers for validation');
       }
 
-      // Use override tab count if provided (for auto-submit), otherwise use current state
-      const actualTabCount = overrideTabCount !== null ? overrideTabCount : tabSwitchCount;
+      // Use override tab count if provided (for auto-submit), otherwise derive from violations
+      const derivedTabCount = (violationAttempts['tab-switch'] || 0) + (violationAttempts['alt-tab'] || 0);
+      const actualTabCount = overrideTabCount !== null ? overrideTabCount : Math.max(tabSwitchCount, derivedTabCount);
 
       console.log('Submitting quiz answers:', formattedAnswers);
       console.log('Auto-submit mode:', auto);
       console.log('Tab switch count:', actualTabCount);
 
+      // Use specific violations if provided (for auto-submit) or current state
+      const violationsToUse = specificViolations || violations;
+      
       // Convert violations to match backend schema - convert to strings instead of objects
-      const formattedViolations = violations.map(violation => 
+      const formattedViolations = violationsToUse.map(violation => 
         `${violation.type || 'unknown'}: ${violation.details ? JSON.stringify(violation.details) : violation.message || 'Security violation detected'} at ${new Date(violation.at || Date.now()).toISOString()}`
       );
 
-      console.log('🔍 Original violations:', violations);
+      console.log('🔍 Original violations:', violationsToUse);
       console.log('🔍 Formatted violations:', formattedViolations);
 
       const submissionData = {
@@ -951,6 +1291,16 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
         status: err.response?.status
       });
       
+      // Handle "Quiz already submitted" case
+      if (err.response?.status === 400 && err.response?.data?.completed) {
+        console.log('✅ Quiz was already submitted, treating as success');
+        setResult(err.response.data.attempt);
+        setSubmitted(true);
+        setSubmitting(false);
+        clearSecurityState();
+        return;
+      }
+      
       setError('Failed to submit quiz. Please try again.');
       setSubmitting(false);
     }
@@ -974,6 +1324,101 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
     const total = quiz?.questions?.length || 0;
     const answered = getAnsweredCount();
     return Math.max(0, total - answered);
+  };
+
+  // Security status calculation functions
+  const getTotalViolations = () => {
+    return Object.values(violationAttempts).reduce((sum, count) => sum + count, 0);
+  };
+
+  const getHighRiskViolations = () => {
+    return Object.entries(violationAttempts).filter(([type, count]) => 
+      count >= Math.floor(MAX_ATTEMPTS * 0.75) // 75% of max attempts
+    );
+  };
+
+  const getCriticalViolations = () => {
+    return Object.entries(violationAttempts).filter(([type, count]) => 
+      count >= MAX_ATTEMPTS
+    );
+  };
+
+  const getSecurityStatus = () => {
+    const total = getTotalViolations();
+    const critical = getCriticalViolations();
+    const highRisk = getHighRiskViolations();
+    
+    if (critical.length > 0) {
+      return { status: 'critical', color: 'error', icon: ErrorIcon };
+    } else if (highRisk.length > 0) {
+      return { status: 'warning', color: 'warning', icon: WarningIcon };
+    } else if (total > 0) {
+      return { status: 'caution', color: 'info', icon: InfoIcon };
+    } else {
+      return { status: 'secure', color: 'success', icon: SecurityIcon };
+    }
+  };
+
+  const getFailureReasons = () => {
+    const reasons = [];
+    const critical = getCriticalViolations();
+    
+    if (critical.length > 0) {
+      critical.forEach(([type, count]) => {
+        switch(type) {
+          case 'tab-switch':
+            reasons.push('Excessive tab switching detected');
+            break;
+          case 'alt-tab':
+            reasons.push('Alt+Tab navigation attempts exceeded');
+            break;
+          case 'fullscreen-exit':
+            reasons.push('Repeated fullscreen exit attempts');
+            break;
+          case 'window-minimize':
+            reasons.push('Window minimization limit exceeded');
+            break;
+          case 'keyboard-shortcut':
+            reasons.push('Forbidden keyboard shortcuts used');
+            break;
+          case 'context-menu':
+            reasons.push('Right-click context menu violations');
+            break;
+          case 'clipboard':
+            reasons.push('Copy/paste attempts detected');
+            break;
+          case 'devtools-open-heuristic':
+            reasons.push('Developer tools detection');
+            break;
+          default:
+            reasons.push(`Security violation: ${type}`);
+        }
+      });
+    }
+    
+    // Check for low score failure
+    if (result && result.percentage < 70) {
+      reasons.push('Score below passing threshold (70%)');
+    }
+    
+    return reasons;
+  };
+
+  const getViolationTypeLabel = (type) => {
+    const labels = {
+      'tab-switch': 'Tab Switch',
+      'alt-tab': 'Alt+Tab',
+      'fullscreen-exit': 'Fullscreen Exit',
+      'window-minimize': 'Window Minimize',
+      'keyboard-shortcut': 'Forbidden Keys',
+      'context-menu': 'Right Click',
+      'clipboard': 'Copy/Paste',
+      'devtools-open-heuristic': 'DevTools',
+      'suspicious-timing': 'Timing Issues',
+      'remote-connection': 'Remote Access',
+      'browser-extensions': 'Extensions'
+    };
+    return labels[type] || type;
   };
 
   const getQuestionStatus = (questionId) => {
@@ -1078,12 +1523,135 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
             </Grid>
           </Grid>
 
+          {/* Security Summary Card */}
+          {getTotalViolations() > 0 && (
+            <Card variant="outlined" sx={{ mt: 2, mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <SecurityIcon color={result.passed ? 'warning' : 'error'} />
+                  Security Summary
+                </Typography>
+                <Divider sx={{ my: 1 }} />
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="body2" color="text.secondary">Total Violations:</Typography>
+                    <Typography variant="h6" color={getTotalViolations() > MAX_ATTEMPTS ? 'error' : 'warning'}>
+                      {getTotalViolations()}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="body2" color="text.secondary">Critical Issues:</Typography>
+                    <Typography variant="h6" color="error">
+                      {getCriticalViolations().length}
+                    </Typography>
+                  </Grid>
+                  {getCriticalViolations().length > 0 && (
+                    <Grid item xs={12}>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        Critical Violations:
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        {getCriticalViolations().map(([type, count]) => (
+                          <Chip
+                            key={type}
+                            size="small"
+                            label={`${getViolationTypeLabel(type)}: ${count}`}
+                            color="error"
+                            variant="outlined"
+                          />
+                        ))}
+                      </Box>
+                    </Grid>
+                  )}
+                </Grid>
+              </CardContent>
+            </Card>
+          )}
+
           <Typography variant="body1" sx={{ mb: 3 }}>
             {result.passed 
               ? 'Congratulations! You have successfully completed this unit quiz.' 
               : `You need at least 70% to pass. Please review the material and try again.`
             }
           </Typography>
+
+          {/* Failure Analysis */}
+          {!result.passed && (
+            <Alert severity="error" sx={{ mb: 3, textAlign: 'left' }}>
+              <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                Quiz Failed - Detailed Analysis:
+              </Typography>
+              {(() => {
+                const failureReasons = getFailureReasons();
+                const totalViolations = getTotalViolations();
+                const criticalViolations = getCriticalViolations();
+                
+                return (
+                  <Box>
+                    {/* Score-based failure */}
+                    {result.percentage < 70 && (
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        • <strong>Score:</strong> {result.percentage}% (Need 70% to pass)
+                      </Typography>
+                    )}
+                    
+                    {/* Security violations */}
+                    {totalViolations > 0 && (
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        • <strong>Security Violations:</strong> {totalViolations} total violations detected
+                      </Typography>
+                    )}
+                    
+                    {/* Critical violations that caused failure */}
+                    {criticalViolations.length > 0 && (
+                      <Box sx={{ ml: 2, mb: 1 }}>
+                        <Typography variant="body2" fontWeight="bold" color="error.dark">
+                          Critical Security Issues:
+                        </Typography>
+                        {criticalViolations.map(([type, count]) => (
+                          <Typography key={type} variant="body2" sx={{ ml: 1 }}>
+                            • {getViolationTypeLabel(type)}: {count}/{MAX_ATTEMPTS} attempts
+                          </Typography>
+                        ))}
+                      </Box>
+                    )}
+                    
+                    {/* Specific failure reasons */}
+                    {failureReasons.length > 0 && (
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="body2" fontWeight="bold">
+                          Specific Issues:
+                        </Typography>
+                        {failureReasons.map((reason, index) => (
+                          <Typography key={index} variant="body2" sx={{ ml: 1 }}>
+                            • {reason}
+                          </Typography>
+                        ))}
+                      </Box>
+                    )}
+                    
+                    <Typography variant="body2" sx={{ mt: 2, fontStyle: 'italic' }}>
+                      <strong>Next Steps:</strong> {
+                        criticalViolations.length > 0 
+                          ? 'Contact your instructor to resolve security violations before retaking the quiz.'
+                          : 'Review the course material and ensure a stable testing environment for your next attempt.'
+                      }
+                    </Typography>
+                  </Box>
+                );
+              })()}
+            </Alert>
+          )}
+
+          {/* Success details */}
+          {result.passed && getTotalViolations() > 0 && (
+            <Alert severity="success" sx={{ mb: 3, textAlign: 'left' }}>
+              <Typography variant="body2">
+                <strong>Note:</strong> Quiz passed successfully despite {getTotalViolations()} minor security notifications. 
+                For future quizzes, please maintain a secure testing environment.
+              </Typography>
+            </Alert>
+          )}
 
           <Button 
             variant="contained" 
@@ -1130,6 +1698,32 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
         )}
         <Typography color="text.primary">Quiz</Typography>
       </Breadcrumbs>
+
+      {/* Security Warnings */}
+      {remoteConnectionWarning && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <AlertTitle>Remote Connection Detected</AlertTitle>
+          Remote desktop software detected. Please close all remote access applications and refresh the page to continue.
+        </Alert>
+      )}
+
+      {extensionWarning && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <AlertTitle>Browser Extensions Detected</AlertTitle>
+          Some browser extensions may interfere with quiz security. Consider using incognito mode or disabling extensions.
+        </Alert>
+      )}
+
+      {securityRecommendations.length > 0 && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <AlertTitle>Security Recommendations</AlertTitle>
+          <Box component="ul" sx={{ mt: 1, mb: 0 }}>
+            {securityRecommendations.map((recommendation, index) => (
+              <li key={index}>{recommendation}</li>
+            ))}
+          </Box>
+        </Alert>
+      )}
 
       {/* Main two-column layout (Fullscreen target wrapper) */}
       <Box
@@ -1242,15 +1836,158 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
               </Grid>
             </Grid>
             
-            {/* Debug Panel - Security State */}
-            {debug && (
-              <Box sx={{ mt: 1, p: 1, bgcolor: 'grey.100', borderRadius: 1, fontSize: '0.75rem' }}>
-                <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
-                  🔒 Security Debug: Warnings: {warningCount}/3 | Tab: {tabSwitchCount}/3 | FS Exits: {fsExitCountRef.current} | Minimize: {windowMinimizeCount} | Violations: {violations.length}
-                  {tabSwitchCount >= 3 && <span style={{color: 'red', fontWeight: 'bold'}}> ⚠️ TAB LIMIT EXCEEDED!</span>}
-                </Typography>
-              </Box>
-            )}
+            {/* Enhanced Security & Status Bar */}
+            <Box sx={{ mt: 2 }}>
+              {(() => {
+                const securityStatus = getSecurityStatus();
+                const totalViolations = getTotalViolations();
+                const criticalViolations = getCriticalViolations();
+                const failureReasons = getFailureReasons();
+                const SecurityStatusIcon = securityStatus.icon;
+                
+                return (
+                  <Card 
+                    variant="outlined" 
+                    sx={{ 
+                      border: `2px solid`,
+                      borderColor: `${securityStatus.color}.main`,
+                      bgcolor: `${securityStatus.color}.light`,
+                      bgcolor: securityStatus.status === 'critical' ? 'error.light' : 
+                               securityStatus.status === 'warning' ? 'warning.light' :
+                               securityStatus.status === 'caution' ? 'info.light' : 'success.light',
+                      opacity: 0.9
+                    }}
+                  >
+                    <CardContent sx={{ py: 1.5 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <SecurityStatusIcon color={securityStatus.color} />
+                          <Typography variant="subtitle2" fontWeight="bold" color={`${securityStatus.color}.dark`}>
+                            Security Status: {securityStatus.status.toUpperCase()}
+                          </Typography>
+                          {totalViolations > 0 && (
+                            <Chip 
+                              size="small" 
+                              label={`${totalViolations} Violations`}
+                              color={securityStatus.color}
+                              variant="filled"
+                            />
+                          )}
+                        </Box>
+                        
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {failureReasons.length > 0 && (
+                            <Chip 
+                              size="small" 
+                              label={`${failureReasons.length} Issues`}
+                              color="error"
+                              variant="outlined"
+                            />
+                          )}
+                          <Tooltip title={showViolationDetails ? "Hide Details" : "Show Details"}>
+                            <IconButton 
+                              size="small" 
+                              onClick={() => setShowViolationDetails(!showViolationDetails)}
+                            >
+                              {showViolationDetails ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </Box>
+                      
+                      {/* Quick status overview */}
+                      <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        {Object.entries(violationAttempts).map(([type, count]) => {
+                          if (count === 0) return null;
+                          const isHigh = count >= Math.floor(MAX_ATTEMPTS * 0.75);
+                          const isCritical = count >= MAX_ATTEMPTS;
+                          
+                          return (
+                            <Chip
+                              key={type}
+                              size="small"
+                              label={`${getViolationTypeLabel(type)}: ${count}/${MAX_ATTEMPTS}`}
+                              color={isCritical ? 'error' : isHigh ? 'warning' : 'default'}
+                              variant={isCritical ? 'filled' : 'outlined'}
+                            />
+                          );
+                        })}
+                      </Box>
+                      
+                      {/* Detailed violation breakdown */}
+                      <Collapse in={showViolationDetails}>
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="body2" fontWeight="bold" color="text.primary" sx={{ mb: 1 }}>
+                          Detailed Security Report:
+                        </Typography>
+                        
+                        {/* Failure reasons */}
+                        {failureReasons.length > 0 && (
+                          <Alert severity="error" sx={{ mb: 2, py: 0 }}>
+                            <Typography variant="body2" fontWeight="bold">Failure Reasons:</Typography>
+                            <Box component="ul" sx={{ mt: 0.5, mb: 0, pl: 2 }}>
+                              {failureReasons.map((reason, index) => (
+                                <li key={index}>
+                                  <Typography variant="body2">{reason}</Typography>
+                                </li>
+                              ))}
+                            </Box>
+                          </Alert>
+                        )}
+                        
+                        {/* All violation types with details */}
+                        <Grid container spacing={1}>
+                          {Object.entries(violationAttempts).map(([type, count]) => {
+                            const isHigh = count >= Math.floor(MAX_ATTEMPTS * 0.75);
+                            const isCritical = count >= MAX_ATTEMPTS;
+                            const percentage = Math.round((count / MAX_ATTEMPTS) * 100);
+                            
+                            return (
+                              <Grid item xs={6} sm={4} md={3} key={type}>
+                                <Box sx={{ 
+                                  p: 1, 
+                                  border: '1px solid', 
+                                  borderColor: isCritical ? 'error.main' : isHigh ? 'warning.main' : 'grey.300',
+                                  borderRadius: 1,
+                                  bgcolor: count > 0 ? (isCritical ? 'error.light' : isHigh ? 'warning.light' : 'grey.50') : 'transparent'
+                                }}>
+                                  <Typography variant="caption" fontWeight="bold" color="text.primary">
+                                    {getViolationTypeLabel(type)}
+                                  </Typography>
+                                  <Typography variant="body2" color={isCritical ? 'error.main' : isHigh ? 'warning.main' : 'text.secondary'}>
+                                    {count}/{MAX_ATTEMPTS} ({percentage}%)
+                                  </Typography>
+                                  {count > 0 && (
+                                    <LinearProgress 
+                                      variant="determinate" 
+                                      value={percentage} 
+                                      color={isCritical ? 'error' : isHigh ? 'warning' : 'primary'}
+                                      sx={{ height: 4, borderRadius: 2, mt: 0.5 }}
+                                    />
+                                  )}
+                                </Box>
+                              </Grid>
+                            );
+                          })}
+                        </Grid>
+                        
+                        {/* Debug info for developers */}
+                        {debug && (
+                          <Box sx={{ mt: 2, p: 1, bgcolor: 'grey.100', borderRadius: 1 }}>
+                            <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                              🔒 Debug Info: Total Violations: {violations.length} | 
+                              Tab Count: {tabSwitchCount} | 
+                              Away Time: {awayStartRef.current ? 'Away' : 'Present'} | 
+                              Window Minimized: {windowMinimizeCount} times
+                            </Typography>
+                          </Box>
+                        )}
+                      </Collapse>
+                    </CardContent>
+                  </Card>
+                );
+              })()}
+            </Box>
             
             <Box sx={{ mt: 2 }}>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -1382,69 +2119,51 @@ const StudentQuizPage = ({ user: userProp, token: tokenProp }) => {
           </Paper>
         </Grid>
       </Grid>
+
+
+
+      {/* Security Violation Dialog - MOVED INSIDE FULLSCREEN CONTAINER */}
+      {console.log('🔍 Rendering SecurityViolationDialog with props:', {
+        open: showWarning,
+        violationType: currentViolationType,
+        currentAttempt: violationAttempts[currentViolationType] || 0,
+        maxAttempts: MAX_ATTEMPTS,
+        countdown: warningCountdown,
+        autoSubmitting: autoSubmitted
+      })}
+      <SecurityViolationDialog
+        open={showWarning || false} // Force boolean to avoid undefined issues
+        violationType={currentViolationType || 'tab-switch'}
+        currentAttempt={violationAttempts[currentViolationType] || 0}
+        maxAttempts={MAX_ATTEMPTS}
+        countdown={warningCountdown}
+        onDismiss={dismissWarning}
+        autoSubmitting={autoSubmitted}
+      />
   </Box>
 
-      {/* Security Warning Dialog */}
-      <Dialog 
-        open={showWarning} 
-        onClose={() => {}} // Prevent closing by clicking outside
-        maxWidth="sm" 
-        fullWidth
-        PaperProps={{
-          sx: {
-            backgroundColor: '#ffebee',
-            border: '2px solid #f44336'
-          }
-        }}
-      >
-        <DialogTitle sx={{ color: '#d32f2f', fontWeight: 'bold' }}>
-          ⚠️ Security Warning {warningCount}/3
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body1" gutterBottom>
-            You have violated quiz security rules. This is warning <strong>{warningCount} of 3</strong>.
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            If you receive 3 warnings, your quiz will be automatically submitted.
-          </Typography>
-          <Box sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            backgroundColor: '#fff',
-            p: 2,
-            borderRadius: 1,
-            border: '1px solid #f44336'
-          }}>
-            <Typography variant="h4" color="error" sx={{ fontWeight: 'bold' }}>
-              {warningCountdown}
-            </Typography>
-            <Typography variant="body1" sx={{ ml: 1 }}>
-              seconds to return to quiz
-            </Typography>
-          </Box>
-          <Typography variant="body2" sx={{ mt: 2, fontWeight: 'bold', color: '#d32f2f' }}>
-            Please:
-          </Typography>
-          <Typography variant="body2" component="ul" sx={{ mt: 1, pl: 2 }}>
-            <li>Stay in fullscreen mode</li>
-            <li>Do not switch tabs or windows</li>
-            <li>Do not minimize the browser window</li>
-            <li>Keep focus on the quiz</li>
-            <li>Do not use browser shortcuts</li>
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button 
-            onClick={dismissWarning} 
-            variant="contained" 
-            color="primary"
-            disabled={warningCountdown > 0}
-          >
-            {warningCountdown > 0 ? `Wait ${warningCountdown}s` : 'I Understand'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      
+      {/* Debug: Show dialog state */}
+      {debug && (
+        <div style={{
+          position: 'fixed',
+          bottom: '10px',
+          left: '10px',
+          background: 'rgba(0,0,0,0.8)',
+          color: 'white',
+          padding: '10px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          zIndex: 9999
+        }}>
+          <div>showWarning: {String(showWarning)}</div>
+          <div>currentViolationType: {currentViolationType || 'none'}</div>
+          <div>violationAttempts: {JSON.stringify(violationAttempts)}</div>
+          <div>autoSubmitted: {String(autoSubmitted)}</div>
+          <div>submitted: {String(submitted)}</div>
+        </div>
+      )}
+
     </Container>
   );
 };

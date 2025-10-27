@@ -4,15 +4,17 @@ import Papa from 'papaparse';
 import DownloadIcon from '@mui/icons-material/Download';
 
 
-const REQUIRED_FIELDS = ['name', 'email', 'password'];
+const REQUIRED_FIELDS = ['name', 'email', 'password', 'school'];
 const emailRegex = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 // Helper function to generate sample CSV content
 const generateSampleCSV = () => {
-  return `name,email,password
-John Doe,john.doe@example.com,StrongPass123!
-Jane Smith,jane.smith@example.com,SecurePass456!
-Alan Johnson,alan.johnson@example.com,SafePass789!`;
+  return `name,email,password,school,department
+Dr. Rajesh Kumar,rajesh.kumar@sgtuniversity.edu,Rajesh@2024,School of Engineering,Computer Science Engineering
+Prof. Priya Sharma,priya.sharma@sgtuniversity.edu,Priya@2024,School of Engineering,Computer Science Engineering
+Dr. Amit Patel,amit.patel@sgtuniversity.edu,Amit@2024,School of Engineering,Electronics Engineering
+Prof. Sunita Verma,sunita.verma@sgtuniversity.edu,Sunita@2024,School of Management,MBA
+Dr. Vikram Singh,vikram.singh@sgtuniversity.edu,Vikram@2024,School of Arts,English Literature`;
 };
 
 // Helper function to download sample CSV
@@ -118,10 +120,15 @@ const BulkUploadTeachers = ({ onUpload }) => {
       
       <Alert severity="info" sx={{ mb: 2 }}>
         <Typography variant="body2">
-          Upload a CSV file with the following required columns: 
-          <strong>name</strong>, <strong>email</strong>, <strong>password</strong>. 
+          Upload a CSV file with the following columns:
           <br />
-          Teacher IDs (format: T####) will be automatically generated for each new teacher.
+          <strong>Required:</strong> name, email, password, school
+          <br />
+          <strong>Optional:</strong> department
+          <br />
+          <strong>UIDs (Unique IDs)</strong> will be automatically generated as 5-digit numbers (e.g., 00001, 00002) for each new teacher.
+          <br />
+          <strong>Note:</strong> School and department can be specified by name, code, or ObjectId.
           <br />
           <Link 
             component="button" 

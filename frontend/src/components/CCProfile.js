@@ -204,8 +204,8 @@ const CCProfile = () => {
                       <BadgeIcon color="primary" />
                     </ListItemIcon>
                     <ListItemText 
-                      primary="Employee ID" 
-                      secondary={profile?.employeeId || 'Not assigned'} 
+                      primary="UID" 
+                      secondary={profile?.uid || profile?.employeeId || profile?.teacherId || 'Not assigned'} 
                     />
                   </ListItem>
                   <ListItem>

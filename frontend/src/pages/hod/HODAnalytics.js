@@ -778,7 +778,7 @@ const HODAnalytics = () => {
                         <TableHead>
                           <TableRow>
                             <TableCell><strong>Name</strong></TableCell>
-                            <TableCell><strong>Teacher ID</strong></TableCell>
+                            <TableCell><strong>UID</strong></TableCell>
                             <TableCell><strong>Email</strong></TableCell>
                           </TableRow>
                         </TableHead>
@@ -786,7 +786,7 @@ const HODAnalytics = () => {
                           {courseTeachers.map(t => (
                             <TableRow key={t._id}>
                               <TableCell>{t.name}</TableCell>
-                              <TableCell>{t.teacherId || '—'}</TableCell>
+                              <TableCell>{t.uid || t.teacherId || '—'}</TableCell>
                               <TableCell>{t.email}</TableCell>
                             </TableRow>
                           ))}
@@ -873,7 +873,7 @@ const HODAnalytics = () => {
                           {courseSections.map(sec => (
                             <TableRow key={sec._id}>
                               <TableCell>{sec.name}</TableCell>
-                              <TableCell>{sec.teacher ? `${sec.teacher.name} (${sec.teacher.teacherId || sec.teacher.email})` : '—'}</TableCell>
+                              <TableCell>{sec.teacher ? `${sec.teacher.name} (${sec.teacher.uid || sec.teacher.teacherId || sec.teacher.email})` : '—'}</TableCell>
                               <TableCell>{sec.studentsCount || 0}</TableCell>
                             </TableRow>
                           ))}

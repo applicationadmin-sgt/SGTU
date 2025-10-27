@@ -131,7 +131,7 @@ exports.getStudentCourses = async (req, res) => {
         };
       }
       
-      // Calculate progress
+      // Calculate progress using completion status from StudentProgress (not time-based)
       const totalVideos = courseWithVideos.videos.length;
       
       // Calculate total duration
@@ -145,6 +145,12 @@ exports.getStudentCourses = async (req, res) => {
       let videosCompleted = 0;
       let videosStarted = 0;
       
+      // Get student progress for more accurate completion tracking
+      const studentProgress = await StudentProgress.findOne({ 
+        student: student._id, 
+        course: course._id 
+      });
+      
       courseWithVideos.videos.forEach(video => {
         const watchRecord = student.watchHistory.find(
           record => record.video && record.video.toString() === video._id.toString()
@@ -152,14 +158,39 @@ exports.getStudentCourses = async (req, res) => {
         
         if (watchRecord && watchRecord.timeSpent > 0) {
           videosStarted++;
-          
-          // If video has duration, check if it's completed (90% watched)
-          if (video.duration && video.duration > 0) {
-            const percentageWatched = (watchRecord.timeSpent / video.duration) * 100;
-            if (percentageWatched >= 90) {
-              videosCompleted++;
+        }
+        
+        // Check completion status from StudentProgress (unit-based) - PERMANENT completion tracking
+        let isCompleted = false;
+        if (studentProgress && studentProgress.units) {
+          for (const unit of studentProgress.units) {
+            const videoWatch = unit.videosWatched.find(
+              vw => vw.videoId && vw.videoId.toString() === video._id.toString()
+            );
+            if (videoWatch && videoWatch.completed === true) {
+              isCompleted = true;
+              console.log(`✅ Video ${video._id} permanently marked as completed in StudentProgress`);
+              break;
             }
           }
+        }
+        
+        // Fallback: ONLY use time-based completion if video has NEVER been marked as completed before
+        // This ensures that once a video is completed, it stays completed regardless of rewatches
+        if (!isCompleted && watchRecord && video.duration && video.duration > 0) {
+          const percentageWatched = (watchRecord.timeSpent / video.duration) * 100;
+          if (percentageWatched >= 98) { // Use stricter 98% threshold for fallback
+            isCompleted = true;
+            console.log(`📊 Video ${video._id} completed via time-based fallback (${percentageWatched.toFixed(1)}%)`);
+          } else {
+            console.log(`📊 Video ${video._id} not completed: ${percentageWatched.toFixed(1)}% watched (need 98%)`);
+          }
+        } else if (isCompleted) {
+          console.log(`🔒 Video ${video._id} completion status locked (already completed, rewatch won't affect progress)`);
+        }
+        
+        if (isCompleted) {
+          videosCompleted++;
         }
       });
       
@@ -735,16 +766,17 @@ exports.updateWatchHistory = async (req, res) => {
         // Speed-adjusted time is the most accurate for variable playback speeds
         newTimeSpent = Math.min(speedAdjustedTime, videoDuration);
         console.log(`Using speed-adjusted time: ${newTimeSpent}s`);
-      } else if (segmentTime !== undefined && segmentTime > 0) {
-        // Segment-based tracking is more accurate for rewatching
-        newTimeSpent = Math.min(segmentTime, videoDuration);
-        console.log(`Using segment time: ${newTimeSpent}s`);
-      } else if (sessionTime !== undefined) {
-        // Session-based tracking, accumulate carefully
+      } else if (sessionTime !== undefined && sessionTime > 0) {
+        // Session-based tracking, accumulate carefully for rewatches
         // If playback rate info available, account for it
-        const effectiveSessionTime = currentPlaybackRate > 1 ? sessionTime : sessionTime * 0.8;
-        newTimeSpent = Math.min(existingRecord.timeSpent + effectiveSessionTime, maxAllowedTime);
-        console.log(`Using session time: ${newTimeSpent}s (rate: ${currentPlaybackRate}x)`);
+        const effectiveSessionTime = currentPlaybackRate > 1 ? sessionTime : sessionTime * 0.9;
+        const previousTime = existingRecord.timeSpent;
+        newTimeSpent = Math.min(previousTime + effectiveSessionTime, maxAllowedTime);
+        console.log(`Using session time (rewatch-friendly): ${newTimeSpent}s (was: ${previousTime}s, added: ${effectiveSessionTime.toFixed(2)}s)`);
+      } else if (segmentTime !== undefined && segmentTime > 0) {
+        // Segment-based tracking for first-time viewing
+        newTimeSpent = Math.max(existingRecord.timeSpent, Math.min(segmentTime, videoDuration));
+        console.log(`Using segment time: ${newTimeSpent}s`);
       } else {
         // Fallback to basic timeSpent logic
         newTimeSpent = Math.max(existingRecord.timeSpent, Math.min(timeSpent, maxAllowedTime));
@@ -815,12 +847,13 @@ exports.updateWatchHistory = async (req, res) => {
     
     // Update StudentProgress
     if (progress) {
-      // Check if video is completed based on multiple criteria
-      const timeBasedCompletion = actualTimeSpent >= videoDuration * 0.9;
-      const positionBasedCompletion = currentTime && currentTime >= videoDuration * 0.95;
+      // Check if video is completed - stricter criteria for complete viewing
+      const timeBasedCompletion = actualTimeSpent >= videoDuration * 0.98; // 98% of time spent
+      const positionBasedCompletion = currentTime && currentTime >= videoDuration * 0.98; // 98% of video position reached
       const explicitCompletion = isCompleted === true;
       
-      const videoIsCompleted = timeBasedCompletion || positionBasedCompletion || explicitCompletion;
+      // Video is only completed if BOTH time and position criteria are met, OR explicitly completed
+      const videoIsCompleted = (timeBasedCompletion && positionBasedCompletion) || explicitCompletion;
         
       console.log(`📊 Completion check for ${videoId}:`);
       console.log(`   Time: ${actualTimeSpent.toFixed(2)}s / ${videoDuration.toFixed(2)}s (${(actualTimeSpent/videoDuration*100).toFixed(1)}%)`);
@@ -894,30 +927,41 @@ exports.updateWatchHistory = async (req, res) => {
               progress.units[unitIndex].videosWatched[videoWatchIndex].timeSpent = 
                 Math.max(progress.units[unitIndex].videosWatched[videoWatchIndex].timeSpent || 0, timeSpent || 0);
               progress.units[unitIndex].videosWatched[videoWatchIndex].lastWatched = new Date();
-              progress.units[unitIndex].videosWatched[videoWatchIndex].completed = isCompleted;
+              
+              // CRITICAL FIX: Once completed, NEVER set back to false (preserve completion status)
+              const wasAlreadyCompleted = progress.units[unitIndex].videosWatched[videoWatchIndex].completed === true;
+              if (wasAlreadyCompleted) {
+                // Keep it completed - don't let rewatches change completion status
+                console.log(`🔒 Video ${videoId} already completed - preserving completion status (rewatch won't affect progress)`);
+              } else if (videoIsCompleted) {
+                // First time completing - set to completed
+                progress.units[unitIndex].videosWatched[videoWatchIndex].completed = true;
+                console.log(`✅ Video ${videoId} marked as completed for the first time`);
+              }
               
               // Update deadline tracking if video is completed
               if (isCompleted && deadlineCompliance) {
                 progress.units[unitIndex].videosWatched[videoWatchIndex].watchedAfterDeadline = deadlineCompliance.completedAfterDeadline;
               }
               
-              console.log(`[updateWatchHistory] Updated unit video: ${videoId}, completed: ${isCompleted}, deadline compliant: ${!deadlineCompliance.completedAfterDeadline}`);
+              const finalCompletionStatus = progress.units[unitIndex].videosWatched[videoWatchIndex].completed;
+              console.log(`[updateWatchHistory] Updated unit video: ${videoId}, completed: ${finalCompletionStatus}, deadline compliant: ${!deadlineCompliance.completedAfterDeadline}`);
             } else {
               // Add new record
               const newVideoWatch = {
                 videoId,
                 timeSpent: timeSpent || 0,
                 lastWatched: new Date(),
-                completed: isCompleted
+                completed: videoIsCompleted
               };
               
               // Add deadline tracking if video is completed
-              if (isCompleted && deadlineCompliance) {
+              if (videoIsCompleted && deadlineCompliance) {
                 newVideoWatch.watchedAfterDeadline = deadlineCompliance.completedAfterDeadline;
               }
               
               progress.units[unitIndex].videosWatched.push(newVideoWatch);
-              console.log(`[updateWatchHistory] Added unit video: ${videoId}, completed: ${isCompleted}, deadline compliant: ${!deadlineCompliance.completedAfterDeadline}`);
+              console.log(`[updateWatchHistory] Added unit video: ${videoId}, completed: ${videoIsCompleted}, deadline compliant: ${!deadlineCompliance.completedAfterDeadline}`);
             }
             
             // Check if all videos in this unit are completed to update unit status
@@ -951,7 +995,7 @@ exports.updateWatchHistory = async (req, res) => {
             }
           } else {
             // Unit not found in progress, add it
-            if (isCompleted) {
+            if (videoIsCompleted) {
               progress.units.push({
                 unitId: video.unit,
                 status: 'in-progress',
@@ -961,7 +1005,7 @@ exports.updateWatchHistory = async (req, res) => {
                   videoId,
                   timeSpent: timeSpent || 0,
                   lastWatched: new Date(),
-                  completed: isCompleted
+                  completed: videoIsCompleted
                 }],
                 quizAttempts: [],
                 unitQuizCompleted: false,
@@ -969,7 +1013,7 @@ exports.updateWatchHistory = async (req, res) => {
                 allVideosWatched: false,
                 videosCompleted: 1
               });
-              console.log(`[updateWatchHistory] Added new unit progress for unit: ${video.unit}, video: ${videoId}, completed: ${isCompleted}`);
+              console.log(`[updateWatchHistory] Added new unit progress for unit: ${video.unit}, video: ${videoId}, completed: ${videoIsCompleted}`);
             }
           }
         } catch (unitError) {
@@ -1094,6 +1138,69 @@ exports.getStudentWatchHistory = async (req, res) => {
     res.json(sortedWatchHistory);
   } catch (err) {
     console.error('Error getting student watch history:', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Get video resume position for a student
+exports.getVideoResumePosition = async (req, res) => {
+  try {
+    const { videoId } = req.params;
+    const studentId = req.user._id;
+
+    console.log(`📹 Getting resume position for video ${videoId} and student ${studentId}`);
+
+    // Find the student
+    const student = await User.findById(studentId);
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
+
+    // Find the video in watch history
+    const watchRecord = student.watchHistory.find(
+      record => record.video && record.video.toString() === videoId
+    );
+
+    if (!watchRecord) {
+      console.log(`📹 No watch history found for video ${videoId}`);
+      return res.json({
+        hasResumePosition: false,
+        currentPosition: 0,
+        timeSpent: 0,
+        lastWatched: null
+      });
+    }
+
+    const currentPosition = watchRecord.currentPosition || 0;
+    const timeSpent = watchRecord.timeSpent || 0;
+    const lastWatched = watchRecord.lastWatched;
+
+    console.log(`📹 Resume data for video ${videoId}:`);
+    console.log(`   Position: ${currentPosition}s`);
+    console.log(`   Time Spent: ${timeSpent}s`);
+    console.log(`   Last Watched: ${lastWatched}`);
+
+    // Only consider it resumable if there's meaningful progress (more than 5 seconds or 10% and not near the end)
+    const Video = require('../models/Video');
+    const video = await Video.findById(videoId);
+    const videoDuration = video ? video.duration : 100;
+    
+    const minTimeThreshold = Math.min(5, videoDuration * 0.1); // 5 seconds or 10% of video, whichever is smaller
+    
+    // For rewatching: Show resume dialog if there's any meaningful watch history
+    // This includes completed videos that user might want to rewatch from a specific point
+    const hasResumePosition = currentPosition > minTimeThreshold;
+
+    res.json({
+      hasResumePosition,
+      currentPosition,
+      timeSpent,
+      lastWatched,
+      videoDuration: videoDuration
+    });
+
+  } catch (err) {
+    console.error('Error getting video resume position:', err);
     res.status(500).json({ message: err.message });
   }
 };

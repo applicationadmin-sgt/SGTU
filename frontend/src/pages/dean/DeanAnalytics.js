@@ -1,4 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import DeanDepartmentAnalytics from './DeanDepartmentAnalytics';
+import DeanCourseAnalytics from './DeanCourseAnalytics';
 import {
   Box,
   Grid,
@@ -80,7 +83,7 @@ const DeanAnalytics = () => {
 
   // Defer heavy analytics fetch: only when opening Department or Course tabs
   useEffect(() => {
-    if (currentTab === 0 || currentTab === 3) return; // Explore & Student tabs, don't fetch heavy data
+    if (currentTab === 0) return; // Explore tab, don't fetch heavy data
     if (data) return; // Already loaded
     (async () => {
       try {
@@ -345,86 +348,264 @@ const DeanAnalytics = () => {
   // Note: For Explore tab we don't require `data`
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" sx={{ mb: 3, fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 1 }}>
-        <AssessmentIcon sx={{ fontSize: 40 }} />
-        Dean Analytics Dashboard
-      </Typography>
-      
-      {data?.school?.name && (
-        <Typography variant="h6" color="textSecondary" sx={{ mb: 3 }}>
-          {data.school?.name} - Comprehensive School Analytics
+    <Box sx={{ p: 4, bgcolor: '#f5f7fa', minHeight: '100vh' }}>
+      {/* Modern Header */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" sx={{ 
+          fontWeight: 700, 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 1,
+          color: '#1a237e',
+          mb: 1
+        }}>
+          <AssessmentIcon sx={{ fontSize: 40 }} />
+          Dean Analytics Dashboard
         </Typography>
-      )}
+        
+        {data?.school?.name && (
+          <Typography variant="body1" sx={{ 
+            color: '#546e7a',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+            fontWeight: 500
+          }}>
+            {data.school?.name} - Comprehensive School Analytics
+          </Typography>
+        )}
+      </Box>
 
-      {/* Key Metrics Overview */}
+      {/* Modern Key Metrics Overview */}
       {data && (
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={2.4}>
-          <MetricCard 
-            title="Departments" 
-            value={data.summary?.totalDepartments || 0} 
-            subtitle={`Avg ${data.summary?.avgCoursesPerDepartment || 0} courses each`}
-            icon={<SchoolIcon />} 
-            color="#1976d2" 
-          />
+          <Card sx={{ 
+            height: '100%',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+            boxShadow: '0 4px 20px rgba(102, 126, 234, 0.4)',
+            transition: 'transform 0.3s, box-shadow 0.3s',
+            '&:hover': {
+              transform: 'translateY(-8px)',
+              boxShadow: '0 8px 30px rgba(102, 126, 234, 0.5)'
+            }
+          }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
+                <Box sx={{ 
+                  p: 1.5, 
+                  borderRadius: 2, 
+                  bgcolor: 'rgba(255,255,255,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <SchoolIcon sx={{ fontSize: 32 }} />
+                </Box>
+              </Box>
+              <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
+                Departments
+              </Typography>
+              <Typography variant="h3" sx={{ fontWeight: 700, mb: 1 }}>
+                {data.summary?.totalDepartments || 0}
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                Avg {data.summary?.avgCoursesPerDepartment || 0} courses each
+              </Typography>
+            </CardContent>
+          </Card>
         </Grid>
+
         <Grid item xs={12} sm={6} md={2.4}>
-          <MetricCard 
-            title="Total Students" 
-            value={data.summary?.totalStudents || 0} 
-            subtitle={`Avg ${data.summary?.avgStudentsPerDepartment || 0} per dept`}
-            icon={<PeopleIcon />} 
-            color="#2e7d32" 
-          />
+          <Card sx={{ 
+            height: '100%',
+            background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+            color: 'white',
+            boxShadow: '0 4px 20px rgba(67, 233, 123, 0.4)',
+            transition: 'transform 0.3s, box-shadow 0.3s',
+            '&:hover': {
+              transform: 'translateY(-8px)',
+              boxShadow: '0 8px 30px rgba(67, 233, 123, 0.5)'
+            }
+          }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
+                <Box sx={{ 
+                  p: 1.5, 
+                  borderRadius: 2, 
+                  bgcolor: 'rgba(255,255,255,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <PeopleIcon sx={{ fontSize: 32 }} />
+                </Box>
+              </Box>
+              <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
+                Total Students
+              </Typography>
+              <Typography variant="h3" sx={{ fontWeight: 700, mb: 1 }}>
+                {data.summary?.totalStudents || 0}
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                Avg {data.summary?.avgStudentsPerDepartment || 0} per dept
+              </Typography>
+            </CardContent>
+          </Card>
         </Grid>
+
         <Grid item xs={12} sm={6} md={2.4}>
-          <MetricCard 
-            title="Faculty Members" 
-            value={data.summary?.totalTeachers || 0} 
-            subtitle="Active teachers"
-            icon={<PeopleIcon />} 
-            color="#ed6c02" 
-          />
+          <Card sx={{ 
+            height: '100%',
+            background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+            color: 'white',
+            boxShadow: '0 4px 20px rgba(250, 112, 154, 0.4)',
+            transition: 'transform 0.3s, box-shadow 0.3s',
+            '&:hover': {
+              transform: 'translateY(-8px)',
+              boxShadow: '0 8px 30px rgba(250, 112, 154, 0.5)'
+            }
+          }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
+                <Box sx={{ 
+                  p: 1.5, 
+                  borderRadius: 2, 
+                  bgcolor: 'rgba(255,255,255,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <PersonIcon sx={{ fontSize: 32 }} />
+                </Box>
+              </Box>
+              <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
+                Faculty Members
+              </Typography>
+              <Typography variant="h3" sx={{ fontWeight: 700, mb: 1 }}>
+                {data.summary?.totalTeachers || 0}
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                Active teachers
+              </Typography>
+            </CardContent>
+          </Card>
         </Grid>
+
         <Grid item xs={12} sm={6} md={2.4}>
-          <MetricCard 
-            title="Active Courses" 
-            value={data.summary?.totalCourses || 0} 
-            subtitle="Across all departments"
-            icon={<ClassIcon />} 
-            color="#9c27b0" 
-          />
+          <Card sx={{ 
+            height: '100%',
+            background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+            color: 'white',
+            boxShadow: '0 4px 20px rgba(240, 147, 251, 0.4)',
+            transition: 'transform 0.3s, box-shadow 0.3s',
+            '&:hover': {
+              transform: 'translateY(-8px)',
+              boxShadow: '0 8px 30px rgba(240, 147, 251, 0.5)'
+            }
+          }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
+                <Box sx={{ 
+                  p: 1.5, 
+                  borderRadius: 2, 
+                  bgcolor: 'rgba(255,255,255,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <ClassIcon sx={{ fontSize: 32 }} />
+                </Box>
+              </Box>
+              <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
+                Active Courses
+              </Typography>
+              <Typography variant="h3" sx={{ fontWeight: 700, mb: 1 }}>
+                {data.summary?.totalCourses || 0}
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                Across all departments
+              </Typography>
+            </CardContent>
+          </Card>
         </Grid>
+
         <Grid item xs={12} sm={6} md={2.4}>
-          <MetricCard 
-            title="Video Content" 
-            value={data.summary?.totalVideos || 0} 
-            subtitle="Learning materials"
-            icon={<VideoLibraryIcon />} 
-            color="#26a69a" 
-          />
+          <Card sx={{ 
+            height: '100%',
+            background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+            color: 'white',
+            boxShadow: '0 4px 20px rgba(79, 172, 254, 0.4)',
+            transition: 'transform 0.3s, box-shadow 0.3s',
+            '&:hover': {
+              transform: 'translateY(-8px)',
+              boxShadow: '0 8px 30px rgba(79, 172, 254, 0.5)'
+            }
+          }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
+                <Box sx={{ 
+                  p: 1.5, 
+                  borderRadius: 2, 
+                  bgcolor: 'rgba(255,255,255,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <VideoLibraryIcon sx={{ fontSize: 32 }} />
+                </Box>
+              </Box>
+              <Typography variant="body2" sx={{ opacity: 0.9, mb: 0.5 }}>
+                Video Content
+              </Typography>
+              <Typography variant="h3" sx={{ fontWeight: 700, mb: 1 }}>
+                {data.summary?.totalVideos || 0}
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                Learning materials
+              </Typography>
+            </CardContent>
+          </Card>
         </Grid>
       </Grid>
       )}
 
-      {/* Detailed Analytics Tabs */}
+      {/* Modern Tabs Section */}
       <Card sx={{
         background: '#ffffff',
-        border: '1px solid #6497b1',
-        boxShadow: '0 6px 20px rgba(0, 91, 150, 0.2)',
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        '&:hover': {
-          transform: 'translateY(-2px)',
-          boxShadow: '0 8px 25px rgba(0, 91, 150, 0.3)'
-        }
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
+        borderRadius: 3,
+        overflow: 'hidden'
       }}>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs value={currentTab} onChange={handleTabChange} aria-label="analytics tabs">
-            <Tab label="Explore (Lazy)" />
-            <Tab label="Department Analytics" />
-            <Tab label="Course Analytics" />
-            <Tab label="Student Analytics" />
+        <Box sx={{ 
+          borderBottom: 1, 
+          borderColor: 'divider',
+          bgcolor: '#fafafa'
+        }}>
+          <Tabs 
+            value={currentTab} 
+            onChange={handleTabChange} 
+            aria-label="analytics tabs"
+            sx={{
+              '& .MuiTab-root': {
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                textTransform: 'none',
+                minHeight: 64,
+                px: 4
+              },
+              '& .Mui-selected': {
+                color: '#667eea'
+              },
+              '& .MuiTabs-indicator': {
+                backgroundColor: '#667eea',
+                height: 3
+              }
+            }}
+          >
+            <Tab label="📊 Explore (Lazy)" />
+            <Tab label="🏢 Department Analytics" />
+            <Tab label="📚 Course Analytics" />
           </Tabs>
         </Box>
 
@@ -508,9 +689,9 @@ const DeanAnalytics = () => {
                                           </Typography>
                                           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
                                             {(rel.teachers || [])
-                                              .filter(t => !peopleFilter || (t.name||'').toLowerCase().includes(peopleFilter.toLowerCase()) || (t.teacherId||'').toLowerCase().includes(peopleFilter.toLowerCase()) || (t.email||'').toLowerCase().includes(peopleFilter.toLowerCase()))
+                                              .filter(t => !peopleFilter || (t.name||'').toLowerCase().includes(peopleFilter.toLowerCase()) || (t.uid||'').toLowerCase().includes(peopleFilter.toLowerCase()) || (t.teacherId||'').toLowerCase().includes(peopleFilter.toLowerCase()) || (t.email||'').toLowerCase().includes(peopleFilter.toLowerCase()))
                                               .map(t => (
-                                                <Chip key={t._id} label={`${t.name} (${t.teacherId || t.email})`} />
+                                                <Chip key={t._id} label={`${t.name} (${t.uid || t.teacherId || t.email})`} />
                                               ))}
                                             {(rel.teachers || []).length === 0 && (<Typography variant="body2" color="textSecondary">No teachers</Typography>)}
                                           </Box>
@@ -561,7 +742,7 @@ const DeanAnalytics = () => {
                     <List dense>
                       {(sectionsDialog.data.sections || []).map(s => (
                         <ListItem key={s._id}>
-                          <ListItemText primary={s.name} secondary={`Teacher: ${s.teacher ? `${s.teacher.name} (${s.teacher.teacherId||s.teacher.email})` : 'N/A'} | Students: ${s.studentsCount}`} />
+                          <ListItemText primary={s.name} secondary={`Teacher: ${s.teacher ? `${s.teacher.name} (${s.teacher.uid || s.teacher.teacherId || s.teacher.email})` : 'N/A'} | Students: ${s.studentsCount}`} />
                         </ListItem>
                       ))}
                     </List>
@@ -654,317 +835,13 @@ const DeanAnalytics = () => {
         )}
 
         {/* Department Analytics Tab */}
-        {currentTab === 1 && data && (
-          <CardContent>
-            <Grid container spacing={3}>
-              {/* Department Overview Chart */}
-              <Grid item xs={12} lg={8}>
-                <Typography variant="h6" sx={{ mb: 2 }}>Department Overview</Typography>
-                <ResponsiveContainer width="100%" height={400}>
-                  <BarChart data={departmentChartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="students" fill="#1976d2" name="Students" />
-                    <Bar dataKey="teachers" fill="#2e7d32" name="Teachers" />
-                    <Bar dataKey="courses" fill="#ed6c02" name="Courses" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </Grid>
-
-              {/* Department Issues */}
-              <Grid item xs={12} lg={4}>
-                <Typography variant="h6" sx={{ mb: 2 }}>Department Issues</Typography>
-                <ResponsiveContainer width="100%" height={400}>
-                  <BarChart data={departmentChartData} layout="horizontal">
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" />
-                    <YAxis dataKey="name" type="category" width={80} />
-                    <Tooltip />
-                    <Bar dataKey="noTeacher" fill="#d32f2f" name="Courses w/o Teachers" />
-                    <Bar dataKey="noStudents" fill="#ff5722" name="Courses w/o Students" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </Grid>
-
-              {/* Detailed Department Analysis */}
-              <Grid item xs={12}>
-                <Typography variant="h6" sx={{ mb: 2 }}>Detailed Department Analysis</Typography>
-                {data.departmentAnalytics?.map((dept, index) => (
-                  <Accordion key={dept._id} sx={{ mb: 1 }}>
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
-                        <Typography variant="h6">{dept.name} ({dept.code})</Typography>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                          <Chip label={`${dept.totalStudents} Students`} color="primary" size="small" />
-                          <Chip label={`${dept.totalTeachers} Teachers`} color="secondary" size="small" />
-                          <Chip label={`${dept.totalCourses} Courses`} color="default" size="small" />
-                        </Box>
-                      </Box>
-                    </AccordionSummary>
-                    <AccordionDetails>
-                      <Grid container spacing={2}>
-                        <Grid item xs={12} md={4}>
-                          <Paper sx={{ p: 2 }}>
-                            <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                              Course Details
-                            </Typography>
-                            <Typography variant="body2">Average Students per Course: {dept.avgStudentsPerCourse}</Typography>
-                            <Typography variant="body2" color="error">
-                              Courses without Teachers: {dept.coursesWithoutTeachers}
-                            </Typography>
-                            <Typography variant="body2" color="warning.main">
-                              Courses without Students: {dept.coursesWithoutStudents}
-                            </Typography>
-                          </Paper>
-                        </Grid>
-                        <Grid item xs={12} md={4}>
-                          <Paper sx={{ p: 2 }}>
-                            <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                              Top Courses
-                            </Typography>
-                            <List dense>
-                              {dept.courses?.slice(0, 3).map((course) => (
-                                <ListItem key={course._id} sx={{ px: 0 }}>
-                                  <ListItemText 
-                                    primary={course.title}
-                                    secondary={`${course.studentCount} students, ${course.teacherCount} teachers`}
-                                  />
-                                </ListItem>
-                              ))}
-                            </List>
-                          </Paper>
-                        </Grid>
-                        <Grid item xs={12} md={4}>
-                          <Paper sx={{ p: 2 }}>
-                            <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                              Sections ({dept.totalSections})
-                            </Typography>
-                            <List dense>
-                              {dept.sections?.slice(0, 3).map((section) => (
-                                <ListItem key={section._id} sx={{ px: 0 }}>
-                                  <ListItemText 
-                                    primary={section.name}
-                                    secondary={`${section.studentCount} students`}
-                                  />
-                                </ListItem>
-                              ))}
-                            </List>
-                          </Paper>
-                        </Grid>
-                      </Grid>
-                    </AccordionDetails>
-                  </Accordion>
-                ))}
-              </Grid>
-            </Grid>
-          </CardContent>
+        {currentTab === 1 && (
+          <DeanDepartmentAnalytics />
         )}
 
         {/* Course Analytics Tab */}
-        {currentTab === 2 && data && (
-          <CardContent>
-            <Grid container spacing={3}>
-              <Grid item xs={12} lg={8}>
-                <Typography variant="h6" sx={{ mb: 2 }}>Top Courses by Enrollment</Typography>
-                <ResponsiveContainer width="100%" height={400}>
-                  <AreaChart data={courseUtilizationData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" angle={-45} textAnchor="end" height={120} />
-                    <YAxis />
-                    <Tooltip />
-                    <Area dataKey="students" fill="#1976d2" stroke="#1976d2" name="Students" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </Grid>
-
-              <Grid item xs={12} lg={4}>
-                <Typography variant="h6" sx={{ mb: 2 }}>Course Resources</Typography>
-                <ResponsiveContainer width="100%" height={400}>
-                  <BarChart data={courseUtilizationData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" hide />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="videos" fill="#26a69a" name="Videos" />
-                    <Bar dataKey="teachers" fill="#ed6c02" name="Teachers" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </Grid>
-
-              <Grid item xs={12}>
-                <Typography variant="h6" sx={{ mb: 2 }}>Course Performance Table</Typography>
-                <TableContainer component={Paper}>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Course</TableCell>
-                        <TableCell>Department</TableCell>
-                        <TableCell align="center">Students</TableCell>
-                        <TableCell align="center">Teachers</TableCell>
-                        <TableCell align="center">Videos</TableCell>
-                        <TableCell align="center">Status</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {data.courseAnalytics?.slice(0, 15).map((course) => (
-                        <TableRow key={course._id}>
-                          <TableCell>
-                            <Typography variant="body2" fontWeight="bold">
-                              {course.title}
-                            </Typography>
-                            <Typography variant="caption" color="textSecondary">
-                              {course.courseCode}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>{course.departmentName}</TableCell>
-                          <TableCell align="center">
-                            <Chip 
-                              label={course.studentCount} 
-                              color={course.studentCount > 0 ? "primary" : "default"}
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell align="center">
-                            <Chip 
-                              label={course.teacherCount} 
-                              color={course.teacherCount > 0 ? "secondary" : "error"}
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell align="center">{course.videoCount}</TableCell>
-                          <TableCell align="center">
-                            <Chip 
-                              label={course.teacherCount > 0 && course.studentCount > 0 ? "Active" : "Needs Attention"}
-                              color={course.teacherCount > 0 && course.studentCount > 0 ? "success" : "warning"}
-                              size="small"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Grid>
-            </Grid>
-          </CardContent>
-        )}
-
-        {/* Student Analytics Tab */}
-        {currentTab === 3 && (
-          <CardContent>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
-                <Paper sx={{ p: 2 }}>
-                  <Typography variant="subtitle1" fontWeight={600} gutterBottom>Sections</Typography>
-                  <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                    <TextField fullWidth size="small" label="Filter sections" value={sectionsFilter} onChange={(e)=>setSectionsFilter(e.target.value)} onKeyDown={(e)=>{ if (e.key==='Enter') loadSections(1, e.target.value); }} />
-                    <Button variant="outlined" onClick={() => loadSections(1, sectionsFilter)}>Search</Button>
-                  </Box>
-                  {sectionsLoading ? (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}><CircularProgress size={22} /></Box>
-                  ) : (
-                    <List dense>
-                      {(sections || []).map(s => (
-                        <ListItem key={s._id} button selected={selectedSection?._id===s._id} onClick={() => { setSelectedSection(s); loadSectionAnalytics(s._id); }}>
-                          <ListItemText primary={s.name} secondary={`${s.department?.name || '—'} • ${s.studentsCount} students`} />
-                        </ListItem>
-                      ))}
-                      {(sections || []).length === 0 && (
-                        <Typography variant="body2" color="textSecondary">No sections</Typography>
-                      )}
-                    </List>
-                  )}
-                  {sectionsTotalPages > 1 && (
-                    <Box sx={{ mt: 1, display: 'flex', justifyContent: 'flex-end' }}>
-                      <Pagination size="small" count={sectionsTotalPages} page={sectionsPage} onChange={(e, p) => { setSectionsPage(p); loadSections(p, sectionsFilter); }} />
-                    </Box>
-                  )}
-                </Paper>
-              </Grid>
-              <Grid item xs={12} md={8}>
-                <Paper sx={{ p: 2 }}>
-                  <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                    {selectedSection ? `Section: ${selectedSection.name}` : 'Select a section to view analytics'}
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                    <TextField size="small" label="Search student by Reg No" value={studentSearch} onChange={(e) => setStudentSearch(e.target.value)} />
-                    <Button variant="contained" onClick={searchStudentByRegNo}>Search</Button>
-                    {studentSearchResult && !studentSearchResult.error && (
-                      <Button variant="outlined" onClick={() => openStudentDialog(studentSearchResult._id)}>Open</Button>
-                    )}
-                  </Box>
-                  {studentSearchResult && (
-                    <Box sx={{ mb: 2 }}>
-                      {studentSearchResult.error ? (
-                        <Alert severity="warning">{studentSearchResult.error}</Alert>
-                      ) : (
-                        <Chip label={`${studentSearchResult.name} (${studentSearchResult.regNo})`} onClick={() => openStudentDialog(studentSearchResult._id)} clickable />
-                      )}
-                    </Box>
-                  )}
-                  {sectionAnalyticsLoading ? (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}><CircularProgress /></Box>
-                  ) : selectedSection && sectionAnalytics ? (
-                    <>
-                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-                        <Button
-                          variant="outlined"
-                          onClick={async () => {
-                            const token = localStorage.getItem('token');
-                            await downloadCsv(`/api/dean/section/${selectedSection._id}/analytics/export`, token);
-                          }}
-                        >
-                          Download CSV
-                        </Button>
-                      </Box>
-                      <TableContainer>
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>Student</TableCell>
-                            <TableCell>Course</TableCell>
-                            <TableCell>Units</TableCell>
-                            <TableCell align="right">Watch Time (min)</TableCell>
-                            <TableCell align="center">Avg Quiz %</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {(sectionAnalytics.students || []).flatMap(st => (
-                            (st.courses || []).map(c => {
-                              const totalMin = Math.round((c.totalWatchTime || 0) / 60);
-                              const avgQuiz = c.averageQuiz == null ? '—' : Math.round(c.averageQuiz);
-                              return (
-                                <TableRow key={`${st._id}:${c.courseId}`}>
-                                  <TableCell>
-                                    <Typography variant="body2" fontWeight={600}>{st.name}</Typography>
-                                    <Typography variant="caption" color="textSecondary">{st.regNo}</Typography>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Typography variant="body2">{c.courseTitle}</Typography>
-                                    <Typography variant="caption" color="textSecondary">{c.courseCode}</Typography>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Typography variant="caption" color="textSecondary">{(c.units||[]).length}</Typography>
-                                  </TableCell>
-                                  <TableCell align="right">{totalMin}</TableCell>
-                                  <TableCell align="center">{avgQuiz}</TableCell>
-                                </TableRow>
-                              );
-                            })
-                          ))}
-                        </TableBody>
-                      </Table>
-                      </TableContainer>
-                    </>
-                  ) : (
-                    <Alert severity="info">Pick a section to load students.</Alert>
-                  )}
-                </Paper>
-              </Grid>
-            </Grid>
-          </CardContent>
+        {currentTab === 2 && (
+          <DeanCourseAnalytics />
         )}
       </Card>
     </Box>

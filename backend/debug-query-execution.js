@@ -3,7 +3,7 @@ const Announcement = require('./models/Announcement');
 const User = require('./models/User');
 
 // Connect to MongoDB Atlas
-mongoose.connect('mongodb+srv://sourav092002_db_user:aq5UgwNDh2tgyZcB@cluster0.nvkrxcx.mongodb.net/');
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/sgtlms');
 
 async function debugQueryExecution() {
   try {

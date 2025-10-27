@@ -471,13 +471,29 @@ const SecureQuizPage = ({ user, token }) => {
     
     // Function to detect window blur (user switches to another window)
     const handleWindowBlur = () => {
-      console.log('Window blur detected (user switched to another window)');
-      handleVisibilityChange();
+      console.log('🔍 Window blur detected (user switched to another window)');
+      
+      if (!quiz || submitted || submitting) {
+        console.log('⚠️ Ignoring window blur: Quiz not loaded, already submitted, or submitting');
+        return;
+      }
+      
+      // Count this as a tab switch even if document.hidden is false
+      // This handles cases where window is not maximized/fullscreen
+      console.log('📱 Tab switch detected via window blur! Incrementing count...');
+      incrementTabSwitchCount('window-blur-detection');
     };
     
     // Function to detect window focus (user returns to quiz window)
     const handleWindowFocus = () => {
-      console.log('Window focus detected (user returned to quiz window)');
+      console.log('✅ Window focus detected (user returned to quiz window)');
+      
+      if (!quiz || submitted || submitting) {
+        return;
+      }
+      
+      // Optional: Show a reminder message when user returns
+      console.log('👀 User returned to quiz after switching away');
     };
     
     // Force fullscreen check at intervals

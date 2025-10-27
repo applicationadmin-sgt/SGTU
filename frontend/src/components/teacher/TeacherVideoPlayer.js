@@ -466,6 +466,7 @@ const TeacherVideoPlayer = ({ videoUrl, title }) => {
               width: '100%', 
               display: isFullScreen ? 'none' : 'block', 
               maxHeight: '500px',
+              height: 'auto',
               transform: 'translateZ(0)',
               willChange: 'transform',
               imageRendering: 'optimizeQuality'
@@ -514,7 +515,7 @@ const TeacherVideoPlayer = ({ videoUrl, title }) => {
                 bottom: 0,
                 left: 0,
                 right: 0,
-                p: 1.5,
+                p: { xs: 1, sm: 1.5 },
                 backgroundColor: 'rgba(0,0,0,0.7)',
                 transition: 'opacity 0.3s',
                 opacity: showControls ? 1 : 0,
@@ -529,10 +530,10 @@ const TeacherVideoPlayer = ({ videoUrl, title }) => {
                 aria-label="video progress"
                 sx={{ 
                   color: 'secondary.main',
-                  height: 8,
+                  height: { xs: 6, sm: 8 },
                   '& .MuiSlider-thumb': {
-                    width: 16,
-                    height: 16,
+                    width: { xs: 12, sm: 16 },
+                    height: { xs: 12, sm: 16 },
                     transition: '0.3s cubic-bezier(.47,1.64,.41,.8)',
                     '&::before': {
                       boxShadow: '0 2px 12px 0 rgba(0,0,0,0.4)',
@@ -547,21 +548,50 @@ const TeacherVideoPlayer = ({ videoUrl, title }) => {
                 }}
               />
 
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                mt: { xs: 0.5, sm: 1 },
+                flexWrap: { xs: 'wrap', md: 'nowrap' }
+              }}>
                 {/* Left controls: Play/Pause and time */}
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <IconButton onClick={togglePlay} size="large" sx={{ color: 'white' }}>
+                  <IconButton 
+                    onClick={togglePlay} 
+                    size={{ xs: 'small', sm: 'large' }}
+                    sx={{ 
+                      color: 'white',
+                      p: { xs: 0.5, sm: 1 }
+                    }}
+                  >
                     {isPlaying ? <Pause /> : <PlayArrow />}
                   </IconButton>
-                  <Typography variant="body2" sx={{ ml: 1, color: 'white' }}>
+                  <Typography 
+                    variant="body2" 
+                    sx={{ 
+                      ml: { xs: 0.5, sm: 1 }, 
+                      color: 'white',
+                      fontSize: { xs: '0.7rem', sm: '0.875rem' }
+                    }}
+                  >
                     {formatDuration(getDisplayCurrentTime())} / {formatDuration(getDisplayDuration())}
                   </Typography>
                 </Box>
 
                 {/* Right controls: Volume, Speed, and Fullscreen */}
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  {/* Volume control */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', width: 150, mr: 2 }}>
+                <Box sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  gap: { xs: 0.5, sm: 1 }
+                }}>
+                  {/* Volume control - Hide on very small screens */}
+                  <Box sx={{ 
+                    display: { xs: 'none', sm: 'flex' }, 
+                    alignItems: 'center', 
+                    width: { sm: 100, md: 150 }, 
+                    mr: { sm: 1, md: 2 }
+                  }}>
                     <IconButton onClick={toggleMute} size="small" sx={{ color: 'white' }}>
                       {isMuted ? <VolumeOff /> : <VolumeUp />}
                     </IconButton>
@@ -577,9 +607,26 @@ const TeacherVideoPlayer = ({ videoUrl, title }) => {
                     />
                   </Box>
 
-                  {/* Playback speed control */}
+                  {/* Mobile mute button */}
+                  <IconButton 
+                    onClick={toggleMute} 
+                    size="small" 
+                    sx={{ 
+                      display: { xs: 'inline-flex', sm: 'none' },
+                      color: 'white',
+                      p: 0.5
+                    }}
+                  >
+                    {isMuted ? <VolumeOff fontSize="small" /> : <VolumeUp fontSize="small" />}
+                  </IconButton>
+
+                  {/* Playback speed control - Simplified for mobile */}
                   <Tooltip title="Playback Speed">
-                    <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
+                    <Box sx={{ 
+                      display: { xs: 'none', md: 'flex' }, 
+                      alignItems: 'center', 
+                      mr: 2 
+                    }}>
                       <IconButton size="small" sx={{ color: 'white' }}>
                         <SpeedIcon />
                       </IconButton>
@@ -609,11 +656,42 @@ const TeacherVideoPlayer = ({ videoUrl, title }) => {
                     </Box>
                   </Tooltip>
 
+                  {/* Mobile speed indicator */}
+                  <Box sx={{ 
+                    display: { xs: 'inline-flex', md: 'none' },
+                    alignItems: 'center'
+                  }}>
+                    <IconButton 
+                      size="small"
+                      onClick={() => {
+                        const currentIndex = speedOptions.indexOf(playbackRate);
+                        const nextIndex = (currentIndex + 1) % speedOptions.length;
+                        handleSpeedChange(speedOptions[nextIndex]);
+                      }}
+                      sx={{
+                        backgroundColor: 'rgba(255,255,255,0.1)',
+                        color: 'white',
+                        fontSize: { xs: '0.65rem', sm: '0.75rem' },
+                        minWidth: { xs: '32px', sm: '40px' },
+                        height: { xs: '24px', sm: '28px' },
+                        p: { xs: 0.5, sm: 1 },
+                        '&:hover': {
+                          backgroundColor: 'rgba(255,255,255,0.2)'
+                        }
+                      }}
+                    >
+                      {playbackRate}x
+                    </IconButton>
+                  </Box>
+
                   {/* Fullscreen toggle */}
                   <IconButton 
                     onClick={toggleFullScreen} 
                     size="small"
-                    sx={{ color: 'white' }}
+                    sx={{ 
+                      color: 'white',
+                      p: { xs: 0.5, sm: 1 }
+                    }}
                   >
                     {isFullScreen ? <FullscreenExit /> : <Fullscreen />}
                   </IconButton>

@@ -192,7 +192,7 @@ const HODCCManagement = () => {
                       options={teachers}
                       value={selectedTeacher}
                       onChange={(e, v) => setSelectedTeacher(v)}
-                      getOptionLabel={(o) => (o?.name ? `${o.name} ${o.teacherId ? `(${o.teacherId})` : ''}` : o?.email || '')}
+                      getOptionLabel={(o) => (o?.name ? `${o.name} ${o.uid || o.teacherId ? `(${o.uid || o.teacherId})` : ''}` : o?.email || '')}
                       renderInput={(params) => <TextField {...params} label="Teacher" placeholder="Search teacher..." />}
                       isOptionEqualToValue={(o, v) => o._id === v._id}
                     />

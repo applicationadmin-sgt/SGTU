@@ -45,6 +45,7 @@ import {
   getDepartmentsBySchool,
   getAvailableHODsForDepartment 
 } from '../../api/hierarchyApi';
+import BulkUploadHODs from '../../components/admin/BulkUploadHODs';
 
 const HODManagement = () => {
   const [hods, setHods] = useState([]);
@@ -333,6 +334,26 @@ const HODManagement = () => {
     setSnackbar({ open: true, message, severity });
   };
 
+  const handleBulkHODUpload = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await axios.post(
+      '/api/admin/hods/bulk-upload',
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    
+    // Refresh HODs and schools
+    await Promise.all([fetchHODs(), fetchSchoolsData()]);
+    return response.data;
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -355,6 +376,17 @@ const HODManagement = () => {
             Assign HOD to Department
           </Button>
         </Box>
+      </Box>
+
+      {/* Bulk Upload HODs */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+          Bulk HOD Creation
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Create multiple HODs at once and assign to departments using CSV file
+        </Typography>
+        <BulkUploadHODs onUpload={handleBulkHODUpload} />
       </Box>
 
       {/* Departments with HOD Assignments by School */}

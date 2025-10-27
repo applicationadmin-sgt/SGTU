@@ -18,6 +18,9 @@ router.post('/video/:videoId/watch', studentController.updateWatchHistory);
 // Get student's watch history across all courses
 router.get('/watch-history', studentController.getStudentWatchHistory);
 
+// Get video resume position for a student
+router.get('/video/:videoId/resume-position', studentController.getVideoResumePosition);
+
 // Get detailed progress for a specific course
 router.get('/course/:courseId/progress', studentController.getCourseProgress);
 

@@ -48,8 +48,14 @@ import HODCCManagement from './hod/HODCCManagement';
 import HODVideoUnlockApproval from './hod/HODVideoUnlockApproval';
 import HODQuizUnlockDashboard from '../components/hod/HODQuizUnlockDashboard';
 import HODProfile from '../components/HODProfile';
+import ChatDashboard from '../components/ChatDashboard';
+import HODCertificates from './hod/HODCertificates';
+import HODDepartmentAnalytics from '../components/hod/HODDepartmentAnalytics';
+import HODCourseAnalytics from '../components/hod/HODCourseAnalytics';
+import StudentIndividualAnalytics from '../components/common/StudentIndividualAnalytics';
 // import HODLiveClasses from './hod/HODLiveClasses'; // Moved to LEGACY_BACKUP
-import SgtLmsLiveClass from '../components/liveclass/CodeTantraLiveClass';
+// Live class components moved to independent video-call-module
+// import SgtLmsLiveClass from '../components/liveclass/CodeTantraLiveClass';
 
 const HODDashboard = () => {
   const navigate = useNavigate();
@@ -63,6 +69,12 @@ const HODDashboard = () => {
   
   // Check if we're on a live class route
   const isOnLiveClass = location.pathname.includes('/live-class');
+
+  // Sidebar collapsed state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    const saved = localStorage.getItem('sidebarCollapsed');
+    return saved === 'true';
+  });
 
   // Profile menu state
   const [profileAnchorEl, setProfileAnchorEl] = useState(null);
@@ -88,6 +100,19 @@ const HODDashboard = () => {
   // Check if we're on a sub-page
   const isOnMainDashboard = location.pathname === '/hod/dashboard';
 
+  // Listen for sidebar toggle events
+  useEffect(() => {
+    const handleSidebarToggle = (event) => {
+      setSidebarCollapsed(event.detail.collapsed);
+    };
+    
+    window.addEventListener('sidebarToggle', handleSidebarToggle);
+    
+    return () => {
+      window.removeEventListener('sidebarToggle', handleSidebarToggle);
+    };
+  }, []);
+
   useEffect(() => {
     if (!token) return;
     
@@ -104,60 +129,26 @@ const HODDashboard = () => {
       }
     })();
     
-    // Fetch activity feed
-    (async () => {
-      try {
-        setActivityLoading(true);
-        const res = await axios.get('/api/admin/audit-logs/recent', { headers: { Authorization: `Bearer ${token}` } });
-        setActivity(res.data || []);
-      } catch (error) {
-        console.error('Error fetching activity logs:', error);
-      } finally {
-        setActivityLoading(false);
-      }
-    })();
+    // Skip activity feed for HOD (admin-only feature)
+    setActivityLoading(false);
+    setActivity([]);
 
     // Fetch HOD statistics
     (async () => {
       try {
         setStatsLoading(true);
         
-        // Get HOD's department info
-        const userRes = await axios.get(`/api/admin/users/${currentUser._id}`, {
+        // Use current user data instead of admin endpoint
+        const userData = currentUser;
+        
+        const departmentId = userData.department?._id || userData.department;
+        
+        // Use the HOD dashboard endpoint which provides all stats
+        const dashboardRes = await axios.get(`/api/hod/dashboard`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
-        const departmentId = userRes.data.department;
-        
-        if (departmentId) {
-          // Get department details
-          const deptRes = await axios.get(`/api/departments/${departmentId}`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          
-          // Get teachers in this department
-          const teacherRes = await axios.get(`/api/admin/teachers?department=${departmentId}`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          
-          // Get courses in this department
-          const courseRes = await axios.get(`/api/admin/courses?department=${departmentId}`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-
-          // Get sections in this department
-          const sectionRes = await axios.get(`/api/sections?department=${departmentId}`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          
-          setHodStats({
-            department: deptRes.data,
-            teachers: teacherRes.data.length,
-            courses: courseRes.data.length,
-            sections: sectionRes.data.length,
-            students: 0 // TODO: Implement student count
-          });
-        }
+        setHodStats(dashboardRes.data);
       } catch (error) {
         console.error('Error fetching HOD stats:', error);
       } finally {
@@ -477,7 +468,12 @@ const HODDashboard = () => {
 
         {/* Sidebar with top margin for fixed header - Hidden on live class */}
         {!isOnLiveClass && (
-          <Box sx={{ mt: '64px', width: '280px', flexShrink: 0 }}>
+          <Box sx={{ 
+            mt: '64px', 
+            width: sidebarCollapsed ? '80px' : '280px', 
+            flexShrink: 0,
+            transition: 'width 0.3s'
+          }}>
             <Sidebar currentUser={currentUser} />
           </Box>
         )}
@@ -487,7 +483,8 @@ const HODDashboard = () => {
           flexGrow: 1, 
           mt: isOnLiveClass ? 0 : '64px', 
           ml: 0,
-          width: isOnLiveClass ? '100vw' : 'auto',
+          width: isOnLiveClass ? '100vw' : `calc(100% - ${sidebarCollapsed ? 80 : 280}px)`,
+          transition: 'width 0.3s',
           position: isOnLiveClass ? 'fixed' : 'relative',
           top: isOnLiveClass ? 0 : 'auto',
           left: isOnLiveClass ? 0 : 'auto',
@@ -832,19 +829,25 @@ const HODDashboard = () => {
             <Routes>
               <Route path="/dashboard" element={<HODDashboardHome />} />
               <Route path="/profile" element={<HODProfile />} />
+              <Route path="/chats" element={<ChatDashboard />} />
               <Route path="/teachers" element={<HODTeachers />} />
               <Route path="/courses" element={<HODCourses />} />
               <Route path="/sections" element={<HODSections />} />
               <Route path="/analytics" element={<HODAnalytics />} />
+              <Route path="/department-analytics" element={<HODDepartmentAnalytics />} />
+              <Route path="/course-analytics" element={<HODCourseAnalytics />} />
+              <Route path="/student-analytics" element={<StudentIndividualAnalytics />} />
               <Route path="/announcements" element={<HODAnnouncements user={currentUser} />} />
-              <Route path="/announcements/history" element={<HODAnnouncementHistory />} />
+              <Route path="/announcements/history" element={<HODAnnouncementHistory token={token} />} />
               <Route path="/announcement-approvals" element={<HODAnnouncementApproval token={token} />} />
               <Route path="/quiz-management" element={<HODQuizManagement />} />
               <Route path="/cc-management" element={<HODCCManagement />} />
+              <Route path="/certificates" element={<HODCertificates />} />
               <Route path="/teaching-sections" element={<MyTeachingSections />} />
               <Route path="/video-unlock-requests" element={<HODVideoUnlockApproval token={token} user={currentUser} />} />
               <Route path="/quiz-unlock-requests" element={<HODQuizUnlockDashboard />} />
-              <Route path="/live-classes" element={<SgtLmsLiveClass token={token} user={currentUser} />} />
+              {/* Live class routes moved to independent video-call-module */}
+              {/* <Route path="/live-classes" element={<SgtLmsLiveClass token={token} user={currentUser} />} /> */}
               <Route path="*" element={<Navigate to="/hod/dashboard" replace />} />
             </Routes>
             </Box>

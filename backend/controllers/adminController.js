@@ -57,15 +57,419 @@ exports.bulkMessage = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-// Recent audit logs for dashboard
+
+// Import audit log service
+const AuditLogService = require('../services/auditLogService');
+
+// Recent audit logs for dashboard (BASIC - for backwards compatibility)
 exports.getRecentAuditLogs = async (req, res) => {
   try {
-    const logs = await require('../models/AuditLog').find().populate('performedBy', 'email').populate('targetUser', 'email').sort({ createdAt: -1 }).limit(20);
+    const logs = await require('../models/AuditLog')
+      .find()
+      .populate('performedBy', 'name email role')
+      .populate('targetUser', 'name email role')
+      .sort({ createdAt: -1 })
+      .limit(20);
     res.json(logs);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
+// COMPREHENSIVE AUDIT LOG ENDPOINTS
+
+// Get audit logs with advanced filtering
+exports.getAuditLogs = async (req, res) => {
+  try {
+    const {
+      action,
+      performedBy,
+      targetUser,
+      category,
+      status,
+      severity,
+      isSuspicious,
+      targetResource,
+      startDate,
+      endDate,
+      ipAddress,
+      page = 1,
+      limit = 50
+    } = req.query;
+    
+    const filters = {
+      action,
+      performedBy,
+      targetUser,
+      category,
+      status,
+      severity,
+      isSuspicious: isSuspicious === 'true' ? true : isSuspicious === 'false' ? false : undefined,
+      targetResource,
+      startDate,
+      endDate,
+      ipAddress,
+      limit: parseInt(limit),
+      skip: (parseInt(page) - 1) * parseInt(limit)
+    };
+    
+    // Remove undefined values
+    Object.keys(filters).forEach(key => filters[key] === undefined && delete filters[key]);
+    
+    const logs = await require('../models/AuditLog').advancedSearch(filters);
+    
+    // Get total count for pagination
+    const AuditLog = require('../models/AuditLog');
+    const query = {};
+    if (action) query.action = { $regex: action, $options: 'i' };
+    if (performedBy) query.performedBy = performedBy;
+    if (targetUser) query.targetUser = targetUser;
+    if (category) query.category = category;
+    if (status) query.status = status;
+    if (severity) query.severity = severity;
+    if (isSuspicious !== undefined) query.isSuspicious = filters.isSuspicious;
+    if (targetResource) query.targetResource = targetResource;
+    if (ipAddress) query.ipAddress = ipAddress;
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) query.createdAt.$lte = new Date(endDate);
+    }
+    
+    const totalCount = await AuditLog.countDocuments(query);
+    
+    res.json({
+      logs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalCount,
+        totalPages: Math.ceil(totalCount / parseInt(limit))
+      }
+    });
+    
+  } catch (err) {
+    console.error('Error fetching audit logs:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Get audit log statistics
+exports.getAuditLogStatistics = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    const filters = {};
+    if (startDate) filters.startDate = startDate;
+    if (endDate) filters.endDate = endDate;
+    
+    const statistics = await AuditLogService.getStatistics(filters);
+    
+    res.json(statistics);
+    
+  } catch (err) {
+    console.error('Error fetching audit log statistics:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Get suspicious activities
+exports.getSuspiciousActivities = async (req, res) => {
+  try {
+    const { limit = 50, page = 1 } = req.query;
+    
+    const AuditLog = require('../models/AuditLog');
+    const logs = await AuditLog.find({ isSuspicious: true })
+      .populate('performedBy', 'name email role')
+      .populate('targetUser', 'name email role')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+    
+    const totalCount = await AuditLog.countDocuments({ isSuspicious: true });
+    
+    res.json({
+      logs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalCount,
+        totalPages: Math.ceil(totalCount / parseInt(limit))
+      }
+    });
+    
+  } catch (err) {
+    console.error('Error fetching suspicious activities:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Get pending reviews
+exports.getPendingReviews = async (req, res) => {
+  try {
+    const { limit = 50, page = 1 } = req.query;
+    
+    const AuditLog = require('../models/AuditLog');
+    const logs = await AuditLog.find({ requiresReview: true, reviewed: false })
+      .populate('performedBy', 'name email role')
+      .populate('targetUser', 'name email role')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+    
+    const totalCount = await AuditLog.countDocuments({ requiresReview: true, reviewed: false });
+    
+    res.json({
+      logs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalCount,
+        totalPages: Math.ceil(totalCount / parseInt(limit))
+      }
+    });
+    
+  } catch (err) {
+    console.error('Error fetching pending reviews:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Mark audit log as reviewed
+exports.markAsReviewed = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reviewerId = req.user._id;
+    
+    const AuditLog = require('../models/AuditLog');
+    const log = await AuditLog.findById(id);
+    
+    if (!log) {
+      return res.status(404).json({ message: 'Audit log not found' });
+    }
+    
+    await log.markAsReviewed(reviewerId);
+    
+    // Log this review action
+    await AuditLogService.log({
+      action: 'review_audit_log',
+      performedBy: reviewerId,
+      targetResource: 'audit_log',
+      targetResourceId: id,
+      req,
+      details: {
+        originalAction: log.action,
+        originalPerformedBy: log.performedByName
+      }
+    });
+    
+    res.json({ message: 'Audit log marked as reviewed', log });
+    
+  } catch (err) {
+    console.error('Error marking audit log as reviewed:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Export audit logs to CSV
+exports.exportAuditLogs = async (req, res) => {
+  try {
+    const filters = req.query;
+    
+    const csv = await AuditLogService.exportToCSV(filters);
+    
+    // Log export action
+    await AuditLogService.log({
+      action: 'export_audit_logs',
+      performedBy: req.user._id,
+      req,
+      details: { filters }
+    });
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="audit_logs_${new Date().toISOString()}.csv"`);
+    res.send(csv);
+    
+  } catch (err) {
+    console.error('Error exporting audit logs:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Get user activity history
+exports.getUserActivityHistory = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { limit = 100, page = 1 } = req.query;
+    
+    const AuditLog = require('../models/AuditLog');
+    const logs = await AuditLog.find({ performedBy: userId })
+      .populate('targetUser', 'name email role')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+    
+    const totalCount = await AuditLog.countDocuments({ performedBy: userId });
+    
+    res.json({
+      logs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalCount,
+        totalPages: Math.ceil(totalCount / parseInt(limit))
+      }
+    });
+    
+  } catch (err) {
+    console.error('Error fetching user activity history:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Advanced Audit Logs Endpoint with Comprehensive Filtering and Statistics
+exports.getAdvancedAuditLogs = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 25,
+      search,
+      action,
+      performedBy,
+      severity,
+      status,
+      startDate,
+      endDate,
+      entity
+    } = req.query;
+
+    const AuditLog = require('../models/AuditLog');
+    
+    // Build query
+    const query = {};
+    
+    // Search across multiple fields
+    if (search) {
+      query.$or = [
+        { action: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { 'performedBy.email': { $regex: search, $options: 'i' } },
+        { 'performedBy.name': { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // Filter by action
+    if (action) {
+      query.action = action;
+    }
+    
+    // Filter by user email
+    if (performedBy) {
+      const User = require('../models/User');
+      const user = await User.findOne({ email: { $regex: performedBy, $options: 'i' } });
+      if (user) {
+        query.performedBy = user._id;
+      }
+    }
+    
+    // Filter by severity
+    if (severity) {
+      query.severity = severity;
+    }
+    
+    // Filter by status
+    if (status) {
+      query.status = status;
+    }
+    
+    // Filter by entity type
+    if (entity) {
+      query.entityType = entity;
+    }
+    
+    // Filter by date range
+    if (startDate || endDate) {
+      query.$and = query.$and || [];
+      if (startDate) {
+        query.$and.push({ 
+          $or: [
+            { timestamp: { $gte: new Date(startDate) } },
+            { createdAt: { $gte: new Date(startDate) } }
+          ]
+        });
+      }
+      if (endDate) {
+        const endOfDay = new Date(endDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        query.$and.push({ 
+          $or: [
+            { timestamp: { $lte: endOfDay } },
+            { createdAt: { $lte: endOfDay } }
+          ]
+        });
+      }
+    }
+    
+    // Get logs with pagination
+    const logs = await AuditLog.find(query)
+      .populate('performedBy', 'name email role')
+      .populate('targetUser', 'name email role')
+      .sort({ timestamp: -1, createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+    
+    // Get total count
+    const total = await AuditLog.countDocuments(query);
+    
+    // Calculate statistics
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const [
+      totalLogs,
+      todayLogs,
+      criticalLogs,
+      errorLogs,
+      warningLogs,
+      infoLogs
+    ] = await Promise.all([
+      AuditLog.countDocuments({}),
+      AuditLog.countDocuments({ 
+        $or: [
+          { timestamp: { $gte: today } },
+          { createdAt: { $gte: today } }
+        ]
+      }),
+      AuditLog.countDocuments({ severity: 'critical' }),
+      AuditLog.countDocuments({ severity: 'high' }),
+      AuditLog.countDocuments({ severity: 'medium' }),
+      AuditLog.countDocuments({ severity: 'low' })
+    ]);
+    
+    res.json({
+      logs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      },
+      statistics: {
+        total: totalLogs,
+        today: todayLogs,
+        critical: criticalLogs,
+        high: errorLogs,
+        medium: warningLogs,
+        low: infoLogs
+      }
+    });
+    
+  } catch (err) {
+    console.error('Error fetching advanced audit logs:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 const AuditLog = require('../models/AuditLog');
 const AssignmentHistory = require('../models/AssignmentHistory');
 // Admin changes own password
@@ -323,12 +727,26 @@ exports.getTeachersByDepartment = async (req, res) => {
       console.log('Message:', message);
       console.log('Recipients:', recipients);
       
+      // Convert old recipients format to new targetAudience format
+      const targetAudience = {
+        allUsers: false,
+        isGlobal: false,
+        targetRoles: recipients, // ['teacher', 'student', 'hod', 'dean']
+        targetSchools: [],
+        targetDepartments: [],
+        targetSections: [],
+        targetCourses: [],
+        specificUsers: []
+      };
+      
       const announcement = new Announcement({
         sender: req.user._id,
         role: 'admin',
         title: announcementTitle,
         message,
         recipients, // Legacy field for backward compatibility
+        targetAudience, // New field for proper filtering
+        approvalStatus: 'approved' // Admin announcements are auto-approved
       });
       
       console.log('About to save announcement with data:', {
@@ -336,7 +754,8 @@ exports.getTeachersByDepartment = async (req, res) => {
         role: 'admin',
         title: announcementTitle,
         message,
-        recipients
+        recipients,
+        targetAudience
       });
       await announcement.save();
       console.log('Announcement saved successfully:', announcement._id);
@@ -346,20 +765,50 @@ exports.getTeachersByDepartment = async (req, res) => {
       let users = [];
       
       try {
+        console.log('📢 Fetching recipients for notification...');
+        
         if (recipients.includes('teacher')) {
-          const teachers = await User.find({ role: 'teacher', isActive: true });
+          const teachers = await User.find({ 
+            $or: [
+              { role: 'teacher' },
+              { roles: { $in: ['teacher'] } }
+            ],
+            isActive: true 
+          });
+          console.log(`👨‍🏫 Found ${teachers.length} teachers`);
           users = users.concat(teachers);
         }
         if (recipients.includes('student')) {
-          const students = await User.find({ role: 'student', isActive: true });
+          const students = await User.find({ 
+            $or: [
+              { role: 'student' },
+              { roles: { $in: ['student'] } }
+            ],
+            isActive: true 
+          });
+          console.log(`👨‍🎓 Found ${students.length} students`);
           users = users.concat(students);
         }
         if (recipients.includes('hod')) {
-          const hods = await User.find({ role: 'hod', isActive: true });
+          const hods = await User.find({ 
+            $or: [
+              { role: 'hod' },
+              { roles: { $in: ['hod'] } }
+            ],
+            isActive: true 
+          });
+          console.log(`👔 Found ${hods.length} HODs`);
           users = users.concat(hods);
         }
         if (recipients.includes('dean')) {
-          const deans = await User.find({ role: 'dean', isActive: true });
+          const deans = await User.find({ 
+            $or: [
+              { role: 'dean' },
+              { roles: { $in: ['dean'] } }
+            ],
+            isActive: true 
+          });
+          console.log(`🎩 Found ${deans.length} Deans`);
           users = users.concat(deans);
         }
         
@@ -368,20 +817,32 @@ exports.getTeachersByDepartment = async (req, res) => {
           index === self.findIndex(u => u._id.toString() === user._id.toString())
         );
         
+        console.log(`✅ Total unique recipients: ${uniqueUsers.length}`);
+        console.log(`📤 Sending notifications to ${uniqueUsers.length} users...`);
+        
         for (const user of uniqueUsers) {
           await NotificationController.createNotification({
             type: 'announcement',
             recipient: user._id,
-            message: `New announcement: ${message}`,
+            message: `New announcement: ${announcementTitle}`,
             data: { announcementId: announcement._id },
             announcement: announcement._id
           });
         }
+        console.log('✅ All notifications sent successfully!');
       } catch (notificationError) {
-        console.error('Error sending notifications:', notificationError);
+        console.error('❌ Error sending notifications:', notificationError);
         // Don't fail the announcement creation if notifications fail
       }
-      res.json({ message: 'Announcement created successfully.' });
+      res.json({ 
+        message: 'Announcement created successfully.',
+        announcement: {
+          _id: announcement._id,
+          title: announcement.title,
+          message: announcement.message,
+          recipients: announcement.recipients
+        }
+      });
     } catch (err) {
       console.error('Error in createAnnouncement:', err);
       res.status(500).json({ message: err.message });
@@ -579,6 +1040,10 @@ exports.addTeacher = async (req, res) => {
     
     const hashedPassword = await bcrypt.hash(password, 10);
     
+    // Generate UID for teacher (staff)
+    const { generateStaffUID } = require('../utils/uidGenerator');
+    const uid = await generateStaffUID();
+    
     // Handle multi-role assignment (default to teacher if no roles provided)
     let userRoles = ['teacher'];
     let primaryRole = 'teacher';
@@ -592,14 +1057,14 @@ exports.addTeacher = async (req, res) => {
       name, 
       email: normalizedEmail, 
       password: hashedPassword, 
+      uid: uid,
       role: 'teacher', // Keep for backward compatibility
       roles: userRoles,
       primaryRole: primaryRole,
       permissions,
       school,
       department: departmentId,
-
-      teacherId: null // Will be auto-generated in the pre-save hook
+      teacherId: null // Will be auto-generated in the pre-save hook (DEPRECATED - use uid instead)
     });
     
     const savedTeacher = await teacher.save();
@@ -1145,7 +1610,10 @@ exports.bulkUploadTeachers = async (req, res) => {
         // Check for basic required fields in the CSV
         if (results.length > 0) {
           const firstRow = results[0];
-          const requiredFields = ['name', 'email', 'password'];
+          console.log('First row keys:', Object.keys(firstRow));
+          console.log('First row data:', firstRow);
+          
+          const requiredFields = ['name', 'email', 'password', 'school'];
           const missingHeaders = requiredFields.filter(field => 
             !Object.keys(firstRow).some(key => key.toLowerCase() === field)
           );
@@ -1185,6 +1653,10 @@ exports.bulkUploadTeachers = async (req, res) => {
           if (!row.password || row.password.trim() === '') {
             errors.push({ row: rowNum, message: 'Missing field: password' });
           }
+          
+          if (!row.school || row.school.trim() === '') {
+            errors.push({ row: rowNum, message: 'Missing field: school' });
+          }
         }
         
         // Check for existing emails in DB
@@ -1218,34 +1690,444 @@ exports.bulkUploadTeachers = async (req, res) => {
         }
         
         // If valid, insert all
-        for (const row of results) {
-          const name = row.name ? row.name.trim() : '';
-          const email = row.email ? row.email.trim().toLowerCase() : '';
-          const password = row.password ? row.password.trim() : '';
+        const School = require('../models/School');
+        const Department = require('../models/Department');
+        const insertErrors = [];
+        let successCount = 0;
+        
+        for (let i = 0; i < results.length; i++) {
+          const row = results[i];
+          const rowNum = i + 2; // header is row 1
           
-          const hashedPassword = await bcrypt.hash(password, 10);
-          const teacher = await User.create({ 
-            name, 
-            email, 
-            password: hashedPassword, 
-            role: 'teacher',
-            teacherId: null // Will be auto-generated in the pre-save hook
-          });
-          
-          await AuditLog.create({ 
-            action: 'bulk_add_teacher', 
-            performedBy: req.user._id, 
-            targetUser: teacher._id, 
-            details: { name, email } 
-          });
+          try {
+            const name = row.name ? row.name.trim() : '';
+            const email = row.email ? row.email.trim().toLowerCase() : '';
+            const password = row.password ? row.password.trim() : '';
+            const schoolRaw = row.school ? row.school.trim() : '';
+            const departmentRaw = row.department ? row.department.trim() : '';
+            
+            console.log(`Row ${rowNum}: Looking for school: "${schoolRaw}"`);
+            
+            // Find school by name, code, or ObjectId
+            const school = await School.findOne({
+              $or: [
+                { _id: mongoose.Types.ObjectId.isValid(schoolRaw) ? schoolRaw : null },
+                { code: schoolRaw },
+                { name: { $regex: new RegExp('^' + schoolRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } }
+              ]
+            });
+            
+            console.log(`Row ${rowNum}: School found:`, school ? school.name : 'NOT FOUND');
+            
+            if (!school) {
+              insertErrors.push({ 
+                row: rowNum, 
+                message: `School '${schoolRaw}' not found` 
+              });
+              continue;
+            }
+            
+            // Find department if provided
+            let departmentId = null;
+            if (departmentRaw) {
+              const department = await Department.findOne({
+                $or: [
+                  { _id: mongoose.Types.ObjectId.isValid(departmentRaw) ? departmentRaw : null },
+                  { code: departmentRaw },
+                  { name: { $regex: new RegExp('^' + departmentRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } }
+                ],
+                school: school._id
+              });
+              
+              if (!department) {
+                insertErrors.push({ 
+                  row: rowNum, 
+                  message: `Department '${departmentRaw}' not found in ${school.name}` 
+                });
+                continue;
+              }
+              departmentId = department._id;
+            }
+            
+            // Generate UID for teacher (staff)
+            const { generateStaffUID } = require('../utils/uidGenerator');
+            const uid = await generateStaffUID();
+            
+            // Check if teacherId is provided in CSV, otherwise let it auto-generate
+            const teacherIdRaw = row.teacherid || row['teacher id'] || row['teacher_id'] || '';
+            
+            const hashedPassword = await bcrypt.hash(password, 10);
+            const teacherData = { 
+              name, 
+              email, 
+              password: hashedPassword, 
+              uid: uid,
+              role: 'teacher',
+              roles: ['teacher'],
+              primaryRole: 'teacher',
+              school: school._id,
+              department: departmentId
+            };
+            
+            // Only add teacherId if provided in CSV, otherwise let pre-save hook generate it
+            if (teacherIdRaw && teacherIdRaw.trim()) {
+              teacherData.teacherId = teacherIdRaw.trim();
+            }
+            // Note: If teacherId is not provided, the pre-save hook will auto-generate it
+            
+            const teacher = await User.create(teacherData);
+            
+            await AuditLog.create({ 
+              action: 'bulk_add_teacher', 
+              performedBy: req.user._id, 
+              targetUser: teacher._id, 
+              details: { name, email, school: school.name, department: departmentId } 
+            });
+            
+            successCount++;
+            
+          } catch (err) {
+            console.error(`Error creating teacher at row ${rowNum}:`, err.message);
+            insertErrors.push({ 
+              row: rowNum, 
+              message: err.message || 'Failed to create teacher' 
+            });
+          }
         }
         
         fs.unlinkSync(req.file.path);
+        
+        // Return success and error counts
+        const totalErrors = [...errors, ...insertErrors];
+        if (totalErrors.length > 0) {
+          return res.status(207).json({ 
+            message: `${successCount} teachers uploaded successfully, ${totalErrors.length} failed`,
+            success: successCount,
+            failed: totalErrors.length,
+            errors: totalErrors
+          });
+        }
+        
         res.json({ 
-          message: `${results.length} teachers uploaded successfully` 
+          message: `${results.length} teachers uploaded successfully`,
+          success: results.length,
+          failed: 0
         });
       } catch (err) {
         console.error('Error in bulkUploadTeachers:', err);
+        res.status(500).json({ message: err.message });
+      }
+    })
+    .on('error', (err) => {
+      console.error('CSV parsing error:', err);
+      res.status(400).json({ message: `CSV parsing error: ${err.message}` });
+    });
+};
+
+// Bulk Upload HODs with CSV
+exports.bulkUploadHODs = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: 'Please upload a CSV file' });
+  }
+
+  const filePath = req.file.path;
+  const results = [];
+  const errors = [];
+
+  fs.createReadStream(filePath)
+    .pipe(csvParser({
+      mapHeaders: ({ header }) => header.trim().toLowerCase()
+    }))
+    .on('data', (row) => {
+      results.push(row);
+    })
+    .on('end', async () => {
+      try {
+        const { generateStaffUID } = require('../utils/uidGenerator');
+        const created = [];
+        
+        for (let i = 0; i < results.length; i++) {
+          const row = results[i];
+          const rowNum = i + 2; // CSV row number (accounting for header)
+          
+          try {
+            // Extract and validate required fields
+            const name = row.name?.trim();
+            const email = row.email?.trim();
+            const password = row.password?.trim();
+            const schoolName = row.school?.trim();
+            const departmentName = row.department?.trim();
+            const teacherIdRaw = row.teacherId?.trim();
+            
+            if (!name || !email || !password || !schoolName || !departmentName) {
+              errors.push({ row: rowNum, message: 'Missing required fields (name, email, password, school, department)' });
+              continue;
+            }
+            
+            // Check if user already exists
+            const existingUser = await User.findOne({ email });
+            if (existingUser) {
+              errors.push({ row: rowNum, message: `Email ${email} already exists` });
+              continue;
+            }
+            
+            // Find school
+            const school = await School.findOne({ name: new RegExp(`^${schoolName}$`, 'i') });
+            if (!school) {
+              errors.push({ row: rowNum, message: `School "${schoolName}" not found` });
+              continue;
+            }
+            
+            // Find department
+            const department = await Department.findOne({ 
+              name: new RegExp(`^${departmentName}$`, 'i'),
+              school: school._id 
+            });
+            if (!department) {
+              errors.push({ row: rowNum, message: `Department "${departmentName}" not found in school "${schoolName}"` });
+              continue;
+            }
+            
+            // Check if department already has an HOD
+            if (department.hod) {
+              const existingHOD = await User.findById(department.hod);
+              if (existingHOD) {
+                errors.push({ row: rowNum, message: `Department "${departmentName}" already has HOD: ${existingHOD.name}` });
+                continue;
+              }
+            }
+            
+            // Generate UID
+            const uid = await generateStaffUID();
+            
+            // Hash password
+            const hashedPassword = await bcrypt.hash(password, 10);
+            
+            // Prepare HOD data
+            const hodData = {
+              name,
+              email,
+              password: hashedPassword,
+              uid,
+              role: 'hod',
+              roles: ['hod'],
+              primaryRole: 'hod',
+              school: school._id,
+              department: department._id,
+              isActive: true,
+              emailVerified: true
+            };
+            
+            // Add teacherId if provided in CSV
+            if (teacherIdRaw && teacherIdRaw.length > 0) {
+              // Validate teacherId format (5 digits)
+              if (!/^\d{5}$/.test(teacherIdRaw)) {
+                errors.push({ row: rowNum, message: `Invalid teacherId format for ${email}. Expected 5 digits (e.g., 00001)` });
+                continue;
+              }
+              
+              // Check if teacherId already exists
+              const existingTeacherId = await User.findOne({ teacherId: teacherIdRaw });
+              if (existingTeacherId) {
+                errors.push({ row: rowNum, message: `Teacher ID ${teacherIdRaw} already exists` });
+                continue;
+              }
+              
+              hodData.teacherId = teacherIdRaw;
+            }
+            // If not provided, pre-save hook will auto-generate
+            
+            // Create HOD
+            const hod = await User.create(hodData);
+            
+            // Update department with HOD reference
+            await Department.findByIdAndUpdate(department._id, { hod: hod._id });
+            
+            created.push({
+              name: hod.name,
+              email: hod.email,
+              uid: hod.uid,
+              teacherId: hod.teacherId,
+              department: department.name,
+              school: school.name
+            });
+            
+          } catch (rowErr) {
+            errors.push({ row: rowNum, message: rowErr.message });
+          }
+        }
+        
+        // Clean up uploaded file
+        fs.unlinkSync(filePath);
+        
+        if (errors.length > 0) {
+          return res.status(400).json({ 
+            message: `Uploaded ${created.length} HODs with ${errors.length} errors`,
+            success: created.length,
+            failed: errors.length,
+            errors,
+            created
+          });
+        }
+        
+        res.json({ 
+          message: `${created.length} HODs uploaded successfully`,
+          success: created.length,
+          failed: 0,
+          created
+        });
+      } catch (err) {
+        console.error('Error in bulkUploadHODs:', err);
+        res.status(500).json({ message: err.message });
+      }
+    })
+    .on('error', (err) => {
+      console.error('CSV parsing error:', err);
+      res.status(400).json({ message: `CSV parsing error: ${err.message}` });
+    });
+};
+
+// Bulk Upload Deans with CSV
+exports.bulkUploadDeans = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: 'Please upload a CSV file' });
+  }
+
+  const filePath = req.file.path;
+  const results = [];
+  const errors = [];
+
+  fs.createReadStream(filePath)
+    .pipe(csvParser({
+      mapHeaders: ({ header }) => header.trim().toLowerCase()
+    }))
+    .on('data', (row) => {
+      results.push(row);
+    })
+    .on('end', async () => {
+      try {
+        const { generateStaffUID } = require('../utils/uidGenerator');
+        const created = [];
+        
+        for (let i = 0; i < results.length; i++) {
+          const row = results[i];
+          const rowNum = i + 2; // CSV row number (accounting for header)
+          
+          try {
+            // Extract and validate required fields
+            const name = row.name?.trim();
+            const email = row.email?.trim();
+            const password = row.password?.trim();
+            const schoolName = row.school?.trim();
+            const teacherIdRaw = row.teacherId?.trim();
+            
+            if (!name || !email || !password || !schoolName) {
+              errors.push({ row: rowNum, message: 'Missing required fields (name, email, password, school)' });
+              continue;
+            }
+            
+            // Check if user already exists
+            const existingUser = await User.findOne({ email });
+            if (existingUser) {
+              errors.push({ row: rowNum, message: `Email ${email} already exists` });
+              continue;
+            }
+            
+            // Find school
+            const school = await School.findOne({ name: new RegExp(`^${schoolName}$`, 'i') });
+            if (!school) {
+              errors.push({ row: rowNum, message: `School "${schoolName}" not found` });
+              continue;
+            }
+            
+            // Check if school already has a Dean
+            if (school.dean) {
+              const existingDean = await User.findById(school.dean);
+              if (existingDean) {
+                errors.push({ row: rowNum, message: `School "${schoolName}" already has Dean: ${existingDean.name}` });
+                continue;
+              }
+            }
+            
+            // Generate UID
+            const uid = await generateStaffUID();
+            
+            // Hash password
+            const hashedPassword = await bcrypt.hash(password, 10);
+            
+            // Prepare Dean data
+            const deanData = {
+              name,
+              email,
+              password: hashedPassword,
+              uid,
+              role: 'dean',
+              roles: ['dean'],
+              primaryRole: 'dean',
+              school: school._id,
+              isActive: true,
+              emailVerified: true
+            };
+            
+            // Add teacherId if provided in CSV
+            if (teacherIdRaw && teacherIdRaw.length > 0) {
+              // Validate teacherId format (5 digits)
+              if (!/^\d{5}$/.test(teacherIdRaw)) {
+                errors.push({ row: rowNum, message: `Invalid teacherId format for ${email}. Expected 5 digits (e.g., 00001)` });
+                continue;
+              }
+              
+              // Check if teacherId already exists
+              const existingTeacherId = await User.findOne({ teacherId: teacherIdRaw });
+              if (existingTeacherId) {
+                errors.push({ row: rowNum, message: `Teacher ID ${teacherIdRaw} already exists` });
+                continue;
+              }
+              
+              deanData.teacherId = teacherIdRaw;
+            }
+            // If not provided, pre-save hook will auto-generate
+            
+            // Create Dean
+            const dean = await User.create(deanData);
+            
+            // Update school with Dean reference
+            await School.findByIdAndUpdate(school._id, { dean: dean._id });
+            
+            created.push({
+              name: dean.name,
+              email: dean.email,
+              uid: dean.uid,
+              teacherId: dean.teacherId,
+              school: school.name
+            });
+            
+          } catch (rowErr) {
+            errors.push({ row: rowNum, message: rowErr.message });
+          }
+        }
+        
+        // Clean up uploaded file
+        fs.unlinkSync(filePath);
+        
+        if (errors.length > 0) {
+          return res.status(400).json({ 
+            message: `Uploaded ${created.length} Deans with ${errors.length} errors`,
+            success: created.length,
+            failed: errors.length,
+            errors,
+            created
+          });
+        }
+        
+        res.json({ 
+          message: `${created.length} Deans uploaded successfully`,
+          success: created.length,
+          failed: 0,
+          created
+        });
+      } catch (err) {
+        console.error('Error in bulkUploadDeans:', err);
         res.status(500).json({ message: err.message });
       }
     })
@@ -1380,6 +2262,10 @@ exports.createStudent = async (req, res) => {
     }
     
     // Create the student
+    
+    // Generate UID for student
+    const { generateStudentUID } = require('../utils/uidGenerator');
+    const uid = await generateStudentUID();
 
     // Handle multi-role assignment (default to student if no roles provided)
     let userRoles = ['student'];
@@ -1394,10 +2280,11 @@ exports.createStudent = async (req, res) => {
       name,
       email: normalizedEmail,
       password: hashedPassword,
+      uid: uid,
       role: 'student', // Keep for backward compatibility
       roles: userRoles,
       primaryRole: primaryRole,
-      regNo: studentRegNo,
+      regNo: studentRegNo, // Keep for backward compatibility (DEPRECATED - use uid instead)
       school: school, // Add school reference
       department: department || null // Add department reference
     });
@@ -1495,13 +2382,18 @@ exports.bulkUploadStudents = async (req, res) => {
         const existingUsers = await User.find({ email: { $in: uniqueFileEmails } }, 'email');
         const existingEmailSet = new Set(existingUsers.map(u => u.email.toLowerCase()));
 
-        // Find next reg number once
+        // Find next reg number once (numeric format, 8+ digits for students)
         let nextRegNumber = 1;
         const highestStudent = await User.findOne(
-          { regNo: { $regex: /^S\d{6}$/ } }, { regNo: 1 }, { sort: { regNo: -1 } }
+          { 
+            regNo: { $regex: /^\d{8,}$/ }, // 8 or more digits
+            role: 'student'
+          }, 
+          { regNo: 1 }, 
+          { sort: { regNo: -1 } }
         );
         if (highestStudent?.regNo) {
-          nextRegNumber = parseInt(highestStudent.regNo.substring(1), 10) + 1;
+          nextRegNumber = parseInt(highestStudent.regNo, 10) + 1;
         }
 
         const results = [];
@@ -1535,14 +2427,21 @@ exports.bulkUploadStudents = async (req, res) => {
             seenEmails.add(emailRaw);
             if (existingEmailSet.has(emailRaw)) throw new Error('Email already exists');
 
-            // RegNo validation/generation
+            // RegNo validation/generation (numeric format: 8+ digits for students)
             let regNoVal = regRaw;
             if (regNoVal) {
-              if (!regNoVal.startsWith('S') || !/^S\d{6}$/.test(regNoVal)) {
-                throw new Error('Invalid registration number format (expected S + 6 digits)');
+              // If regNo is provided, validate format (must be 8+ digits)
+              if (!/^\d{8,}$/.test(regNoVal)) {
+                throw new Error('Invalid registration number format (expected 8 or more digits, e.g., 00000001)');
+              }
+              // Check if this regNo already exists in the database
+              const existingRegNo = await User.findOne({ regNo: regNoVal });
+              if (existingRegNo) {
+                throw new Error(`Registration number ${regNoVal} already exists`);
               }
             } else {
-              regNoVal = 'S' + nextRegNumber.toString().padStart(6, '0');
+              // Auto-generate regNo if not provided (8-digit format)
+              regNoVal = nextRegNumber.toString().padStart(8, '0');
               nextRegNumber++;
             }
 
@@ -1631,6 +2530,10 @@ exports.bulkUploadStudents = async (req, res) => {
 
             const finalPassword = passwordRaw || genPassword();
             const hashedPassword = await bcrypt.hash(finalPassword, 10);
+            
+            // Generate UID for student
+            const { generateStudentUID } = require('../utils/uidGenerator');
+            const uid = await generateStudentUID();
 
             // Validate that section exists and is required
             if (!sectionId) {
@@ -1638,7 +2541,8 @@ exports.bulkUploadStudents = async (req, res) => {
             }
 
             const student = new User({
-              regNo: regNoVal,
+              regNo: regNoVal, // Keep for backward compatibility (DEPRECATED - use uid instead)
+              uid: uid,
               name: nameRaw,
               email: emailRaw,
               password: hashedPassword,
@@ -1703,6 +2607,342 @@ exports.bulkUploadStudents = async (req, res) => {
     })
     .on('error', (err) => {
       console.error('[bulkUploadStudents] CSV parsing error:', err);
+      return res.status(400).json({ message: `CSV parsing error: ${err.message}` });
+    });
+};
+
+// Bulk upload departments via CSV
+exports.bulkUploadSchools = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: 'No CSV file uploaded' });
+  }
+
+  const rows = [];
+  const rowErrors = [];
+  let successCount = 0;
+
+  fs.createReadStream(req.file.path)
+    .pipe(csv({
+      mapHeaders: ({ header }) => header.trim().toLowerCase()
+    }))
+    .on('data', (row) => rows.push(row))
+    .on('end', async () => {
+      try {
+        console.log(`[bulkUploadSchools] Processing ${rows.length} schools`);
+
+        for (let i = 0; i < rows.length; i++) {
+          const rowNum = i + 2;
+          const row = rows[i];
+
+          try {
+            // Extract and validate fields
+            const name = row.name?.trim();
+            const code = row.code?.trim();
+            const description = row.description?.trim();
+
+            // Validation
+            if (!name) {
+              throw new Error('School name is required');
+            }
+
+            if (!code) {
+              throw new Error('School code is required');
+            }
+
+            // Validate code format (2-5 uppercase letters)
+            if (!/^[A-Z]{2,5}$/.test(code)) {
+              throw new Error('School code must be 2-5 uppercase letters (e.g., SOE, SOM)');
+            }
+
+            if (!description) {
+              throw new Error('School description is required');
+            }
+
+            // Check if school already exists
+            const existingSchool = await School.findOne({
+              $or: [
+                { code: code },
+                { name: { $regex: new RegExp(`^${name}$`, 'i') } }
+              ]
+            });
+
+            if (existingSchool) {
+              throw new Error(`School already exists: ${name} (${code})`);
+            }
+
+            // Create school
+            const school = await School.create({
+              name,
+              code,
+              description
+            });
+
+            successCount++;
+            console.log(`✓ Row ${rowNum}: Created school ${name} (${code})`);
+
+          } catch (err) {
+            rowErrors.push({ row: rowNum, error: err.message });
+            console.error(`✗ Row ${rowNum}: ${err.message}`);
+          }
+        }
+
+        // Cleanup uploaded file
+        fs.unlinkSync(req.file.path);
+
+        // Response
+        if (rowErrors.length > 0) {
+          return res.status(207).json({
+            message: `Bulk upload completed with errors. ${successCount} succeeded, ${rowErrors.length} failed.`,
+            successCount,
+            errors: rowErrors
+          });
+        }
+
+        res.json({
+          message: `Successfully created ${successCount} schools`,
+          successCount
+        });
+
+      } catch (err) {
+        console.error('[bulkUploadSchools] Fatal error:', err);
+        return res.status(500).json({ message: err.message });
+      }
+    })
+    .on('error', (err) => {
+      console.error('[bulkUploadSchools] Stream error:', err);
+      fs.unlinkSync(req.file.path);
+      return res.status(500).json({ message: 'Error reading CSV file' });
+    });
+};
+
+exports.bulkUploadDepartments = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: 'No CSV file uploaded' });
+  }
+
+  const rows = [];
+  const rowErrors = [];
+  let successCount = 0;
+
+  fs.createReadStream(req.file.path)
+    .pipe(csv({
+      mapHeaders: ({ header }) => header.trim().toLowerCase()
+    }))
+    .on('data', (row) => rows.push(row))
+    .on('end', async () => {
+      try {
+        console.log(`[bulkUploadDepartments] Processing ${rows.length} departments`);
+
+        for (let i = 0; i < rows.length; i++) {
+          const rowNum = i + 2;
+          const row = rows[i];
+
+          try {
+            // Extract and validate fields
+            const name = row.name?.trim();
+            const code = row.code?.trim();
+            const schoolIdentifier = row.school?.trim();
+
+            // Validation
+            if (!name) {
+              throw new Error('Department name is required');
+            }
+
+            if (!code) {
+              throw new Error('Department code is required');
+            }
+
+            if (!schoolIdentifier) {
+              throw new Error('School is required');
+            }
+
+            // Find school by name or code
+            const school = await School.findOne({
+              $or: [
+                { name: { $regex: new RegExp(`^${schoolIdentifier}$`, 'i') } },
+                { code: { $regex: new RegExp(`^${schoolIdentifier}$`, 'i') } }
+              ]
+            });
+
+            if (!school) {
+              throw new Error(`School not found: ${schoolIdentifier}`);
+            }
+
+            // Check if department already exists
+            const existingDept = await Department.findOne({
+              $or: [
+                { code: code, school: school._id },
+                { name: name, school: school._id }
+              ]
+            });
+
+            if (existingDept) {
+              throw new Error(`Department already exists: ${name} (${code}) in ${school.name}`);
+            }
+
+            // Create department
+            const department = await Department.create({
+              name,
+              code,
+              school: school._id
+            });
+
+            successCount++;
+            console.log(`✓ Row ${rowNum}: Created department ${name} (${code})`);
+
+          } catch (err) {
+            rowErrors.push({ row: rowNum, error: err.message });
+            console.error(`✗ Row ${rowNum}: ${err.message}`);
+          }
+        }
+
+        // Cleanup uploaded file
+        fs.unlinkSync(req.file.path);
+
+        // Response
+        if (rowErrors.length > 0) {
+          return res.status(207).json({
+            message: `Bulk upload completed with errors. ${successCount} succeeded, ${rowErrors.length} failed.`,
+            successCount,
+            errors: rowErrors
+          });
+        }
+
+        res.json({
+          message: `Successfully created ${successCount} departments`,
+          successCount
+        });
+
+      } catch (err) {
+        console.error('[bulkUploadDepartments] Fatal error:', err);
+        return res.status(500).json({ message: err.message });
+      }
+    })
+    .on('error', (err) => {
+      console.error('[bulkUploadDepartments] CSV parsing error:', err);
+      return res.status(400).json({ message: `CSV parsing error: ${err.message}` });
+    });
+};
+
+// Bulk upload sections via CSV
+exports.bulkUploadSections = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: 'No CSV file uploaded' });
+  }
+
+  const rows = [];
+  const rowErrors = [];
+  let successCount = 0;
+
+  fs.createReadStream(req.file.path)
+    .pipe(csv({
+      mapHeaders: ({ header }) => header.trim().toLowerCase()
+    }))
+    .on('data', (row) => rows.push(row))
+    .on('end', async () => {
+      try {
+        console.log(`[bulkUploadSections] Processing ${rows.length} sections`);
+
+        for (let i = 0; i < rows.length; i++) {
+          const rowNum = i + 2;
+          const row = rows[i];
+
+          try {
+            // Extract and validate fields
+            const name = row.name?.trim();
+            const schoolIdentifier = row.school?.trim();
+            const departmentIdentifier = row.department?.trim();
+
+            // Validation
+            if (!name) {
+              throw new Error('Section name is required');
+            }
+
+            if (!schoolIdentifier) {
+              throw new Error('School is required');
+            }
+
+            if (!departmentIdentifier) {
+              throw new Error('Department is required');
+            }
+
+            // Find school by name or code
+            const school = await School.findOne({
+              $or: [
+                { name: { $regex: new RegExp(`^${schoolIdentifier}$`, 'i') } },
+                { code: { $regex: new RegExp(`^${schoolIdentifier}$`, 'i') } }
+              ]
+            });
+
+            if (!school) {
+              throw new Error(`School not found: ${schoolIdentifier}`);
+            }
+
+            // Find department by name or code within the school
+            const department = await Department.findOne({
+              school: school._id,
+              $or: [
+                { name: { $regex: new RegExp(`^${departmentIdentifier}$`, 'i') } },
+                { code: { $regex: new RegExp(`^${departmentIdentifier}$`, 'i') } }
+              ]
+            });
+
+            if (!department) {
+              throw new Error(`Department not found: ${departmentIdentifier} in ${school.name}`);
+            }
+
+            // Check if section already exists
+            const Section = require('../models/Section');
+            const existingSection = await Section.findOne({
+              name: { $regex: new RegExp(`^${name}$`, 'i') },
+              school: school._id,
+              department: department._id
+            });
+
+            if (existingSection) {
+              throw new Error(`Section already exists: ${name} in ${department.name}`);
+            }
+
+            // Create section
+            const section = await Section.create({
+              name,
+              school: school._id,
+              department: department._id
+            });
+
+            successCount++;
+            console.log(`✓ Row ${rowNum}: Created section ${name} in ${department.name}`);
+
+          } catch (err) {
+            rowErrors.push({ row: rowNum, error: err.message });
+            console.error(`✗ Row ${rowNum}: ${err.message}`);
+          }
+        }
+
+        // Cleanup uploaded file
+        fs.unlinkSync(req.file.path);
+
+        // Response
+        if (rowErrors.length > 0) {
+          return res.status(207).json({
+            message: `Bulk upload completed with errors. ${successCount} succeeded, ${rowErrors.length} failed.`,
+            successCount,
+            errors: rowErrors
+          });
+        }
+
+        res.json({
+          message: `Successfully created ${successCount} sections`,
+          successCount
+        });
+
+      } catch (err) {
+        console.error('[bulkUploadSections] Fatal error:', err);
+        return res.status(500).json({ message: err.message });
+      }
+    })
+    .on('error', (err) => {
+      console.error('[bulkUploadSections] CSV parsing error:', err);
       return res.status(400).json({ message: `CSV parsing error: ${err.message}` });
     });
 };
@@ -2019,7 +3259,7 @@ exports.bulkUploadCourses = async (req, res) => {
           const firstRow = results[0];
           console.log('First row headers:', Object.keys(firstRow));
           
-          const requiredFields = ['title', 'description', 'teacherid'];
+          const requiredFields = ['title', 'description'];
           const missingHeaders = requiredFields.filter(field => 
             !Object.keys(firstRow).some(key => key.toLowerCase() === field)
           );
@@ -2042,46 +3282,21 @@ exports.bulkUploadCourses = async (req, res) => {
             errors.push({ row: rowNum, message: 'Missing field: title' });
           }
           
-          // Validate teacher IDs if present
-          if (row.teacherid) {
-            const teacherIds = row.teacherid.split(',').map(id => id.trim()).filter(id => id);
-            
-            for (const teacherId of teacherIds) {
-              if (!teacherId.match(/^T\d{4}$/)) {
-                errors.push({ 
-                  row: rowNum, 
-                  message: `Invalid teacher ID format: ${teacherId}. Should be in format T#### (e.g., T0001)` 
-                });
-              } else {
-                // Check if teacher ID exists in the database
-                const teacher = await User.findOne({ teacherId, role: 'teacher' });
-                if (!teacher) {
-                  errors.push({ 
-                    row: rowNum, 
-                    message: `Teacher ID ${teacherId} does not exist in the system` 
-                  });
-                }
-              }
-            }
+          if (!row.description || row.description.trim() === '') {
+            errors.push({ row: rowNum, message: 'Missing field: description' });
           }
           
           // Validate course code if provided
-          if (row.coursecode) {
+          if (row.coursecode && row.coursecode.trim()) {
             const courseCode = row.coursecode.trim();
-            if (!courseCode.match(/^C\d{6}$/)) {
+            
+            // Check if this course code already exists
+            const existingCourse = await Course.findOne({ courseCode });
+            if (existingCourse) {
               errors.push({
                 row: rowNum,
-                message: `Invalid course code format: ${courseCode}. Should be in format C###### (e.g., C000001)`
+                message: `Course code ${courseCode} already exists in the system`
               });
-            } else {
-              // Check if this course code already exists
-              const existingCourse = await Course.findOne({ courseCode });
-              if (existingCourse) {
-                errors.push({
-                  row: rowNum,
-                  message: `Course code ${courseCode} already exists in the system`
-                });
-              }
             }
           }
         }
@@ -2113,6 +3328,39 @@ exports.bulkUploadCourses = async (req, res) => {
         for (const row of results) {
           const title = row.title ? row.title.trim() : '';
           const description = row.description ? row.description.trim() : '';
+          const credits = row.credits ? parseInt(row.credits, 10) : 3; // Default 3 credits
+          
+          // School and Department lookup (REQUIRED)
+          const schoolName = row.school ? row.school.trim() : '';
+          const departmentName = row.department ? row.department.trim() : '';
+          
+          // Find school by name, code, or ObjectId
+          const school = await School.findOne({
+            $or: [
+              { name: schoolName },
+              { code: schoolName },
+              { _id: mongoose.Types.ObjectId.isValid(schoolName) ? schoolName : null }
+            ]
+          });
+          
+          if (!school) {
+            errors.push({ row: results.indexOf(row) + 2, message: `School '${schoolName}' not found` });
+            continue;
+          }
+          
+          // Find department by name, code (within the school)
+          const department = await Department.findOne({
+            $or: [
+              { name: departmentName, school: school._id },
+              { code: departmentName, school: school._id },
+              { _id: mongoose.Types.ObjectId.isValid(departmentName) ? departmentName : null }
+            ]
+          });
+          
+          if (!department) {
+            errors.push({ row: results.indexOf(row) + 2, message: `Department '${departmentName}' not found in ${school.name}` });
+            continue;
+          }
           
           // Use provided course code or generate a new one
           let courseCode = row.coursecode ? row.coursecode.trim() : '';
@@ -2122,46 +3370,74 @@ exports.bulkUploadCourses = async (req, res) => {
             nextCourseNumber++; // Increment for next course
           }
           
-          // Process teacher IDs
-          const teacherIds = row.teacherid ? 
-            row.teacherid.split(',').map(id => id.trim()).filter(id => id) : [];
+          // Optional metadata fields
+          const semester = row.semester ? row.semester.trim() : '';
+          const level = row.level ? row.level.trim().toLowerCase() : 'beginner';
+          const isActive = row.isactive === 'false' ? false : true; // Default true
+          const academicYear = row.academicyear ? row.academicyear.trim() : '';
           
-          // Find the User IDs for the teacher IDs
-          const teacherObjectIds = [];
-          for (const teacherId of teacherIds) {
-            const teacher = await User.findOne({ teacherId, role: 'teacher' });
-            if (teacher) {
-              teacherObjectIds.push(teacher._id);
+          // Handle prerequisites (semicolon or comma separated course codes)
+          let prerequisiteCourses = [];
+          if (row.prerequisite && row.prerequisite.trim()) {
+            const prereqCodes = row.prerequisite.split(/[;,]/).map(code => code.trim()).filter(code => code);
+            for (const prereqCode of prereqCodes) {
+              const prereqCourse = await Course.findOne({ courseCode: prereqCode });
+              if (prereqCourse) {
+                prerequisiteCourses.push(prereqCourse._id);
+              }
             }
           }
           
-          console.log(`Creating course: ${title}, code: ${courseCode}, teachers: ${teacherIds.join(',')}`);
+          console.log(`Creating course: ${title}, code: ${courseCode}, school: ${school.name}, dept: ${department.name}, credits: ${credits}`);
           
-          // Create course with teachers array
+          // Create course without teachers (assigned via Section-Course-Teacher later)
           const course = new Course({ 
             courseCode,
             title, 
-            description, 
-            teachers: teacherObjectIds
+            description,
+            credits,
+            school: school._id,  // ObjectId reference
+            department: department._id,  // ObjectId reference
+            semester,
+            level: ['beginner', 'intermediate', 'advanced'].includes(level) ? level : 'beginner',
+            prerequisite: prerequisiteCourses,
+            academicYear,
+            isActive,
+            teachers: [] // No direct teacher assignment
           });
           
           console.log('Saving course:', course);
           const savedCourse = await course.save();
           console.log('Course saved successfully:', savedCourse);
           
-          // Update each teacher's coursesAssigned array with the new course
-          for (const teacherId of teacherObjectIds) {
-            await User.findByIdAndUpdate(teacherId, {
-              $addToSet: { coursesAssigned: course._id }
-            });
-          }
-          
           createdCourses.push(course);
           
           await AuditLog.create({ 
             action: 'bulk_add_course', 
             performedBy: req.user._id, 
-            details: { courseCode, title, description, teacherIds } 
+            details: { 
+              courseCode, 
+              title, 
+              description, 
+              credits, 
+              school: school.name, 
+              department: department.name,
+              semester,
+              level
+            } 
+          });
+        }
+        
+        // Report any errors that occurred during course creation
+        if (errors.length > 0) {
+          console.log('Some courses failed to create:', errors);
+          fs.unlinkSync(req.file.path);
+          return res.status(207).json({
+            message: `Created ${createdCourses.length} courses, ${errors.length} failed`,
+            success: createdCourses.length,
+            failed: errors.length,
+            courses: createdCourses,
+            errors
           });
         }
         
@@ -2532,6 +3808,10 @@ exports.createDean = async (req, res) => {
       return res.status(400).json({ message: 'School not found' });
     }
     
+    // Generate UID for dean (staff)
+    const { generateStaffUID } = require('../utils/uidGenerator');
+    const uid = await generateStaffUID();
+    
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
     
@@ -2540,7 +3820,10 @@ exports.createDean = async (req, res) => {
       name,
       email,
       password: hashedPassword,
+      uid: uid,
       role: 'dean',
+      roles: ['dean'],
+      primaryRole: 'dean',
       school: schoolId,
       isActive: true,
       emailVerified: true
@@ -2557,6 +3840,7 @@ exports.createDean = async (req, res) => {
         _id: dean._id,
         name: dean.name,
         email: dean.email,
+        uid: dean.uid,
         school: school.name
       }
     });
@@ -2686,6 +3970,10 @@ exports.createHOD = async (req, res) => {
       return res.status(400).json({ message: 'Department does not belong to the selected school' });
     }
     
+    // Generate UID for HOD (staff)
+    const { generateStaffUID } = require('../utils/uidGenerator');
+    const uid = await generateStaffUID();
+    
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
     
@@ -2694,7 +3982,10 @@ exports.createHOD = async (req, res) => {
       name,
       email,
       password: hashedPassword,
+      uid: uid,
       role: 'hod',
+      roles: ['hod'],
+      primaryRole: 'hod',
       school: schoolId,
       department: departmentId,
       isActive: true,
@@ -2712,6 +4003,7 @@ exports.createHOD = async (req, res) => {
         _id: hod._id,
         name: hod.name,
         email: hod.email,
+        uid: hod.uid,
         school: department.school.name,
         department: department.name
       }
@@ -3042,4 +4334,473 @@ exports.adminRemoveTeacherFromSectionCourse = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
+};
+
+// Bulk upload sections from CSV
+exports.bulkUploadSections = async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+
+  const csv = require('csv-parser');
+  const fs = require('fs');
+  const Section = require('../models/Section');
+  const School = require('../models/School');
+  const Department = require('../models/Department');
+
+  const rows = [];
+  const results = [];
+  const errors = [];
+  let successCount = 0;
+
+  fs.createReadStream(req.file.path)
+    .pipe(csv({
+      mapHeaders: ({ header }) => header.trim().toLowerCase(),
+      skipEmptyLines: true
+    }))
+    .on('data', (row) => {
+      const normalized = {};
+      Object.keys(row).forEach(k => {
+        normalized[k.toLowerCase().trim()] = row[k];
+      });
+      rows.push(normalized);
+    })
+    .on('end', async () => {
+      try {
+        console.log(`[bulkUploadSections] Processing ${rows.length} rows`);
+
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          const rowNum = i + 2;
+
+          try {
+            const name = (row.name || '').trim();
+            const schoolRaw = (row.school || '').trim();
+            const departmentRaw = (row.department || '').trim();
+            const semester = row.semester ? parseInt(row.semester) : undefined;
+            const year = (row.year || '').trim();
+            const capacity = row.capacity ? parseInt(row.capacity) : 60;
+
+            // Validation
+            if (!name) throw new Error('Missing section name');
+            if (!schoolRaw) throw new Error('Missing school');
+            if (!departmentRaw) throw new Error('Missing department');
+
+            // Find school
+            const school = await School.findOne({
+              $or: [
+                { _id: mongoose.Types.ObjectId.isValid(schoolRaw) ? schoolRaw : null },
+                { code: schoolRaw },
+                { name: { $regex: new RegExp('^' + schoolRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } }
+              ]
+            });
+
+            if (!school) throw new Error(`School '${schoolRaw}' not found`);
+
+            // Find department
+            const department = await Department.findOne({
+              $or: [
+                { _id: mongoose.Types.ObjectId.isValid(departmentRaw) ? departmentRaw : null },
+                { code: departmentRaw },
+                { name: { $regex: new RegExp('^' + departmentRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } }
+              ],
+              school: school._id
+            });
+
+            if (!department) throw new Error(`Department '${departmentRaw}' not found in ${school.name}`);
+
+            // Check if section already exists
+            const existing = await Section.findOne({
+              name: { $regex: new RegExp('^' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') },
+              school: school._id,
+              department: department._id
+            });
+
+            if (existing) {
+              throw new Error(`Section '${name}' already exists in ${department.name}`);
+            }
+
+            // Create section
+            const section = new Section({
+              name,
+              school: school._id,
+              department: department._id,
+              semester,
+              year,
+              capacity,
+              isActive: true,
+              students: [],
+              teachers: [],
+              courses: []
+            });
+
+            await section.save();
+
+            results.push({
+              row: rowNum,
+              name,
+              school: school.name,
+              department: department.name,
+              semester: semester || '-',
+              year: year || '-',
+              capacity
+            });
+
+            successCount++;
+
+          } catch (err) {
+            console.error(`Row ${rowNum} error:`, err.message);
+            errors.push({ row: rowNum, message: err.message });
+          }
+        }
+
+        // Cleanup uploaded file
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+
+        res.json({
+          success: successCount,
+          failed: errors.length,
+          total: rows.length,
+          results,
+          errors
+        });
+
+      } catch (err) {
+        console.error('Error in bulkUploadSections:', err);
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+        res.status(500).json({ message: err.message });
+      }
+    })
+    .on('error', (err) => {
+      console.error('CSV parsing error:', err);
+      try { fs.unlinkSync(req.file.path); } catch (_) {}
+      res.status(400).json({ message: `CSV parsing error: ${err.message}` });
+    });
+};
+
+// Bulk assign courses to sections from CSV
+exports.bulkAssignCoursesToSections = async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+
+  const csv = require('csv-parser');
+  const fs = require('fs');
+  const Section = require('../models/Section');
+  const Course = require('../models/Course');
+  const School = require('../models/School');
+  const Department = require('../models/Department');
+
+  const rows = [];
+  const results = [];
+  const errors = [];
+  let successCount = 0;
+
+  fs.createReadStream(req.file.path)
+    .pipe(csv({
+      mapHeaders: ({ header }) => header.trim().toLowerCase(),
+      skipEmptyLines: true
+    }))
+    .on('data', (row) => {
+      const normalized = {};
+      Object.keys(row).forEach(k => {
+        normalized[k.toLowerCase().trim()] = row[k];
+      });
+      rows.push(normalized);
+    })
+    .on('end', async () => {
+      try {
+        console.log(`[bulkAssignCoursesToSections] Processing ${rows.length} rows`);
+
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          const rowNum = i + 2;
+
+          try {
+            const sectionRaw = (row.section || '').trim();
+            const schoolRaw = (row.school || '').trim();
+            const departmentRaw = (row.department || '').trim();
+            const coursesRaw = (row.courses || row.coursecodes || '').trim();
+
+            // Validation
+            if (!sectionRaw) throw new Error('Missing section');
+            if (!coursesRaw) throw new Error('Missing courses');
+
+            // Find school and department if provided
+            let schoolId = null, departmentId = null;
+
+            if (schoolRaw) {
+              const school = await School.findOne({
+                $or: [
+                  { _id: mongoose.Types.ObjectId.isValid(schoolRaw) ? schoolRaw : null },
+                  { code: schoolRaw },
+                  { name: { $regex: new RegExp('^' + schoolRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } }
+                ]
+              });
+              if (school) schoolId = school._id;
+            }
+
+            if (departmentRaw) {
+              const department = await Department.findOne({
+                $or: [
+                  { _id: mongoose.Types.ObjectId.isValid(departmentRaw) ? departmentRaw : null },
+                  { code: departmentRaw },
+                  { name: { $regex: new RegExp('^' + departmentRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } }
+                ],
+                ...(schoolId && { school: schoolId })
+              });
+              if (department) departmentId = department._id;
+            }
+
+            // Find section
+            const sectionQuery = {
+              $or: [
+                { _id: mongoose.Types.ObjectId.isValid(sectionRaw) ? sectionRaw : null },
+                { name: { $regex: new RegExp('^' + sectionRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } }
+              ]
+            };
+
+            if (schoolId) sectionQuery.school = schoolId;
+            if (departmentId) sectionQuery.department = departmentId;
+
+            const section = await Section.findOne(sectionQuery);
+            if (!section) throw new Error(`Section '${sectionRaw}' not found`);
+
+            // Parse courses (comma/semicolon separated)
+            const courseTokens = coursesRaw.split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            if (courseTokens.length === 0) throw new Error('No valid courses provided');
+
+            const courseIds = [];
+            const notFound = [];
+
+            for (const token of courseTokens) {
+              const course = await Course.findOne({
+                $or: [
+                  { _id: mongoose.Types.ObjectId.isValid(token) ? token : null },
+                  { code: token },
+                  { title: { $regex: new RegExp('^' + token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } }
+                ]
+              });
+
+              if (course) {
+                if (!courseIds.includes(course._id.toString())) {
+                  courseIds.push(course._id);
+                }
+              } else {
+                notFound.push(token);
+              }
+            }
+
+            if (courseIds.length === 0) {
+              throw new Error(`No valid courses found from: ${coursesRaw}`);
+            }
+
+            // Add courses to section (avoid duplicates)
+            const existingCourses = section.courses.map(c => c.toString());
+            const newCourses = courseIds.filter(id => !existingCourses.includes(id.toString()));
+
+            if (newCourses.length > 0) {
+              section.courses.push(...newCourses);
+              await section.save();
+            }
+
+            results.push({
+              row: rowNum,
+              section: section.name,
+              coursesAdded: newCourses.length,
+              coursesSkipped: courseIds.length - newCourses.length,
+              notFound: notFound.length > 0 ? notFound.join(', ') : null
+            });
+
+            successCount++;
+
+          } catch (err) {
+            console.error(`Row ${rowNum} error:`, err.message);
+            errors.push({ row: rowNum, message: err.message });
+          }
+        }
+
+        // Cleanup uploaded file
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+
+        res.json({
+          success: successCount,
+          failed: errors.length,
+          total: rows.length,
+          results,
+          errors
+        });
+
+      } catch (err) {
+        console.error('Error in bulkAssignCoursesToSections:', err);
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+        res.status(500).json({ message: err.message });
+      }
+    })
+    .on('error', (err) => {
+      console.error('CSV parsing error:', err);
+      try { fs.unlinkSync(req.file.path); } catch (_) {}
+      res.status(400).json({ message: `CSV parsing error: ${err.message}` });
+    });
+};
+
+// Bulk assign teachers to section-courses from CSV
+exports.bulkAssignTeachersToSections = async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+
+  const csv = require('csv-parser');
+  const fs = require('fs');
+  const Section = require('../models/Section');
+  const Course = require('../models/Course');
+  const User = require('../models/User');
+  const SectionCourseTeacher = require('../models/SectionCourseTeacher');
+
+  const rows = [];
+  const results = [];
+  const errors = [];
+  let successCount = 0;
+
+  fs.createReadStream(req.file.path)
+    .pipe(csv({
+      mapHeaders: ({ header }) => header.trim().toLowerCase(),
+      skipEmptyLines: true
+    }))
+    .on('data', (row) => {
+      const normalized = {};
+      Object.keys(row).forEach(k => {
+        normalized[k.toLowerCase().trim()] = row[k];
+      });
+      rows.push(normalized);
+    })
+    .on('end', async () => {
+      try {
+        console.log(`[bulkAssignTeachersToSections] Processing ${rows.length} rows`);
+
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          const rowNum = i + 2;
+
+          try {
+            const sectionRaw = (row.section || '').trim();
+            const courseRaw = (row.course || row.coursecode || '').trim();
+            const teacherRaw = (row.teacher || row.teacheremail || row.teacheruid || '').trim();
+
+            // Validation
+            if (!sectionRaw) throw new Error('Missing section');
+            if (!courseRaw) throw new Error('Missing course');
+            if (!teacherRaw) throw new Error('Missing teacher');
+
+            // Find section
+            const section = await Section.findOne({
+              $or: [
+                { _id: mongoose.Types.ObjectId.isValid(sectionRaw) ? sectionRaw : null },
+                { name: { $regex: new RegExp('^' + sectionRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } }
+              ]
+            });
+
+            if (!section) throw new Error(`Section '${sectionRaw}' not found`);
+
+            // Find course
+            const course = await Course.findOne({
+              $or: [
+                { _id: mongoose.Types.ObjectId.isValid(courseRaw) ? courseRaw : null },
+                { code: courseRaw },
+                { title: { $regex: new RegExp('^' + courseRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } }
+              ]
+            });
+
+            if (!course) throw new Error(`Course '${courseRaw}' not found`);
+
+            // Check if course is assigned to section
+            if (!section.courses.some(c => c.toString() === course._id.toString())) {
+              throw new Error(`Course '${course.code}' is not assigned to section '${section.name}'`);
+            }
+
+            // Find teacher by email, UID, or teacherId
+            const teacher = await User.findOne({
+              $or: [
+                { _id: mongoose.Types.ObjectId.isValid(teacherRaw) ? teacherRaw : null },
+                { email: teacherRaw.toLowerCase() },
+                { uid: teacherRaw },
+                { teacherId: teacherRaw }
+              ],
+              $or: [
+                { role: 'teacher' },
+                { roles: 'teacher' }
+              ]
+            });
+
+            if (!teacher) throw new Error(`Teacher '${teacherRaw}' not found`);
+
+            // Check if assignment already exists
+            const existing = await SectionCourseTeacher.findOne({
+              section: section._id,
+              course: course._id,
+              teacher: teacher._id
+            });
+
+            if (existing) {
+              results.push({
+                row: rowNum,
+                section: section.name,
+                course: course.code,
+                teacher: teacher.email,
+                status: 'Already assigned'
+              });
+              successCount++;
+              continue;
+            }
+
+            // Create assignment
+            const assignment = new SectionCourseTeacher({
+              section: section._id,
+              course: course._id,
+              teacher: teacher._id,
+              assignedBy: req.user._id,
+              assignedAt: new Date()
+            });
+
+            await assignment.save();
+
+            // Add teacher to section's teachers array if not already present
+            if (!section.teachers.some(t => t.toString() === teacher._id.toString())) {
+              section.teachers.push(teacher._id);
+              await section.save();
+            }
+
+            results.push({
+              row: rowNum,
+              section: section.name,
+              course: course.code,
+              teacher: teacher.email,
+              teacherUID: teacher.uid || teacher.teacherId,
+              status: 'Assigned successfully'
+            });
+
+            successCount++;
+
+          } catch (err) {
+            console.error(`Row ${rowNum} error:`, err.message);
+            errors.push({ row: rowNum, message: err.message });
+          }
+        }
+
+        // Cleanup uploaded file
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+
+        res.json({
+          success: successCount,
+          failed: errors.length,
+          total: rows.length,
+          results,
+          errors
+        });
+
+      } catch (err) {
+        console.error('Error in bulkAssignTeachersToSections:', err);
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+        res.status(500).json({ message: err.message });
+      }
+    })
+    .on('error', (err) => {
+      console.error('CSV parsing error:', err);
+      try { fs.unlinkSync(req.file.path); } catch (_) {}
+      res.status(400).json({ message: `CSV parsing error: ${err.message}` });
+    });
 };

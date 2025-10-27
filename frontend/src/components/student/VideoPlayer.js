@@ -130,13 +130,18 @@ const VideoPlayer = ({ video, token }) => {
   }, []);
   
   return (
-    <Card sx={{ mb: 3 }}>
+    <Card sx={{ mb: { xs: 2, sm: 3 } }}>
       <Box sx={{ position: 'relative' }}>
         <video
           ref={videoRef}
           src={video.videoUrl}
           controls
           width="100%"
+          style={{ 
+            maxHeight: '500px', 
+            height: 'auto',
+            display: 'block'
+          }}
           controlsList="nodownload noremoteplayback nofullscreen"
           onContextMenu={e => e.preventDefault()}
           onTimeUpdate={handleTimeUpdate}
@@ -144,26 +149,57 @@ const VideoPlayer = ({ video, token }) => {
           onPlay={handlePlay}
           onPause={handlePause}
           onEnded={handleEnded}
+          playsInline
         />
         <LinearProgress 
           variant="determinate" 
           value={progress} 
-          sx={{ height: 5, position: 'absolute', bottom: 0, left: 0, right: 0 }}
+          sx={{ 
+            height: { xs: 4, sm: 5 }, 
+            position: 'absolute', 
+            bottom: 0, 
+            left: 0, 
+            right: 0 
+          }}
         />
       </Box>
-      <CardContent>
-        <Typography variant="h6">{video.title}</Typography>
-        <Typography variant="body2" color="text.secondary">{video.description}</Typography>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
-          <Typography variant="body2">
+      <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+        <Typography variant="h6" sx={{
+          fontSize: { xs: '1rem', sm: '1.25rem' }
+        }}>
+          {video.title}
+        </Typography>
+        <Typography 
+          variant="body2" 
+          color="text.secondary"
+          sx={{
+            fontSize: { xs: '0.875rem', sm: '0.875rem' }
+          }}
+        >
+          {video.description}
+        </Typography>
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          mt: { xs: 1, sm: 1.5 },
+          flexDirection: { xs: 'column', sm: 'row' },
+          gap: { xs: 0.5, sm: 0 }
+        }}>
+          <Typography variant="body2" sx={{
+            fontSize: { xs: '0.75rem', sm: '0.875rem' }
+          }}>
             Time: {formatTime(currentTime)} / {formatTime(duration)}
           </Typography>
-          <Typography variant="body2" color="primary">
+          <Typography variant="body2" color="primary" sx={{
+            fontSize: { xs: '0.75rem', sm: '0.875rem' }
+          }}>
             Watch time: {formatTime(timeWatched)}
           </Typography>
         </Box>
-        <Alert severity="info" sx={{ mt: 2 }}>
-          <Typography variant="body2">
+        <Alert severity="info" sx={{ mt: { xs: 1.5, sm: 2 } }}>
+          <Typography variant="body2" sx={{
+            fontSize: { xs: '0.75rem', sm: '0.875rem' }
+          }}>
             Note: Fast-forwarding is disabled to ensure you get the most out of this content.
           </Typography>
         </Alert>

@@ -3,11 +3,50 @@ const User = require('../models/User');
 const GroupChat = require('../models/GroupChat');
 const Section = require('../models/Section');
 const Course = require('../models/Course');
+const { RateLimiterMemory } = require('rate-limiter-flexible');
+const { connectionPoolManager } = require('../config/socketConfig');
 
-let chatUsers = new Map(); // Store socket connections
+// Enhanced user session management with cleanup
+const chatUsers = new Map();
+const roomUsers = new Map(); // Track users per room
+const userHeartbeats = new Map(); // Track user activity
+
+// Rate limiters for different actions
+const messageLimiter = new RateLimiterMemory({
+  keyGenerator: (socket) => socket.user._id.toString(),
+  points: 10, // Number of messages
+  duration: 60, // Per 60 seconds
+});
+
+const joinLimiter = new RateLimiterMemory({
+  keyGenerator: (socket) => socket.user._id.toString(),
+  points: 5, // Number of join attempts
+  duration: 60, // Per 60 seconds
+});
+
+// Cleanup interval for inactive users
+setInterval(() => {
+  const now = Date.now();
+  const INACTIVE_THRESHOLD = 5 * 60 * 1000; // 5 minutes
+
+  for (const [userId, lastSeen] of userHeartbeats.entries()) {
+    if (now - lastSeen > INACTIVE_THRESHOLD) {
+      chatUsers.delete(userId);
+      userHeartbeats.delete(userId);
+      
+      // Remove from all rooms
+      for (const [roomId, users] of roomUsers.entries()) {
+        users.delete(userId);
+        if (users.size === 0) {
+          roomUsers.delete(roomId);
+        }
+      }
+    }
+  }
+}, 60000); // Run every minute
 
 const initializeGroupChatSocket = (io) => {
-  // Create a namespace for group chat
+  // Create a namespace for group chat with enhanced configuration
   const chatNamespace = io.of('/group-chat');
 
   chatNamespace.use(async (socket, next) => {
@@ -32,141 +71,409 @@ const initializeGroupChatSocket = (io) => {
   });
 
   chatNamespace.on('connection', (socket) => {
+    const userId = socket.user._id.toString();
     console.log(`User ${socket.user.name} connected to group chat`);
     
-    // Store user connection
-    chatUsers.set(socket.user._id.toString(), {
+    // Add to connection pool manager
+    connectionPoolManager.addConnection(socket.id, '/group-chat', socket.user);
+    
+    // Store enhanced user connection info
+    chatUsers.set(userId, {
       socketId: socket.id,
-      user: socket.user
+      socket: socket,
+      user: socket.user,
+      connectedAt: new Date(),
+      lastActivity: Date.now(),
+      currentRoom: null,
+      isTyping: false
+    });
+    
+    // Update heartbeat
+    userHeartbeats.set(userId, Date.now());
+    
+    // Send server load info to client
+    const serverLoad = connectionPoolManager.getServerLoad();
+    socket.emit('server-load', { load: serverLoad });
+    
+    // Set up periodic heartbeat
+    const heartbeatInterval = setInterval(() => {
+      if (socket.connected) {
+        userHeartbeats.set(userId, Date.now());
+        socket.emit('ping');
+      } else {
+        clearInterval(heartbeatInterval);
+      }
+    }, 30000); // Every 30 seconds
+
+    // Handle pong response
+    socket.on('pong', () => {
+      userHeartbeats.set(userId, Date.now());
     });
 
-    // Join chat room
+    // Enhanced join chat room with rate limiting
     socket.on('join-chat', async (data) => {
       try {
+        // Apply rate limiting
+        await joinLimiter.consume(socket);
+        
         const { courseId, sectionId } = data;
         const roomId = `chat_${courseId}_${sectionId}`;
         
         console.log(`🔧 [JOIN-CHAT] User ${socket.user.name} attempting to join room ${roomId}`);
-        console.log(`🔧 [JOIN-CHAT] courseId: ${courseId}, sectionId: ${sectionId}`);
 
         // Verify user has access to this chat room
         const hasAccess = await verifyUserChatAccess(socket.user, courseId, sectionId);
-        console.log(`🔧 [JOIN-CHAT] Access verification result: ${hasAccess}`);
         if (!hasAccess) {
-          socket.emit('chat-error', { message: 'Access denied to this chat roomm' });
+          socket.emit('chat-error', { 
+            message: 'Access denied to this chat room',
+            code: 'ACCESS_DENIED'
+          });
           return;
         }
 
-        // Leave any previous rooms
-        socket.rooms.forEach(room => {
-          if (room.startsWith('chat_')) {
-            socket.leave(room);
+        // Leave previous room and clean up
+        const previousRoom = socket.currentRoom;
+        if (previousRoom) {
+          socket.leave(previousRoom);
+          
+          // Remove from previous room users tracking
+          if (roomUsers.has(previousRoom)) {
+            roomUsers.get(previousRoom).delete(userId);
+            if (roomUsers.get(previousRoom).size === 0) {
+              roomUsers.delete(previousRoom);
+            }
           }
-        });
+          
+          // Notify previous room about user leaving
+          socket.to(previousRoom).emit('user-left', {
+            userId: socket.user._id,
+            userName: socket.user.name
+          });
+        }
 
         // Join the new room
         socket.join(roomId);
         socket.currentRoom = roomId;
         
-        console.log(`User ${socket.user.name} joined room ${roomId}`);
-        socket.emit('joined-chat', { roomId, courseId, sectionId });
+        // Update user session
+        const userSession = chatUsers.get(userId);
+        if (userSession) {
+          userSession.currentRoom = roomId;
+          userSession.lastActivity = Date.now();
+        }
         
-        // Notify room about user joining (optional)
+        // Track room users
+        if (!roomUsers.has(roomId)) {
+          roomUsers.set(roomId, new Set());
+        }
+        roomUsers.get(roomId).add(userId);
+        
+        // Update connection pool manager
+        connectionPoolManager.addUserToRoom(socket.id, roomId);
+        
+        console.log(`✅ User ${socket.user.name} joined room ${roomId}`);
+        
+        // Get current room users with details
+        const roomUserIds = roomUsers.get(roomId) || new Set();
+        const activeUsers = Array.from(roomUserIds).map(uid => {
+          const userSession = chatUsers.get(uid);
+          if (userSession && userSession.user) {
+            return {
+              userId: userSession.user._id,
+              userName: userSession.user.name,
+              userRole: userSession.user.roles?.[0] || 'student'
+            };
+          }
+          return null;
+        }).filter(Boolean);
+        
+        // Get current room statistics
+        const roomStats = {
+          activeUsers: activeUsers, // Send array of users, not just count
+          roomId,
+          courseId,
+          sectionId
+        };
+        
+        socket.emit('joined-chat', roomStats);
+        
+        // Notify room about user joining with enhanced info
         socket.to(roomId).emit('user-joined', {
           userId: socket.user._id,
-          userName: socket.user.name
+          userName: socket.user.name,
+          userRole: socket.user.roles?.[0] || 'student',
+          timestamp: new Date(),
+          activeUsers: roomStats.activeUsers
         });
-      } catch (error) {
-        console.error('Join chat error:', error);
-        socket.emit('chat-error', { message: 'Failed to join chat room' });
+        
+      } catch (rateLimitError) {
+        if (rateLimitError.remainingPoints !== undefined) {
+          socket.emit('chat-error', { 
+            message: 'Too many join attempts. Please wait before trying again.',
+            code: 'RATE_LIMITED',
+            retryAfter: Math.ceil(rateLimitError.msBeforeNext / 1000)
+          });
+        } else {
+          console.error('Join chat error:', rateLimitError);
+          socket.emit('chat-error', { 
+            message: 'Failed to join chat room',
+            code: 'JOIN_ERROR'
+          });
+        }
       }
     });
 
-    // Handle new message
-    socket.on('send-message', async (data) => {
+    // Enhanced message handling with rate limiting and better validation
+    socket.on('send-message', async (data, callback) => {
       try {
-        const { courseId, sectionId, message } = data;
+        // Apply rate limiting
+        await messageLimiter.consume(socket);
+        
+        const { 
+          courseId, 
+          sectionId, 
+          message, 
+          messageType = 'text', 
+          replyTo = null,
+          fileUrl = null,
+          fileName = null,
+          fileSize = null,
+          mimeType = null
+        } = data;
         const roomId = `chat_${courseId}_${sectionId}`;
 
+        // Validate room membership
         if (socket.currentRoom !== roomId) {
-          socket.emit('chat-error', { message: 'Not in the correct chat room' });
+          const error = { 
+            message: 'Not in the correct chat room',
+            code: 'INVALID_ROOM'
+          };
+          socket.emit('chat-error', error);
+          if (typeof callback === 'function') {
+            callback({ success: false, error: error.message });
+          }
           return;
         }
 
-        if (!message || message.trim().length === 0) {
-          socket.emit('chat-error', { message: 'Message cannot be empty' });
-          return;
-        }
+        // Enhanced message validation based on type
+        if (messageType === 'text') {
+          if (!message || typeof message !== 'string' || message.trim().length === 0) {
+            const error = { 
+              message: 'Message cannot be empty',
+              code: 'EMPTY_MESSAGE'
+            };
+            socket.emit('chat-error', error);
+            if (typeof callback === 'function') {
+              callback({ success: false, error: error.message });
+            }
+            return;
+          }
 
-        if (message.length > 1000) {
-          socket.emit('chat-error', { message: 'Message too long (max 200 words)' });
-          return;
-        }
-
-        // Filter content for vulgar words
-        const contentFilter = GroupChat.filterContent(message.trim());
-        
-        // If message is heavily flagged, reject it
-        if (contentFilter.flagged && contentFilter.flaggedWords.length > 2) {
-          socket.emit('chat-error', { 
-            message: 'Message contains inappropriate content and cannot be sent',
-            flaggedWords: contentFilter.flaggedWords 
-          });
-          return;
-        }
-
-        // Save message to database (with filtered content if flagged)
-        const newMessage = new GroupChat({
-          courseId,
-          sectionId,
-          senderId: socket.user._id,
-          message: contentFilter.flagged ? contentFilter.filtered : contentFilter.original,
-          flagged: contentFilter.flagged,
-          flaggedReason: contentFilter.flagged ? `Contains: ${contentFilter.flaggedWords.join(', ')}` : undefined
-        });
-
-        await newMessage.save();
-        await newMessage.populate('senderId', 'name regNo teacherId roles primaryRole');
-
-        // Format message for broadcast
-        const sender = newMessage.senderId;
-        let displayName = sender.name;
-        let displayId = '';
-
-        if (sender.roles && sender.roles.includes('admin')) {
-          displayName = 'Admin';
-          displayId = '';
-        } else {
-          if (sender.roles && sender.roles.includes('student') && sender.regNo) {
-            displayId = sender.regNo;
-          } else if (sender.roles && sender.roles.includes('teacher') && sender.teacherId) {
-            displayId = sender.teacherId;
+          if (message.length > 1000) {
+            const error = { 
+              message: 'Message too long (max 1000 characters)',
+              code: 'MESSAGE_TOO_LONG'
+            };
+            socket.emit('chat-error', error);
+            if (typeof callback === 'function') {
+              callback({ success: false, error: error.message });
+            }
+            return;
+          }
+        } else if (messageType === 'image' || messageType === 'document') {
+          // Validate file message
+          if (!fileUrl || !fileName) {
+            const error = { 
+              message: 'File information missing',
+              code: 'INVALID_FILE'
+            };
+            socket.emit('chat-error', error);
+            if (typeof callback === 'function') {
+              callback({ success: false, error: error.message });
+            }
+            return;
           }
         }
 
+        // Update user activity
+        const userSession = chatUsers.get(userId);
+        if (userSession) {
+          userSession.lastActivity = Date.now();
+          userSession.isTyping = false;
+        }
+        
+        // Update connection pool activity
+        connectionPoolManager.updateUserActivity(socket.id);
+
+        // Filter content for inappropriate content (only for text messages)
+        let contentFilter = null;
+        let finalMessage = message;
+        let isFlagged = false;
+        let flaggedReason = undefined;
+
+        if (messageType === 'text') {
+          contentFilter = GroupChat.filterContent(message.trim());
+          
+          // Enhanced content filtering with different severity levels
+          if (contentFilter.flagged) {
+            if (contentFilter.flaggedWords.length > 2) {
+              socket.emit('chat-error', { 
+                message: 'Message contains inappropriate content and cannot be sent',
+                code: 'CONTENT_FILTERED',
+                flaggedWords: contentFilter.flaggedWords 
+              });
+              return;
+            } else {
+              // Warn user but allow message with filtering
+              socket.emit('message-filtered', {
+                message: 'Your message contained inappropriate content and has been filtered',
+                flaggedWords: contentFilter.flaggedWords
+              });
+            }
+          }
+
+          finalMessage = contentFilter.flagged ? contentFilter.filtered : contentFilter.original;
+          isFlagged = contentFilter.flagged;
+          flaggedReason = contentFilter.flagged ? `Contains: ${contentFilter.flaggedWords.join(', ')}` : undefined;
+        } else {
+          // For file messages, use filename as message text if not provided
+          finalMessage = message || fileName || 'File';
+        }
+
+        // Create enhanced message object
+        const messageData = {
+          courseId,
+          sectionId,
+          senderId: socket.user._id,
+          message: finalMessage,
+          messageType,
+          flagged: isFlagged,
+          flaggedReason,
+          replyTo: replyTo || undefined,
+          // Add file fields for file/image/document messages
+          ...(messageType === 'image' || messageType === 'document' ? {
+            fileUrl,
+            fileName,
+            fileSize,
+            mimeType
+          } : {}),
+          metadata: {
+            userAgent: socket.handshake.headers['user-agent'],
+            ip: socket.handshake.address,
+            platform: data.platform || 'unknown'
+          }
+        };
+
+        // Save message to database with better error handling
+        const newMessage = new GroupChat(messageData);
+        await newMessage.save();
+        await newMessage.populate([
+          {
+            path: 'senderId',
+            select: 'name uid regNo teacherId roles primaryRole avatar'
+          },
+          {
+            path: 'replyTo',
+            select: 'message senderId timestamp',
+            populate: {
+              path: 'senderId',
+              select: 'name uid regNo teacherId roles'
+            }
+          }
+        ]);
+
+        // Enhanced message formatting
+        const sender = newMessage.senderId;
         const formattedMessage = {
           _id: newMessage._id,
           message: newMessage.message,
+          messageType: newMessage.messageType,
           timestamp: newMessage.timestamp,
           flagged: newMessage.flagged,
+          // Add file fields if present
+          ...(newMessage.fileUrl ? {
+            fileUrl: newMessage.fileUrl,
+            fileName: newMessage.fileName,
+            fileSize: newMessage.fileSize,
+            mimeType: newMessage.mimeType
+          } : {}),
+          replyTo: newMessage.replyTo ? {
+            _id: newMessage.replyTo._id,
+            message: newMessage.replyTo.message.substring(0, 100) + (newMessage.replyTo.message.length > 100 ? '...' : ''),
+            sender: {
+              name: newMessage.replyTo.senderId.name,
+              roles: newMessage.replyTo.senderId.roles
+            },
+            timestamp: newMessage.replyTo.timestamp
+          } : null,
           sender: {
             _id: sender._id,
-            name: displayName,
-            id: displayId,
-            roles: sender.roles
+            name: sender.name,
+            uid: sender.uid || sender.teacherId || sender.regNo || null,
+            regNo: sender.regNo || null, // Legacy
+            teacherId: sender.teacherId || null, // Legacy
+            id: sender.uid || sender.regNo || sender.teacherId || '',
+            roles: sender.roles,
+            avatar: sender.avatar || null,
+            isOnline: chatUsers.has(sender._id.toString())
           },
-          canDelete: newMessage.canDelete(socket.user),
-          canShowDelete: newMessage.canShowDeleteButton(socket.user),
+          permissions: {
+            canDelete: newMessage.canDelete(socket.user),
+            canEdit: newMessage.senderId._id.toString() === socket.user._id.toString() && newMessage.messageType === 'text',
+            canReply: true,
+            canReact: true
+          },
+          reactions: [],
+          editHistory: [],
           isOwner: newMessage.senderId._id.toString() === socket.user._id.toString()
         };
 
-        // Broadcast message to all users in the room
-        chatNamespace.to(roomId).emit('new-message', formattedMessage);
+        // Broadcast enhanced message to OTHER users in the room (exclude sender)
+        // Use socket.to() instead of chatNamespace.to() to exclude the sender
+        console.log(`📤 Broadcasting new-message to OTHER users in room ${roomId} (excluding sender ${socket.user.name})`);
+        socket.to(roomId).emit('new-message', formattedMessage);
         
-        console.log(`Message sent in room ${roomId} by ${socket.user.name}`);
-      } catch (error) {
-        console.error('Send message error:', error);
-        socket.emit('chat-error', { message: 'Failed to send message' });
+        // Send delivery confirmation to sender
+        socket.emit('message-sent', {
+          tempId: data.tempId,
+          messageId: newMessage._id,
+          timestamp: newMessage.timestamp
+        });
+        
+        // Send acknowledgment callback to sender
+        console.log(`✅ Sending callback to sender ${socket.user.name} with messageId: ${newMessage._id}`);
+        if (typeof callback === 'function') {
+          callback({ 
+            success: true, 
+            message: formattedMessage,
+            messageId: newMessage._id 
+          });
+        }
+        
+        console.log(`✅ Message sent in room ${roomId} by ${socket.user.name} (Type: ${messageType})`);
+        
+      } catch (rateLimitError) {
+        if (rateLimitError.remainingPoints !== undefined) {
+          const error = { 
+            message: `Too many messages. Please wait ${Math.ceil(rateLimitError.msBeforeNext / 1000)} seconds.`,
+            code: 'RATE_LIMITED',
+            retryAfter: Math.ceil(rateLimitError.msBeforeNext / 1000)
+          };
+          socket.emit('chat-error', error);
+          if (typeof callback === 'function') {
+            callback({ success: false, error: error.message });
+          }
+        } else {
+          console.error('Send message error:', rateLimitError);
+          const error = { 
+            message: 'Failed to send message. Please try again.',
+            code: 'SEND_ERROR'
+          };
+          socket.emit('chat-error', error);
+          if (typeof callback === 'function') {
+            callback({ success: false, error: error.message });
+          }
+        }
       }
     });
 
@@ -207,16 +514,24 @@ const initializeGroupChatSocket = (io) => {
       }
     });
 
-    // Handle typing indicators
+    // Enhanced typing indicators with better state management
     socket.on('typing-start', (data) => {
       const { courseId, sectionId } = data;
       const roomId = `chat_${courseId}_${sectionId}`;
       
       if (socket.currentRoom === roomId) {
-        socket.to(roomId).emit('user-typing', {
-          userId: socket.user._id,
-          userName: socket.user.name
-        });
+        const userSession = chatUsers.get(userId);
+        if (userSession && !userSession.isTyping) {
+          userSession.isTyping = true;
+          userSession.lastActivity = Date.now();
+          
+          socket.to(roomId).emit('user-typing', {
+            userId: socket.user._id,
+            userName: socket.user.name,
+            userRole: socket.user.roles?.[0] || 'student',
+            timestamp: new Date()
+          });
+        }
       }
     });
 
@@ -225,24 +540,151 @@ const initializeGroupChatSocket = (io) => {
       const roomId = `chat_${courseId}_${sectionId}`;
       
       if (socket.currentRoom === roomId) {
-        socket.to(roomId).emit('user-stopped-typing', {
-          userId: socket.user._id
+        const userSession = chatUsers.get(userId);
+        if (userSession && userSession.isTyping) {
+          userSession.isTyping = false;
+          userSession.lastActivity = Date.now();
+          
+          socket.to(roomId).emit('user-stopped-typing', {
+            userId: socket.user._id,
+            timestamp: new Date()
+          });
+        }
+      }
+    });
+
+    // Enhanced: Message reactions (WhatsApp/Telegram style)
+    socket.on('add-reaction', async (data) => {
+      try {
+        const { messageId, reaction, courseId, sectionId } = data;
+        const roomId = `chat_${courseId}_${sectionId}`;
+        
+        if (socket.currentRoom !== roomId) return;
+        
+        // Find the message
+        const message = await GroupChat.findById(messageId);
+        if (!message) {
+          console.error('Message not found for reaction:', messageId);
+          return;
+        }
+        
+        // Initialize reactions array if not exists
+        if (!message.reactions) {
+          message.reactions = [];
+        }
+        
+        // Check if user already reacted with this emoji
+        const existingReactionIndex = message.reactions.findIndex(
+          r => r.emoji === reaction && r.userId.toString() === socket.user._id.toString()
+        );
+        
+        let actionType = 'added';
+        
+        if (existingReactionIndex >= 0) {
+          // Remove reaction (toggle off)
+          message.reactions.splice(existingReactionIndex, 1);
+          actionType = 'removed';
+        } else {
+          // Add new reaction
+          message.reactions.push({
+            emoji: reaction,
+            userId: socket.user._id,
+            userName: socket.user.name,
+            timestamp: new Date()
+          });
+        }
+        
+        // Save to database
+        await message.save();
+        
+        // Broadcast to all users in the room (including sender)
+        chatNamespace.to(roomId).emit('message-reaction-added', {
+          messageId,
+          reaction,
+          userId: socket.user._id,
+          userName: socket.user.name,
+          actionType,
+          allReactions: message.reactions // Send full reactions array for sync
+        });
+        
+      } catch (error) {
+        console.error('Add reaction error:', error);
+        socket.emit('chat-error', { 
+          message: 'Failed to add reaction',
+          error: error.message 
         });
       }
     });
 
-    // Handle disconnection
-    socket.on('disconnect', () => {
-      console.log(`User ${socket.user.name} disconnected from group chat`);
-      chatUsers.delete(socket.user._id.toString());
+    // New: Get online users in room
+    socket.on('get-online-users', (data) => {
+      const { courseId, sectionId } = data;
+      const roomId = `chat_${courseId}_${sectionId}`;
+      
+      if (socket.currentRoom === roomId && roomUsers.has(roomId)) {
+        const onlineUsers = Array.from(roomUsers.get(roomId))
+          .map(userId => {
+            const userSession = chatUsers.get(userId);
+            return userSession ? {
+              userId: userSession.user._id,
+              userName: userSession.user.name,
+              userRole: userSession.user.roles?.[0] || 'student',
+              isTyping: userSession.isTyping,
+              lastActivity: userSession.lastActivity
+            } : null;
+          })
+          .filter(user => user !== null);
+          
+        socket.emit('online-users-list', { users: onlineUsers });
+      }
+    });
 
-      // Notify current room about user leaving
+    // Enhanced disconnect handling with proper cleanup
+    socket.on('disconnect', (reason) => {
+      console.log(`User ${socket.user.name} disconnected from group chat. Reason: ${reason}`);
+      
+      // Remove from connection pool manager
+      connectionPoolManager.removeConnection(socket.id);
+      
+      // Clean up user session
+      chatUsers.delete(userId);
+      userHeartbeats.delete(userId);
+      
+      // Clean up room tracking
       if (socket.currentRoom) {
+        if (roomUsers.has(socket.currentRoom)) {
+          roomUsers.get(socket.currentRoom).delete(userId);
+          
+          // Clean up empty rooms
+          if (roomUsers.get(socket.currentRoom).size === 0) {
+            roomUsers.delete(socket.currentRoom);
+          }
+        }
+        
+        // Notify room about user leaving with enhanced info
         socket.to(socket.currentRoom).emit('user-left', {
           userId: socket.user._id,
-          userName: socket.user.name
+          userName: socket.user.name,
+          userRole: socket.user.roles?.[0] || 'student',
+          disconnectReason: reason,
+          timestamp: new Date(),
+          activeUsers: roomUsers.get(socket.currentRoom)?.size || 0
         });
       }
+      
+      // Clear any intervals
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+      }
+    });
+
+    // Enhanced error handling
+    socket.on('error', (error) => {
+      console.error(`Socket error for user ${socket.user.name}:`, error);
+      socket.emit('chat-error', {
+        message: 'Connection error occurred',
+        code: 'SOCKET_ERROR'
+      });
     });
   });
 

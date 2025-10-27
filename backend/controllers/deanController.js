@@ -83,11 +83,14 @@ exports.getDepartments = async (req, res) => {
         { $match: { role: 'teacher', isActive: true, department: { $in: deptIds } } },
         { $group: { _id: '$department', count: { $sum: 1 } } }
       ]),
-      User.aggregate([
-        { $match: { role: 'student', isActive: true } },
-        { $lookup: { from: 'courses', localField: 'coursesAssigned', foreignField: '_id', as: 'courses' } },
-        { $unwind: { path: '$courses', preserveNullAndEmptyArrays: true } },
-        { $group: { _id: '$courses.department', count: { $sum: 1 } } }
+      // Count students by department through sections
+      Section.aggregate([
+        { $match: { school: school._id } },
+        { $lookup: { from: 'courses', localField: 'courses', foreignField: '_id', as: 'courseData' } },
+        { $unwind: { path: '$courseData', preserveNullAndEmptyArrays: true } },
+        { $unwind: { path: '$students', preserveNullAndEmptyArrays: true } },
+        { $group: { _id: '$courseData.department', studentIds: { $addToSet: '$students' } } },
+        { $project: { _id: 1, count: { $size: '$studentIds' } } }
       ])
     ]);
 
@@ -137,7 +140,7 @@ exports.getAnalytics = async (req, res) => {
                       $expr: {
                         $and: [
                           { $eq: ['$role', 'teacher'] },
-                          { $in: ['$$courseId', '$coursesAssigned'] },
+                          { $in: ['$$courseId', { $ifNull: ['$coursesAssigned', []] }] },
                           { $ne: ['$isActive', false] }
                         ]
                       }
@@ -147,24 +150,36 @@ exports.getAnalytics = async (req, res) => {
                 as: 'teachers'
               }
             },
+            // Lookup students through sections
             {
               $lookup: {
-                from: 'users',
+                from: 'sections',
                 let: { courseId: '$_id' },
                 pipeline: [
                   {
                     $match: {
                       $expr: {
                         $and: [
-                          { $eq: ['$role', 'student'] },
-                          { $in: ['$$courseId', '$coursesAssigned'] },
-                          { $ne: ['$isActive', false] }
+                          { $in: ['$$courseId', { $ifNull: ['$courses', []] }] }
                         ]
                       }
                     }
-                  }
+                  },
+                  { $unwind: { path: '$students', preserveNullAndEmptyArrays: true } },
+                  { $group: { _id: null, studentIds: { $addToSet: '$students' } } }
                 ],
-                as: 'students'
+                as: 'studentData'
+              }
+            },
+            {
+              $addFields: {
+                students: {
+                  $cond: {
+                    if: { $gt: [{ $size: '$studentData' }, 0] },
+                    then: { $arrayElemAt: ['$studentData.studentIds', 0] },
+                    else: []
+                  }
+                }
               }
             },
             {
@@ -173,6 +188,37 @@ exports.getAnalytics = async (req, res) => {
                 localField: '_id',
                 foreignField: 'course',
                 as: 'videos'
+              }
+            },
+            // Lookup teachers through SectionCourseTeacher model
+            {
+              $lookup: {
+                from: 'sectioncourseteachers',
+                let: { courseId: '$_id' },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: { $eq: ['$course', '$$courseId'] }
+                    }
+                  },
+                  {
+                    $lookup: {
+                      from: 'users',
+                      localField: 'teacher',
+                      foreignField: '_id',
+                      as: 'teacherData'
+                    }
+                  },
+                  { $unwind: { path: '$teacherData', preserveNullAndEmptyArrays: true } },
+                  {
+                    $project: {
+                      _id: '$teacherData._id',
+                      name: '$teacherData.name',
+                      email: '$teacherData.email'
+                    }
+                  }
+                ],
+                as: 'teachers'
               }
             },
             {
@@ -211,16 +257,32 @@ exports.getAnalytics = async (req, res) => {
           as: 'teachers'
         }
       },
+      // Lookup students through sections for this department
       {
         $lookup: {
-          from: 'users',
+          from: 'sections',
           let: { deptId: '$_id' },
           pipeline: [
-            { $match: { role: 'student', isActive: { $ne: false } } },
-            { $lookup: { from: 'courses', localField: 'coursesAssigned', foreignField: '_id', as: 'studentCourses' } },
-            { $unwind: { path: '$studentCourses', preserveNullAndEmptyArrays: false } },
-            { $match: { $expr: { $eq: ['$studentCourses.department', '$$deptId'] } } },
-            { $group: { _id: '$_id', name: { $first: '$name' }, email: { $first: '$email' }, regNo: { $first: '$regNo' }, courseCount: { $sum: 1 } } }
+            { $match: { $expr: { $eq: ['$department', '$$deptId'] } } },
+            { $unwind: { path: '$students', preserveNullAndEmptyArrays: true } },
+            {
+              $lookup: {
+                from: 'users',
+                localField: 'students',
+                foreignField: '_id',
+                as: 'studentData'
+              }
+            },
+            { $unwind: { path: '$studentData', preserveNullAndEmptyArrays: true } },
+            {
+              $group: {
+                _id: '$studentData._id',
+                name: { $first: '$studentData.name' },
+                email: { $first: '$studentData.email' },
+                regNo: { $first: '$studentData.regNo' }
+              }
+            },
+            { $match: { _id: { $ne: null } } }
           ],
           as: 'students'
         }
@@ -232,18 +294,11 @@ exports.getAnalytics = async (req, res) => {
           pipeline: [
             { $match: { $expr: { $eq: ['$department', '$$deptId'] } } },
             {
-              $lookup: {
-                from: 'users',
-                localField: '_id',
-                foreignField: 'sections',
-                as: 'sectionStudents'
-              }
-            },
-            {
               $project: {
                 name: 1,
-                studentCount: { $size: '$sectionStudents' },
-                teacher: 1
+                studentCount: { $size: { $ifNull: ['$students', []] } },
+                teacher: 1,
+                students: 1
               }
             }
           ],
@@ -314,6 +369,7 @@ exports.getAnalytics = async (req, res) => {
                 $expr: {
                   $and: [
                     { $eq: ['$role', 'teacher'] },
+                    { $isArray: '$coursesAssigned' },
                     { $in: ['$$courseId', '$coursesAssigned'] },
                     { $ne: ['$isActive', false] }
                   ]
@@ -334,6 +390,7 @@ exports.getAnalytics = async (req, res) => {
                 $expr: {
                   $and: [
                     { $eq: ['$role', 'student'] },
+                    { $isArray: '$coursesAssigned' },
                     { $in: ['$$courseId', '$coursesAssigned'] },
                     { $ne: ['$isActive', false] }
                   ]
@@ -1303,7 +1360,7 @@ exports.getAnnouncementOptions = async (req, res) => {
 // POST /api/dean/announcement
 exports.createDeanAnnouncement = async (req, res) => {
   try {
-    const { title, message, schoolScope, targetRoles, targetSchools, teachers, hods, sections } = req.body;
+    const { title, message, schoolScope, targetRoles, targetSchools, teachers, hods, sections, priority } = req.body;
 
     if (!title || !message || !schoolScope || !targetRoles || !Array.isArray(targetRoles) || targetRoles.length === 0) {
       return res.status(400).json({ 
@@ -1346,6 +1403,7 @@ exports.createDeanAnnouncement = async (req, res) => {
       if (targetRoles.includes('teacher')) {
         if (teachers && teachers.length > 0) {
           // Use specifically selected teachers
+          console.log('📋 Specifically selected teachers:', teachers);
           recipients.push(...teachers);
         } else {
           // Get ALL teachers in dean's school
@@ -1358,6 +1416,7 @@ exports.createDeanAnnouncement = async (req, res) => {
             isActive: true
           }).select('_id').lean();
           
+          console.log('📋 Found ALL teachers in school:', allTeachers.length);
           recipients.push(...allTeachers.map(teacher => teacher._id));
         }
       }
@@ -1391,6 +1450,9 @@ exports.createDeanAnnouncement = async (req, res) => {
       }
 
       // Create announcement for own school
+      console.log('🎯 Creating announcement with recipients:', recipients.length);
+      console.log('📤 Unique recipients:', [...new Set(recipients.map(id => id.toString()))].length);
+      
       const announcement = new Announcement({
         sender: req.user._id,
         role: 'dean',
@@ -1409,6 +1471,44 @@ exports.createDeanAnnouncement = async (req, res) => {
       });
 
       await announcement.save();
+      
+      console.log('✅ Announcement saved with targetAudience:', JSON.stringify(announcement.targetAudience, null, 2));
+
+      // Send notifications to all recipients
+      console.log('🔔 Sending notifications to recipients...');
+      const NotificationController = require('./notificationController');
+      
+      if (NotificationController && NotificationController.createNotification) {
+        // Filter out the sender from recipients
+        const recipientsToNotify = recipients.filter(rid => rid.toString() !== req.user._id.toString());
+        
+        console.log(`📤 Sending notifications to ${recipientsToNotify.length} recipients`);
+        
+        // Send notifications asynchronously (fire-and-forget)
+        (async () => {
+          try {
+            for (const recipientId of recipientsToNotify) {
+              await NotificationController.createNotification({
+                type: 'announcement',
+                recipient: recipientId,
+                message: `New announcement from Dean: ${title}`,
+                data: { 
+                  announcementId: announcement._id,
+                  priority: priority || 'medium',
+                  senderRole: 'dean',
+                  senderName: dean.name
+                },
+                announcement: announcement._id
+              });
+            }
+            console.log('✅ Dean announcement notifications sent successfully');
+          } catch (notifyErr) {
+            console.error('❌ Error sending dean announcement notifications:', notifyErr);
+          }
+        })();
+      } else {
+        console.error('❌ NotificationController not available');
+      }
 
       res.json({ 
         message: 'Dean announcement created successfully.',
@@ -1596,6 +1696,110 @@ exports.getDeanAnnouncementHistory = async (req, res) => {
   } catch (err) {
     console.error('Error fetching dean announcement history:', err);
     res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/dean/teachers - Get all teachers in Dean's school
+exports.getTeachers = async (req, res) => {
+  try {
+    const school = await getDeanSchool(req);
+    
+    console.log(`🏫 Dean fetching teachers for school: ${school.name} (${school._id})`);
+    
+    // Get all teachers in Dean's school with their department information
+    const teachers = await User.find({
+      school: school._id,
+      $or: [
+        { role: 'teacher' },
+        { roles: { $in: ['teacher'] } }
+      ],
+      isActive: { $ne: false }
+    })
+    .populate('department', 'name code')
+    .select('firstName lastName name email phone teacherId isActive department')
+    .sort({ firstName: 1, lastName: 1 })
+    .lean();
+    
+    console.log(`👨‍🏫 Found ${teachers.length} teachers in school`);
+    
+    // Format the response to match the expected frontend structure
+    const formattedTeachers = teachers.map(teacher => ({
+      _id: teacher._id,
+      firstName: teacher.firstName || teacher.name?.split(' ')[0] || '',
+      lastName: teacher.lastName || teacher.name?.split(' ')?.slice(1)?.join(' ') || '',
+      name: teacher.name || `${teacher.firstName || ''} ${teacher.lastName || ''}`.trim(),
+      email: teacher.email,
+      phone: teacher.phone,
+      teacherId: teacher.teacherId,
+      isActive: teacher.isActive !== false,
+      department: teacher.department || (teacher.assignedDepartments && teacher.assignedDepartments.length > 0 ? teacher.assignedDepartments[0] : null),
+      allDepartments: teacher.assignedDepartments || (teacher.department ? [teacher.department] : [])
+    }));
+    
+    res.json({
+      success: true,
+      teachers: formattedTeachers,
+      count: formattedTeachers.length,
+      school: {
+        id: school._id,
+        name: school.name,
+        code: school.code
+      }
+    });
+    
+  } catch (err) {
+    console.error('Error fetching teachers for dean:', err);
+    res.status(err.status || 500).json({ 
+      success: false,
+      message: err.message || 'Error fetching teachers',
+      error: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  }
+};
+
+// GET /api/dean/profile - Get Dean's own profile information  
+exports.getProfile = async (req, res) => {
+  try {
+    const dean = await User.findById(req.user.id)
+      .populate('school', 'name code')
+      .populate('department', 'name code')
+      .populate('assignedDepartments', 'name code')
+      .select('firstName lastName name email phone teacherId isActive school department assignedDepartments')
+      .lean();
+      
+    if (!dean) {
+      return res.status(404).json({
+        success: false,
+        message: 'Dean profile not found'
+      });
+    }
+    
+    const formattedProfile = {
+      _id: dean._id,
+      firstName: dean.firstName || dean.name?.split(' ')[0] || '',
+      lastName: dean.lastName || dean.name?.split(' ')?.slice(1)?.join(' ') || '',
+      name: dean.name || `${dean.firstName || ''} ${dean.lastName || ''}`.trim(),
+      email: dean.email,
+      phone: dean.phone,
+      teacherId: dean.teacherId,
+      isActive: dean.isActive !== false,
+      school: dean.school,
+      department: dean.department,
+      assignedDepartments: dean.assignedDepartments || []
+    };
+    
+    res.json({
+      success: true,
+      profile: formattedProfile
+    });
+    
+  } catch (err) {
+    console.error('Error fetching dean profile:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching profile',
+      error: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 };
 

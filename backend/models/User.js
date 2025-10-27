@@ -1,8 +1,27 @@
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
-  regNo: { type: String, unique: true, sparse: true, index: true }, // Only for students - unique and sparse to allow null values
-  teacherId: { type: String, unique: true, sparse: true, index: true }, // Only for teachers - unique and sparse
+  // New unified UID system - PURELY NUMERIC
+  uid: { 
+    type: String, 
+    unique: true, 
+    sparse: true, 
+    index: true,
+    validate: {
+      validator: function(v) {
+        if (!v) return true; // Allow null for legacy users
+        // Staff (teacher, hod, dean, admin): 5 digits (00001-99999)
+        // Students: 8+ digits (00000001-99999999...)
+        return /^\d{5}$/.test(v) || /^\d{8,}$/.test(v);
+      },
+      message: props => `${props.value} is not a valid UID! Staff should be ##### (5 digits), Students should be ######## (8+ digits)`
+    }
+  },
+  
+  // Legacy fields - kept for backward compatibility, will be migrated to uid
+  regNo: { type: String, unique: true, sparse: true, index: true }, // Only for students - DEPRECATED
+  teacherId: { type: String, unique: true, sparse: true, index: true }, // Only for teachers - DEPRECATED
+  
   name: { type: String, required: true },
   email: { 
     type: String, 
@@ -88,7 +107,11 @@ const userSchema = new mongoose.Schema({
   canAnnounce: { type: Boolean, default: false }, // Allow teacher to post announcements
   emailVerified: { type: Boolean, default: false },
   resetPasswordToken: { type: String },
-  resetPasswordExpires: { type: Date }
+  resetPasswordExpires: { type: Date },
+  
+  // Digital Signature for certificates (HOD, Dean, AAST Registrar)
+  signatureUrl: { type: String }, // Path or URL to signature image (HOD/Dean signature)
+  registrarSignatureUrl: { type: String } // HOD uploads registrar/exam signature for their department
 }, {
   timestamps: true
 });
@@ -131,25 +154,29 @@ userSchema.pre('save', async function(next) {
     }
   }
   
-  // Generate teacherId for new teacher accounts
-  if (this.isNew && ((this.role === 'teacher') || (this.roles && this.roles.includes('teacher'))) && !this.teacherId) {
+  // Generate teacherId for new staff accounts: teacher, HOD, dean (5-digit numeric format)
+  const staffRoles = ['teacher', 'hod', 'dean'];
+  const hasStaffRole = this.role && staffRoles.includes(this.role) || 
+                       (this.roles && this.roles.some(r => staffRoles.includes(r)));
+  
+  if (this.isNew && hasStaffRole && !this.teacherId) {
     try {
-      // Find the highest existing teacherId
-      const highestTeacher = await this.constructor.findOne(
-        { teacherId: { $regex: /^T\d{4}$/ } },
+      // Find the highest existing teacherId (numeric format: 5 digits)
+      const highestStaff = await this.constructor.findOne(
+        { teacherId: { $regex: /^\d{5}$/ } },
         { teacherId: 1 },
         { sort: { teacherId: -1 } }
       );
 
       let nextNumber = 1;
-      if (highestTeacher && highestTeacher.teacherId) {
-        // Extract the number from existing ID and increment
-        const currentNumber = parseInt(highestTeacher.teacherId.substring(1), 10);
+      if (highestStaff && highestStaff.teacherId) {
+        // Parse the numeric ID and increment
+        const currentNumber = parseInt(highestStaff.teacherId, 10);
         nextNumber = currentNumber + 1;
       }
 
-      // Format with leading zeros to ensure 4 digits
-      this.teacherId = 'T' + nextNumber.toString().padStart(4, '0');
+      // Format with leading zeros to ensure 5 digits
+      this.teacherId = nextNumber.toString().padStart(5, '0');
     } catch (err) {
       return next(err);
     }

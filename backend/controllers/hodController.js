@@ -1243,7 +1243,7 @@ const getCourseSections = async (req, res) => {
     const total = await Section.countDocuments(filter);
     const sections = await Section.find(filter)
       .populate('teacher', 'name email teacherId')
-      .populate('students', '_id')
+      .populate('students', '_id name regNo')
       .select('name teacher students')
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
@@ -1252,6 +1252,7 @@ const getCourseSections = async (req, res) => {
       _id: s._id,
       name: s.name,
       teacher: s.teacher ? { _id: s.teacher._id, name: s.teacher.name, email: s.teacher.email, teacherId: s.teacher.teacherId } : null,
+      students: s.students || [], // Return full students array
       studentsCount: Array.isArray(s.students) ? s.students.length : 0
     }));
 

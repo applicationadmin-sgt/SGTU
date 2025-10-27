@@ -392,8 +392,6 @@ exports.getSectionsByCourse = async (req, res) => {
 exports.getTeacherStudentConnections = async (req, res) => {
   try {
     const { teacherId } = req.params;
-    console.log(`[getTeacherStudentConnections] Fetching sections for teacher: ${teacherId}`);
-    console.log(`[getTeacherStudentConnections] Request user:`, req.user);
     
     // Allow admin to access any teacher's sections, but teachers can only access their own
     const { hasRole, hasAnyRole } = require('../utils/roleUtils');
@@ -402,7 +400,6 @@ exports.getTeacherStudentConnections = async (req, res) => {
     const isAdmin = hasRole(req.user, 'admin');
     
     if (isTeacher && !isAdmin && req.user._id.toString() !== teacherId) {
-      console.log(`[getTeacherStudentConnections] Teacher ${req.user._id} trying to access ${teacherId} - unauthorized`);
       return res.status(403).json({ message: 'You can only access your own sections' });
     }
     
@@ -421,8 +418,6 @@ exports.getTeacherStudentConnections = async (req, res) => {
       ]
     })
     .populate('course', 'title courseCode');
-
-    console.log(`[getTeacherStudentConnections] Found ${assignments.length} assignments for teacher ${teacherId}`);
     
     // Group assignments by section to avoid duplicates
     const sectionMap = new Map();
@@ -462,19 +457,9 @@ exports.getTeacherStudentConnections = async (req, res) => {
     // Convert map to array and sort by section name
     const sections = Array.from(sectionMap.values()).sort((a, b) => a.name.localeCompare(b.name));
     
-    console.log(`[getTeacherStudentConnections] Returning ${sections.length} unique sections`);
-    if (sections.length > 0) {
-      console.log(`[getTeacherStudentConnections] First section sample:`, {
-        id: sections[0]._id,
-        name: sections[0].name,
-        courses: sections[0].courses?.length,
-        students: sections[0].students?.length
-      });
-    }
-    
     res.json(sections);
   } catch (error) {
-    console.error('[getTeacherStudentConnections] Error fetching teacher sections:', error);
+    console.error('[getTeacherStudentConnections] Error:', error.message);
     res.status(500).json({ 
       message: 'Failed to fetch teacher sections',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
@@ -958,6 +943,22 @@ exports.assignCoursesToSection = async (req, res) => {
         invalidCourses: invalidCourses.map(c => c.title)
       });
     }
+
+    // PERMANENT FIX: Validate all courses belong to the same department
+    const departmentIds = [...new Set(courses.map(course => course.department.toString()))];
+    if (departmentIds.length > 1) {
+      return res.status(400).json({ 
+        message: 'All courses must belong to the same department. Cannot assign courses from multiple departments to one section.',
+        departments: departmentIds
+      });
+    }
+
+    // PERMANENT FIX: Auto-set section department based on assigned courses
+    const courseDepartment = departmentIds[0];
+    if (!section.department || section.department.toString() !== courseDepartment) {
+      console.log(`Auto-setting section ${sectionId} department to ${courseDepartment} based on assigned courses`);
+      section.department = courseDepartment;
+    }
     
     // Add unique courses to section (avoid duplicates)
     const existingCourseIds = section.courses.map(id => id.toString());
@@ -1207,21 +1208,27 @@ exports.getTeacherAnalyticsOverview = async (req, res) => {
     const totalStudents = uniqueSections.reduce((acc, section) => acc + (section.students?.length || 0), 0);
     const totalCourses = uniqueSections.reduce((acc, section) => acc + (section.courses?.length || 0), 0);
     
-    // Calculate average completion (mock for now, can be enhanced with real progress data)
-    const avgCompletion = 75; // This should come from actual student progress data
+    // Calculate average completion (this should come from actual student progress data)
+    // For now using mock data, can be enhanced with real progress calculations
+    const avgCompletion = 75;
 
     const overview = {
       totalSections,
       totalStudents, 
       totalCourses,
-      avgCompletion,
+      averageEngagement: avgCompletion, // Renamed for frontend compatibility
+      courseCompletionRate: avgCompletion, // Added for frontend compatibility
+      avgCompletion, // Keep for backward compatibility
       sections: uniqueSections.map(section => ({
         _id: section._id,
         name: section.name,
         school: section.school,
         department: section.department,
         studentsCount: section.students?.length || 0,
-        coursesCount: section.courses?.length || 0
+        coursesCount: section.courses?.length || 0,
+        students: section.students, // Include students for detailed view
+        courses: section.courses, // Include courses for detailed view
+        course: section.courses?.length > 0 ? section.courses[0] : null // For backward compatibility
       }))
     };
 
@@ -1528,16 +1535,33 @@ exports.getSectionAnalytics = async (req, res) => {
 
     const analytics = {
       sectionDetails: {
+        _id: section._id,
+        name: section.name,
         sectionName: section.name,
         courseName: 'Multiple Courses',
+        school: section.school?.name,
+        department: section.department?.name,
         studentCount: section.students?.length || 0,
+        studentsCount: section.students?.length || 0,
+        coursesCount: section.courses?.length || 0,
         videoCount: totalVideos,
+        capacity: section.capacity,
+        academicYear: section.academicYear,
+        semester: section.semester,
         averageProgress: studentsAnalytics.length > 0
           ? Math.round(studentsAnalytics.reduce((sum, s) => sum + s.progress, 0) / studentsAnalytics.length)
           : 0,
         students: studentsAnalytics
       },
-      performanceData
+      performanceData: {
+        ...performanceData,
+        videoMetrics: {
+          totalVideos: totalVideos,
+          averageWatchTime: studentsAnalytics.length > 0
+            ? Math.round(studentsAnalytics.reduce((sum, s) => sum + s.watchTime, 0) / studentsAnalytics.length)
+            : 0
+        }
+      }
     };
 
     console.log('Real section analytics for', section.name, '- students:', analytics.sectionDetails.studentCount, 'videos:', totalVideos);

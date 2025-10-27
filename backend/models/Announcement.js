@@ -75,6 +75,16 @@ const AnnouncementSchema = new mongoose.Schema({
     previousTitle: { type: String },
     previousMessage: { type: String },
     previousTargetAudience: { type: mongoose.Schema.Types.Mixed }
+  }],
+  
+  // Approval history for HOD/Admin tracking
+  approvalHistory: [{
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    approverRole: { type: String },
+    action: { type: String, enum: ['approved', 'rejected'] },
+    actionDate: { type: Date, default: Date.now },
+    note: { type: String },
+    previousStatus: { type: String }
   }]
 });
 

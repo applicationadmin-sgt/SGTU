@@ -75,11 +75,11 @@ const StudentUnitVideo = () => {
           if (videoToPlay) {
             setCurrentVideo(videoToPlay);
             
-            // Record initial video watch
+            // Record initial video watch (don't override position)
             updateWatchHistory(videoId, {
               timeSpent: 0.1, // Use 0.1 instead of 0 to pass backend validation
-              currentTime: 0,
               duration: videoToPlay.duration
+              // Don't send currentTime: 0 - let the backend keep existing position
             }, token).catch(err => {
               console.error('Error recording initial video watch:', err);
             });
@@ -118,8 +118,8 @@ const StudentUnitVideo = () => {
       
       updateWatchHistory(video._id, {
         timeSpent: 0.1, // Use 0.1 instead of 0 to pass backend validation
-        currentTime: 0,
         duration: video.duration
+        // Don't send currentTime: 0 - let the backend keep existing position
       }, token);
     } catch (err) {
       console.error('Error recording video watch:', err);

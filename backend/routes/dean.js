@@ -10,6 +10,10 @@ router.get('/overview', deanController.getOverview);
 router.get('/departments', deanController.getDepartments);
 router.get('/analytics', deanController.getAnalytics);
 
+// Dean profile and school information
+router.get('/profile', deanController.getProfile);
+router.get('/teachers', deanController.getTeachers);
+
 // School management routes
 router.get('/school-management/options', deanController.getSchoolManagementOptions);
 router.put('/department/:deptId/hod', deanController.setDepartmentHod);

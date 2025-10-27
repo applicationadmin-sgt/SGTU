@@ -50,6 +50,10 @@ import {
   createSectionWithCourses
 } from '../../api/hierarchyApi';
 import { useNavigate } from 'react-router-dom';
+import BulkAssignCourses from './BulkAssignCourses';
+import BulkAssignTeachers from './BulkAssignTeachers';
+import BulkUploadSections from './BulkUploadSections';
+import axios from 'axios';
 
 const SectionManagement = ({ user, token }) => {
   const navigate = useNavigate();
@@ -545,7 +549,75 @@ const SectionManagement = ({ user, token }) => {
     }
   };
 
+  // ============ BULK UPLOAD FUNCTIONS ============
+
+  // Handle bulk section upload
+  const handleBulkSectionUpload = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const token = localStorage.getItem('token');
+    const response = await axios.post(
+      `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/section/bulk-upload`,
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    
+    // Refresh sections
+    await fetchAllSections();
+    return response.data;
+  };
+
   // ============ COURSE-TEACHER ASSIGNMENT FUNCTIONS ============
+
+  // Handle bulk course upload
+  const handleBulkCourseUpload = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const token = localStorage.getItem('token');
+    const response = await axios.post(
+      `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/section/bulk-course-assignment`,
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    
+    // Refresh sections
+    await fetchAllSections();
+    return response.data;
+  };
+
+  // Handle bulk teacher upload
+  const handleBulkTeacherUpload = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const token = localStorage.getItem('token');
+    const response = await axios.post(
+      `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/section/bulk-teacher-assignment`,
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    
+    // Refresh sections
+    await fetchAllSections();
+    return response.data;
+  };
 
   // Fetch course-teacher assignments for a section
   const fetchCourseTeacherAssignments = async (sectionId) => {
@@ -802,6 +874,34 @@ const SectionManagement = ({ user, token }) => {
             </Grid>
           </CardContent>
         </Card>
+
+        {/* Bulk Section Upload */}
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+            Bulk Section Creation
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Create multiple sections at once using CSV file
+          </Typography>
+          
+          <BulkUploadSections onUpload={handleBulkSectionUpload} />
+        </Box>
+
+        {/* Bulk Operations Section */}
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+            Bulk Course & Teacher Assignment
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Assign courses and teachers to sections in bulk using CSV files
+          </Typography>
+          
+          {/* Bulk Assign Courses */}
+          <BulkAssignCourses onUpload={handleBulkCourseUpload} />
+          
+          {/* Bulk Assign Teachers */}
+          <BulkAssignTeachers onUpload={handleBulkTeacherUpload} />
+        </Box>
 
         {/* Sections Display */}
         <Grid container spacing={3}>

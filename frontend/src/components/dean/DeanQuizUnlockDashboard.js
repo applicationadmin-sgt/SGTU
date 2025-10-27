@@ -29,7 +29,10 @@ import {
   Alert,
   List,
   ListItem,
-  ListItemText
+  ListItemText,
+  Tabs,
+  Tab,
+  Badge
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
@@ -54,6 +57,11 @@ const DeanQuizUnlockDashboard = () => {
   const [unlockReason, setUnlockReason] = useState('');
   const [unlocking, setUnlocking] = useState(false);
   const [alert, setAlert] = useState({ show: false, message: '', severity: 'info' });
+  
+  // Tab management
+  const [currentTab, setCurrentTab] = useState(0);
+  const [unlockHistory, setUnlockHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const fetchData = async () => {
     if (!token) return;
@@ -64,7 +72,7 @@ const DeanQuizUnlockDashboard = () => {
       });
 
       if (response.data.success) {
-        // Transform data to match admin table format
+        // Transform data to match admin table format with proper unlock history
         const transformedData = response.data.data.map(lock => ({
           student: {
             _id: lock.student.id,
@@ -74,23 +82,29 @@ const DeanQuizUnlockDashboard = () => {
           },
           course: {
             _id: lock.course.id,
-            name: lock.course.name,
-            code: lock.course.code
+            title: lock.course.title,
+            courseCode: lock.course.courseCode
           },
           unit: {
             _id: lock.quiz.id,
             title: lock.quiz.title
           },
-          type: 'teacherLimitExhausted',
+          type: 'deanRequired',
           reason: getReasonText(lock.lockInfo.reason),
           violationCount: 0,
           attemptsTaken: lock.lockInfo.totalAttempts,
           attemptLimit: lock.lockInfo.maxAttempts || 3,
           lockedAt: lock.lockInfo.lockTimestamp,
-          unlockHistory: [],
+          unlockHistory: lock.unlockHistory || {
+            teacher: [],
+            hod: [],
+            dean: [],
+            admin: []
+          },
           lockId: lock.lockId,
           lockInfo: lock.lockInfo,
           teacherUnlockCount: lock.lockInfo.teacherUnlockCount,
+          hodUnlockCount: lock.lockInfo.hodUnlockCount || 0,
           deanUnlockCount: lock.lockInfo.deanUnlockCount || 0
         }));
         setItems(transformedData);
@@ -102,6 +116,39 @@ const DeanQuizUnlockDashboard = () => {
       showAlert('Error fetching locked students', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchUnlockHistory = async () => {
+    if (!token) return;
+    try {
+      setHistoryLoading(true);
+      
+      // Updated: Dean unlock history now works without mandatory filters
+      // The backend has been updated to handle Dean's institutional oversight
+      const response = await axios.get('/api/quiz-unlock/dean-unlock-history', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.data.success) {
+        setUnlockHistory(response.data.data || []);
+      } else {
+        console.error('Failed to load unlock history:', response.data.message);
+        // Don't show error for empty history - it's normal
+        if (response.data.message && !response.data.message.includes('filter')) {
+          showAlert('Error fetching unlock history', 'error');
+        }
+        setUnlockHistory([]);
+      }
+    } catch (err) {
+      console.error('Failed to load unlock history:', err);
+      // Don't show error alert for 400 status - it means no data with filters
+      if (err.response?.status !== 400) {
+        showAlert('Error fetching unlock history', 'error');
+      }
+      setUnlockHistory([]);
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -127,8 +174,16 @@ const DeanQuizUnlockDashboard = () => {
 
   useEffect(() => {
     fetchData();
+    fetchUnlockHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleTabChange = (event, newValue) => {
+    setCurrentTab(newValue);
+    if (newValue === 1 && unlockHistory.length === 0) {
+      fetchUnlockHistory();
+    }
+  };
 
   const filtered = useMemo(() => {
     if (!query) return items;
@@ -211,27 +266,60 @@ const DeanQuizUnlockDashboard = () => {
             <Box display="flex" alignItems="center" justifyContent="space-between">
               <Typography variant="h6" display="flex" alignItems="center">
                 <AdminPanelSettingsIcon sx={{ mr: 1, color: 'primary.main' }} />
-                Dean Quiz Unlock Requests
+                Dean Quiz Unlock Management
               </Typography>
               <Box>
                 <Tooltip title="Refresh">
-                  <IconButton onClick={fetchData} disabled={loading}>
-                    {loading ? <CircularProgress size={20} /> : <RefreshIcon />}
+                  <IconButton onClick={() => {
+                    if (currentTab === 0) {
+                      fetchData();
+                    } else {
+                      fetchUnlockHistory();
+                    }
+                  }} disabled={loading || historyLoading}>
+                    {(loading || historyLoading) ? <CircularProgress size={20} /> : <RefreshIcon />}
                   </IconButton>
                 </Tooltip>
               </Box>
             </Box>
           }
-          subheader="Students who have exhausted teacher unlock limits and require dean authorization (unlimited dean unlocks)."
+          subheader="Manage quiz unlock requests and view your unlock history across the institution."
         />
+        
+        <Tabs
+          value={currentTab}
+          onChange={handleTabChange}
+          indicatorColor="primary"
+          textColor="primary"
+          variant="fullWidth"
+        >
+          <Tab 
+            label={
+              <Badge badgeContent={items.length} color="error" max={99}>
+                Current Requests
+              </Badge>
+            } 
+          />
+          <Tab 
+            label={
+              <Badge badgeContent={unlockHistory.length} color="primary" max={99}>
+                Unlock History
+              </Badge>
+            } 
+          />
+        </Tabs>
+        
         <Divider />
         <CardContent>
-          <Alert severity="info" sx={{ mb: 3 }}>
-            <Typography variant="body2">
-              <strong>Dean Authority:</strong> These students have exhausted their teacher unlock limit (3 unlocks). 
-              As Dean, you have unlimited unlock authority for these cases.
-            </Typography>
-          </Alert>
+          {/* Tab 0: Current Requests */}
+          {currentTab === 0 && (
+            <>
+              <Alert severity="info" sx={{ mb: 3 }}>
+                <Typography variant="body2">
+                  <strong>Dean Authority:</strong> These students have exhausted their teacher unlock limit (3 unlocks). 
+                  As Dean, you have unlimited unlock authority for these cases.
+                </Typography>
+              </Alert>
           
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2} alignItems="center">
             <TextField
@@ -299,10 +387,27 @@ const DeanQuizUnlockDashboard = () => {
                       <Typography variant="body2">{it.attemptsTaken}/{it.attemptLimit}</Typography>
                       <Typography variant="caption" color="error.main">
                         Teacher: 3/3 (exhausted)
+                        {it.unlockHistory?.admin?.some(a => a.overrideLevel === 'TEACHER') && (
+                          <Chip size="small" variant="outlined" color="secondary" label="Admin Override" sx={{ ml: 0.5, fontSize: '0.6rem', height: '16px' }} />
+                        )}
+                      </Typography>
+                      <Typography variant="caption" color="warning.main" display="block">
+                        HOD: {it.lockInfo?.hodUnlockCount || 0}/3
+                        {it.unlockHistory?.admin?.some(a => a.overrideLevel === 'HOD') && (
+                          <Chip size="small" variant="outlined" color="secondary" label="Admin Override" sx={{ ml: 0.5, fontSize: '0.6rem', height: '16px' }} />
+                        )}
                       </Typography>
                       <Typography variant="caption" color="primary">
-                        Dean: {it.deanUnlockCount}
+                        Dean: {it.lockInfo?.deanUnlockCount || 0}/3
+                        {it.unlockHistory?.admin?.some(a => a.overrideLevel === 'DEAN') && (
+                          <Chip size="small" variant="outlined" color="secondary" label="Admin Override" sx={{ ml: 0.5, fontSize: '0.6rem', height: '16px' }} />
+                        )}
                       </Typography>
+                      {it.unlockHistory?.admin?.length > 0 && (
+                        <Typography variant="caption" color="secondary" display="block">
+                          Admin: {it.unlockHistory.admin.length} override(s)
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Stack spacing={0.5}>
@@ -315,26 +420,36 @@ const DeanQuizUnlockDashboard = () => {
                       </Stack>
                     </TableCell>
                     <TableCell align="right">
-                      <Tooltip title="Dean Authorization - Unlimited Unlocks">
-                        <span>
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="primary"
-                            startIcon={<LockResetIcon />}
-                            onClick={() => handleDeanUnlock(it)}
-                          >
-                            Dean Unlock
-                          </Button>
-                          <IconButton 
-                            size="small" 
-                            sx={{ ml: 1 }} 
-                            onClick={() => { setHistoryItem(it); setHistoryOpen(true); }}
-                          >
-                            <HistoryIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
+                      {it.unlockHistory?.admin?.some(a => a.overrideLevel === 'DEAN') ? (
+                        <Chip 
+                          size="small" 
+                          label="Admin Overridden" 
+                          color="secondary"
+                          variant="outlined"
+                        />
+                      ) : (
+                        <Tooltip title="Dean Authorization - Limited to 3 unlocks">
+                          <span>
+                            <Button
+                              size="small"
+                              variant="contained"
+                              color="primary"
+                              startIcon={<LockResetIcon />}
+                              onClick={() => handleDeanUnlock(it)}
+                              disabled={it.lockInfo?.deanUnlockCount >= 3}
+                            >
+                              Dean Unlock ({Math.max(0, 3 - (it.lockInfo?.deanUnlockCount || 0))})
+                            </Button>
+                          </span>
+                        </Tooltip>
+                      )}
+                      <IconButton 
+                        size="small" 
+                        sx={{ ml: 1 }} 
+                        onClick={() => { setHistoryItem(it); setHistoryOpen(true); }}
+                      >
+                        <HistoryIcon fontSize="small" />
+                      </IconButton>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -348,6 +463,175 @@ const DeanQuizUnlockDashboard = () => {
               </TableBody>
             </Table>
           </TableContainer>
+            </>
+          )}
+
+          {/* Tab 1: Unlock History */}
+          {currentTab === 1 && (
+            <>
+              <Alert severity="info" sx={{ mb: 3 }}>
+                <Typography variant="body2">
+                  <strong>Institution-wide Unlock History:</strong> View all unlock activities performed by teachers, HODs, yourself, and admin overrides.
+                </Typography>
+              </Alert>
+
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2} alignItems="center">
+                <TextField
+                  size="small"
+                  placeholder="Search history by student, course, or action"
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon />
+                      </InputAdornment>
+                    )
+                  }}
+                  sx={{ maxWidth: 420, width: '100%' }}
+                />
+                <Chip label={`Total History: ${unlockHistory.length}`} />
+              </Stack>
+
+              {historyLoading ? (
+                <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
+                  <CircularProgress />
+                  <Typography variant="h6" sx={{ ml: 2 }}>
+                    Loading unlock history...
+                  </Typography>
+                </Box>
+              ) : (
+                <TableContainer component={Paper}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Date & Time</TableCell>
+                        <TableCell>Student</TableCell>
+                        <TableCell>Course</TableCell>
+                        <TableCell>Quiz</TableCell>
+                        <TableCell>Unlocked By</TableCell>
+                        <TableCell>Role</TableCell>
+                        <TableCell>Reason</TableCell>
+                        <TableCell>Status</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {unlockHistory
+                        .filter(item => {
+                          if (!query) return true;
+                          const q = query.toLowerCase();
+                          return (
+                            item.student?.name?.toLowerCase().includes(q) ||
+                            item.student?.regNo?.toLowerCase().includes(q) ||
+                            item.course?.name?.toLowerCase().includes(q) ||
+                            item.quiz?.title?.toLowerCase().includes(q) ||
+                            item.unlockedBy?.name?.toLowerCase().includes(q) ||
+                            item.reason?.toLowerCase().includes(q)
+                          );
+                        })
+                        .map((item, idx) => (
+                          <TableRow key={idx} hover>
+                            <TableCell>
+                              <Typography variant="body2">
+                                {format(new Date(item.unlockTimestamp), 'MMM dd, yyyy')}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {format(new Date(item.unlockTimestamp), 'hh:mm a')}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Avatar sx={{ width: 28, height: 28, bgcolor: 'primary.main' }}>
+                                  {(item.student?.name || '?').charAt(0)}
+                                </Avatar>
+                                <Box>
+                                  <Typography variant="body2" fontWeight={600}>
+                                    {item.student?.name || 'Unknown'}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {item.student?.regNo || 'N/A'}
+                                  </Typography>
+                                </Box>
+                              </Stack>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2">{item.course?.name || 'N/A'}</Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                ({item.course?.code || 'N/A'})
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2">{item.quiz?.title || 'N/A'}</Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Avatar sx={{ width: 24, height: 24, bgcolor: 'success.main' }}>
+                                  {(item.unlockedBy?.name || '?').charAt(0)}
+                                </Avatar>
+                                <Typography variant="body2">
+                                  {item.unlockedBy?.name || 'Unknown'}
+                                </Typography>
+                              </Stack>
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                size="small" 
+                                label={
+                                  item.type === 'ADMIN_OVERRIDE' ? 'Admin Override' :
+                                  item.role || 'Unknown'
+                                } 
+                                color={
+                                  item.type === 'ADMIN_OVERRIDE' || item.role === 'Admin' ? 'secondary' :
+                                  item.role === 'dean' ? 'error' :
+                                  item.role === 'hod' ? 'warning' :
+                                  'primary'
+                                }
+                                variant="outlined"
+                              />
+                              {item.type === 'ADMIN_OVERRIDE' && item.overrideLevel && (
+                                <Typography variant="caption" color="secondary.main" sx={{ display: 'block', mt: 0.5 }}>
+                                  {item.overrideLevel} level override
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2">{item.reason || 'No reason provided'}</Typography>
+                              {item.type === 'ADMIN_OVERRIDE' && item.lockReason && (
+                                <Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>
+                                  Original lock: {item.lockReason}
+                                </Typography>
+                              )}
+                              {item.notes && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontStyle: 'italic' }}>
+                                  {item.notes}
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                size="small" 
+                                label="Unlocked" 
+                                color="success" 
+                                variant="outlined"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      {unlockHistory.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={8} align="center">
+                            <Typography variant="body2" color="text.secondary">
+                              No unlock history available.
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -454,22 +738,91 @@ const DeanQuizUnlockDashboard = () => {
                 Teacher Unlocks: {historyItem.teacherUnlockCount}/3 (exhausted)
               </Typography>
               <Typography variant="body2" gutterBottom>
-                Dean Unlocks: {historyItem.deanUnlockCount}
+                HOD Unlocks: {historyItem.hodUnlockCount || 0}/3
               </Typography>
+              <Typography variant="body2" gutterBottom>
+                Dean Unlocks: {historyItem.deanUnlockCount}/3
+              </Typography>
+              {historyItem.unlockHistory?.admin?.length > 0 && (
+                <Typography variant="body2" gutterBottom color="secondary">
+                  Admin Overrides: {historyItem.unlockHistory.admin.length}
+                </Typography>
+              )}
               <Divider sx={{ my: 1 }} />
-              <Typography variant="subtitle2" gutterBottom>History</Typography>
-              {(historyItem.unlockHistory && historyItem.unlockHistory.length > 0) ? (
-                <List dense>
-                  {historyItem.unlockHistory.map((h, i) => (
-                    <ListItem key={i}>
-                      <ListItemText
-                        primary={`Unlocked by ${h.unlockedBy?.name || 'Admin/Dean'} on ${new Date(h.unlockedAt).toLocaleString()}`}
-                        secondary={h.note || h.reason || ''}
-                      />
-                    </ListItem>
-                  ))}
-                </List>
-              ) : (
+              <Typography variant="subtitle2" gutterBottom>Complete Unlock History</Typography>
+              
+              {/* Teacher Unlocks */}
+              {historyItem.unlockHistory?.teacher?.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" fontWeight="bold" color="primary">Teacher Unlocks:</Typography>
+                  <List dense>
+                    {historyItem.unlockHistory.teacher.map((h, i) => (
+                      <ListItem key={`teacher-${i}`}>
+                        <ListItemText
+                          primary={`${h.teacherId?.name || 'Teacher'} - ${new Date(h.unlockTimestamp).toLocaleString()}`}
+                          secondary={h.reason || h.notes || ''}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Box>
+              )}
+              
+              {/* HOD Unlocks */}
+              {historyItem.unlockHistory?.hod?.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" fontWeight="bold" color="warning.main">HOD Unlocks:</Typography>
+                  <List dense>
+                    {historyItem.unlockHistory.hod.map((h, i) => (
+                      <ListItem key={`hod-${i}`}>
+                        <ListItemText
+                          primary={`${h.hodId?.name || 'HOD'} - ${new Date(h.unlockTimestamp).toLocaleString()}`}
+                          secondary={h.reason || h.notes || ''}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Box>
+              )}
+              
+              {/* Dean Unlocks */}
+              {historyItem.unlockHistory?.dean?.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" fontWeight="bold" color="error.main">Dean Unlocks:</Typography>
+                  <List dense>
+                    {historyItem.unlockHistory.dean.map((h, i) => (
+                      <ListItem key={`dean-${i}`}>
+                        <ListItemText
+                          primary={`${h.deanId?.name || 'Dean'} - ${new Date(h.unlockTimestamp).toLocaleString()}`}
+                          secondary={h.reason || h.notes || ''}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Box>
+              )}
+              
+              {/* Admin Overrides */}
+              {historyItem.unlockHistory?.admin?.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" fontWeight="bold" color="secondary.main">Admin Overrides:</Typography>
+                  <List dense>
+                    {historyItem.unlockHistory.admin.map((h, i) => (
+                      <ListItem key={`admin-${i}`}>
+                        <ListItemText
+                          primary={`Admin Override (${h.overrideLevel} level) - ${new Date(h.unlockTimestamp).toLocaleString()}`}
+                          secondary={`${h.reason || ''} ${h.notes ? `| ${h.notes}` : ''}`}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Box>
+              )}
+              
+              {(!historyItem.unlockHistory?.teacher?.length && 
+                !historyItem.unlockHistory?.hod?.length && 
+                !historyItem.unlockHistory?.dean?.length && 
+                !historyItem.unlockHistory?.admin?.length) && (
                 <Typography variant="body2" color="text.secondary">No unlock history available.</Typography>
               )}
             </Box>

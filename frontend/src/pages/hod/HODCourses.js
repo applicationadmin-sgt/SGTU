@@ -133,7 +133,7 @@ const HODCourses = () => {
                                   {teacher.name}
                                 </Typography>
                                 <Typography variant="caption" color="textSecondary">
-                                  {teacher.teacherId || teacher.email}
+                                  {teacher.uid || teacher.teacherId || teacher.email}
                                 </Typography>
                               </Box>
                             ))}

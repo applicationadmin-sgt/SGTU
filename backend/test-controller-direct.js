@@ -5,7 +5,7 @@ const QuizLock = require('./models/QuizLock');
 const { checkUnitQuizAvailability } = require('./controllers/unitQuizController');
 
 // Connect to MongoDB
-mongoose.connect('mongodb+srv://dipanwitakundu02_db_user:qItA3GEvqVBiGaYJ@cluster0.ak3b8nt.mongodb.net/', {
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/sgtlms', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });

@@ -5,7 +5,7 @@ const Quiz = require('./models/Quiz');
 const Course = require('./models/Course');
 
 // Connect to MongoDB Atlas
-mongoose.connect('mongodb+srv://sourav092002_db_user:aq5UgwNDh2tgyZcB@cluster0.nvkrxcx.mongodb.net/');
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/sgtlms');
 
 async function testDeanEndpoint() {
   try {

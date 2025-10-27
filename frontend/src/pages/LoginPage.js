@@ -88,16 +88,17 @@ const LoginPage = () => {
         minHeight: '100vh',
         width: '100vw',
         display: 'flex',
+        flexDirection: { xs: 'column', md: 'row' },
         overflow: 'hidden',
       }}
     >
-      {/* Left Side - University Images Slideshow */}
+      {/* Left Side - University Images Slideshow - Hidden on mobile */}
       <Box
         sx={{
-          flex: 2, // Changed from 1 to 2 to make it twice as wide
+          flex: { xs: 0, md: 2 },
+          display: { xs: 'none', md: 'flex' },
           position: 'relative',
           overflow: 'hidden',
-          display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           background: 'linear-gradient(135deg, #1a237e 0%, #3949ab 100%)',
@@ -222,21 +223,21 @@ const LoginPage = () => {
       {/* Right Side - Login Form */}
       <Box
         sx={{
-          flex: 1, // Keeping this at 1 while left side is 2, creating 2:1 ratio
+          flex: { xs: 1, md: 1 },
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%)', // Light blue gradient matching the logo colors
-          p: 4,
-          minWidth: '400px', // Added minimum width to ensure login form doesn't get too cramped
+          background: 'linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%)',
+          p: { xs: 2, md: 4 },
+          minWidth: { xs: '100%', md: '400px' },
+          minHeight: { xs: '100vh', md: 'auto' },
         }}
       >
-        <Container maxWidth="sm">
+        <Container maxWidth="sm" sx={{ width: '100%' }}>
           <Paper
       elevation={8}
       sx={{
-        // All your original styles
-        p: 4,
+        p: { xs: 3, md: 4 },
         borderRadius: 3,
         display: 'flex',
         flexDirection: 'column',
@@ -244,7 +245,7 @@ const LoginPage = () => {
         background: 'rgba(255,255,255,0.95)',
         backdropFilter: 'blur(10px)',
         boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
-        maxWidth: 450,
+        maxWidth: { xs: '100%', sm: 450 },
         width: '100%',
         mx: 'auto',
 
@@ -289,8 +290,9 @@ const LoginPage = () => {
                 src={sgtLogo}
                 alt="SGT University Logo"
                 style={{
-                  width: 180,
-                  marginBottom: 16,
+                  width: '180px',
+                  maxWidth: '100%',
+                  marginBottom: '16px',
                   filter: 'drop-shadow(0 4px 12px rgba(26, 35, 126, 0.15))',
                   objectFit: 'contain',
                 }}
@@ -304,7 +306,7 @@ const LoginPage = () => {
                   textAlign: 'center',
                   lineHeight: 1.2,
                   fontFamily: 'Montserrat',
-                  fontSize: '2rem',
+                  fontSize: { xs: '1.5rem', sm: '2rem' },
                   mb: 1
                 }}
               >
@@ -326,7 +328,7 @@ const LoginPage = () => {
               color="text.secondary" 
               mb={3} 
               textAlign="center"
-              sx={{ fontSize: '1.1rem' }}
+              sx={{ fontSize: { xs: '0.95rem', sm: '1.1rem' } }}
             >
               Enter your credentials to access your dashboard
             </Typography>
@@ -361,7 +363,11 @@ const LoginPage = () => {
                   mb: 2,
                   '& .MuiOutlinedInput-root': {
                     borderRadius: 2,
-                    backgroundColor: 'rgba(0, 0, 0, 0.04)', // A slight dark shade
+                    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                    fontSize: { xs: '0.95rem', sm: '1rem' },
+                  },
+                  '& .MuiInputLabel-root': {
+                    fontSize: { xs: '0.95rem', sm: '1rem' },
                   }
                 }}
               />
@@ -378,7 +384,11 @@ const LoginPage = () => {
                   mb: 3,
                   '& .MuiOutlinedInput-root': {
                     borderRadius: 2,
-                    backgroundColor: 'rgba(0, 0, 0, 0.04)', // A slight dark shade
+                    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                    fontSize: { xs: '0.95rem', sm: '1rem' },
+                  },
+                  '& .MuiInputLabel-root': {
+                    fontSize: { xs: '0.95rem', sm: '1rem' },
                   }
                 }}
               />

@@ -236,7 +236,7 @@ const HODTeachers = () => {
                         </Box>
                       </TableCell>
                       <TableCell>
-                        <Chip label={teacher.teacherId || 'N/A'} size="small" color="primary" variant="outlined" />
+                        <Chip label={teacher.uid || teacher.teacherId || 'N/A'} size="small" color="primary" variant="outlined" />
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2">{teacher.phone || '—'}</Typography>

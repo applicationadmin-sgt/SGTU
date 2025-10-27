@@ -422,7 +422,7 @@ const HODDashboardHome = () => {
                       <th style={{ padding: 8, border: '1px solid #eee', textAlign: 'left' }}>Course Code</th>
                       <th style={{ padding: 8, border: '1px solid #eee', textAlign: 'left' }}>Coordinator Name</th>
                       <th style={{ padding: 8, border: '1px solid #eee', textAlign: 'left' }}>Email</th>
-                      <th style={{ padding: 8, border: '1px solid #eee', textAlign: 'left' }}>Teacher ID</th>
+                      <th style={{ padding: 8, border: '1px solid #eee', textAlign: 'left' }}>UID</th>
                       <th style={{ padding: 8, border: '1px solid #eee', textAlign: 'left' }}>Action</th>
                     </tr>
                   </thead>
@@ -436,7 +436,7 @@ const HODDashboardHome = () => {
                             <td style={{ padding: 8, border: '1px solid #eee' }}>{course.courseCode}</td>
                             <td style={{ padding: 8, border: '1px solid #eee' }}>{cc.name}</td>
                             <td style={{ padding: 8, border: '1px solid #eee' }}>{cc.email}</td>
-                            <td style={{ padding: 8, border: '1px solid #eee' }}>{cc.teacherId}</td>
+                            <td style={{ padding: 8, border: '1px solid #eee' }}>{cc.uid || cc.teacherId}</td>
                             <td style={{ padding: 8, border: '1px solid #eee' }}>
                               <Button size="small" variant="outlined" onClick={() => openAssignDialog(course)}>
                                 Update
@@ -477,7 +477,7 @@ const HODDashboardHome = () => {
           </Typography>
           <Autocomplete
             options={teachers}
-            getOptionLabel={(opt) => `${opt.name || ''} (${opt.teacherId || opt.email || ''})`}
+            getOptionLabel={(opt) => `${opt.name || ''} (${opt.uid || opt.teacherId || opt.email || ''})`}
             onChange={(_, val) => setSelectedTeacher(val)}
             renderInput={(params) => <TextField {...params} label="Select Teacher" placeholder="Search teachers" />}
           />
