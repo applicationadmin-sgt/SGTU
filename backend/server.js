@@ -277,17 +277,29 @@ app.use((err, req, res, next) => {
   if (err.name === 'MulterError') {
     // Multer error handling
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ 
-        message: 'File upload error. Please check your file and try again.' 
+      return res.status(413).json({ 
+        message: 'File is too large. The server supports unlimited file sizes, but this error may indicate a configuration issue.',
+        error: err.message
       });
     }
-    return res.status(400).json({ message: err.message });
+    return res.status(400).json({ 
+      message: 'File upload error: ' + err.message,
+      code: err.code 
+    });
   } else if (err.message === 'Only video files are allowed') {
     return res.status(400).json({ message: err.message });
+  } else if (err.type === 'entity.too.large') {
+    return res.status(413).json({ 
+      message: 'Request body is too large. This may be due to body-parser limits.',
+      error: err.message
+    });
   }
   // For any other errors
   console.error('Server error:', err);
-  res.status(500).json({ message: 'Internal server error' });
+  res.status(500).json({ 
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
 });
 
 // Initialize Socket.IO for live classes and group chat BEFORE starting the server
@@ -300,7 +312,15 @@ const PORT = process.env.PORT || 5000;
 
 // Use HTTP server (HTTPS support removed)
 const server = http.createServer(app);
-console.log('🌐 HTTP server created');
+
+// Configure server for large file uploads
+server.timeout = 0; // Disable timeout for large uploads
+server.keepAliveTimeout = 0; // Disable keep-alive timeout
+server.headersTimeout = 0; // Disable headers timeout
+server.requestTimeout = 0; // Disable request timeout
+server.maxRequestsPerSocket = 0; // Unlimited requests per socket
+
+console.log('🌐 HTTP server created with unlimited upload configuration');
 
 // Create a single Socket.IO instance for group chat
 const { Server } = require('socket.io');

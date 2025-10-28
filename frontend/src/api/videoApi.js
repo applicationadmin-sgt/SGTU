@@ -24,6 +24,9 @@ export const uploadVideo = async (data, token, progressCallback) => {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'multipart/form-data'
     },
+    timeout: 0, // No timeout for large video uploads
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity,
     onUploadProgress: progressEvent => {
       if (progressCallback) {
         const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);

@@ -63,12 +63,17 @@ exports.uploadVideo = async (req, res) => {
       teacherId = course.teachers[0];
     }
     
-    const videoUrl = req.file.path.replace(/\\/g, '/');
+    // Store only the relative path (not the full system path)
+    // Convert Windows path separators to forward slashes
+    const fullPath = req.file.path.replace(/\\/g, '/');
     
-    // Try to get video duration using ffprobe first
+    // Extract just the filename from uploads directory
+    const videoUrl = 'uploads/' + req.file.filename;
+    
+    // Try to get video duration using ffprobe first (use full path for ffprobe)
     let duration = null;
     try {
-      duration = await getVideoDuration(videoUrl);
+      duration = await getVideoDuration(fullPath);
     } catch (err) {
       console.error('Error getting video duration:', err);
       // Continue without duration
